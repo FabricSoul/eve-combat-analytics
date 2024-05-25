@@ -1,12 +1,13 @@
-import { connectToDatabase } from '$lib/server/db';
+import mongoose, { connectToDatabase } from '$lib/server/util/db';
 import type { Handle } from '@sveltejs/kit';
 
-let dbConnected = false;
+console.log('Connecting to database...');
+await connectToDatabase();
+console.log('Connected to database');
 
 export const handle: Handle = async ({ event, resolve }) => {
-	if (!dbConnected) {
+	if (mongoose.connection.readyState !== 1) {
 		await connectToDatabase();
-		dbConnected = true;
 	}
 	return resolve(event);
 };

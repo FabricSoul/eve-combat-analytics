@@ -39,6 +39,7 @@
 
 	import Flatpickr from 'svelte-flatpickr';
 	import 'flatpickr/dist/flatpickr.css';
+	import { enhance } from '$app/forms';
 
 	// Get the current date and time in UTC
 	let currentTimestamp = Date.now();
@@ -60,49 +61,6 @@
 		utc: true
 	};
 
-	async function handleSubmit(event: Event): Promise<void> {
-		event.preventDefault();
-
-		console.log('Submit:', textInput, dateUTC);
-		// Perform validation
-		if (!textInput || !dateUTC || dateUTC.length !== 2) {
-			errorMessage = 'Please fill in all the required fields.';
-			return;
-		}
-
-		if (systems.length === 0) {
-			errorMessage = 'Please select a valid system.';
-			return;
-		}
-
-		try {
-			const formData = new FormData();
-			formData.append('system', textInput);
-			formData.append('dateStart', dateUTC[0].toString());
-			formData.append('dateEnd', dateUTC[1].toString());
-			formData.append('characters', JSON.stringify([]));
-
-			const response = await fetch('?/submit', {
-				method: 'POST',
-				body: formData
-			});
-
-			if (response.ok) {
-				// Battle created successfully
-				textInput = '';
-				dateUTC = [startDateTime, currentDateTime];
-				errorMessage = '';
-				console.log('Battle created successfully');
-			} else {
-				// Handle error response
-				errorMessage = 'An error occurred while creating the battle.';
-			}
-		} catch (error) {
-			console.error('Error creating battle:', error);
-			errorMessage = 'An error occurred while creating the battle.';
-		}
-	}
-
 	export let data: PageData;
 	const battles = data.battles;
 
@@ -118,7 +76,43 @@
 </script>
 
 <div class="card grow min-w-full">
-	<form on:submit={handleSubmit} method="POST">
+	<form
+		method="POST"
+		action="?/submit"
+		use:enhance={({ formElement, formData, cancel, submitter }) => {
+			// `formElement` is this `<form>` element
+			// `formData` is its `FormData` object that's about to be submitted
+			try {
+				formData.set('system', textInput);
+				formData.set('dateStart', dateUTC[0].toString());
+				formData.set('dateEnd', dateUTC[1].toString());
+				formData.set('characters', JSON.stringify([]));
+				console.log('Form Data:', formData);
+			} catch (e) {
+				console.log(e);
+			}
+
+			// `action` is the URL to which the form is posted
+			// calling `cancel()` will prevent the submission
+			// Perform validation
+			if (!textInput || !dateUTC || dateUTC.length !== 2) {
+				errorMessage = 'Please fill in all the required fields.';
+				cancel();
+			}
+
+			if (systems[0].value !== textInput) {
+				errorMessage = 'Please select a valid system.';
+				cancel();
+			}
+
+			// `submitter` is the `HTMLElement` that caused the form to be submitted
+			console.log('Submitter:', submitter);
+
+			return async ({ update }) => {
+				await update();
+			};
+		}}
+	>
 		<div class="mt-4 mb-8 ml-8 mr-8">
 			<h3>Create a battle</h3>
 			<div class="flex marker:flex-row justify-left space-x-6 mt-2">

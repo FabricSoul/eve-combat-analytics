@@ -1,9 +1,9 @@
 import type { PageServerLoad, Actions } from './$types';
-import solarSystemName from '$lib/eve/solarSystemName.json';
-import { BattleModel, type IBattle } from '$lib/models/battle';
-import type { Character } from '$lib/models/character';
+import solarSystemName from '$lib/server/eve/solarSystemName.json';
+import { BattleModel, type IBattle } from '$lib/server/models/battle';
+import type { Character } from '$lib/server/models/character';
 import { error, redirect } from '@sveltejs/kit';
-import { generateRandomId } from '$lib/util/battleHelper';
+import { generateRandomId } from '$lib/server/util/battleHelper';
 
 export const load = (async () => {
 	try {
@@ -48,28 +48,21 @@ export const actions: Actions = {
 
 		// Perform server-side validation
 		if (!system || !dateStart || !dateEnd || !characters) {
-			throw error(400, 'Please provide all required fields');
+			error(400, 'Please provide all required fields');
 		}
 
 		// Create a string for id
 		const id = generateRandomId();
 
-		try {
-			const battle = new BattleModel({
-				id,
-				system,
-				dateStart,
-				dateEnd,
-				characters
-			});
+		const battle = new BattleModel({
+			id,
+			system,
+			dateStart,
+			dateEnd
+		});
 
-			await battle.save();
-		} catch (err) {
-			console.error('Error creating battle:', err);
-			error(500, 'An error occurred while creating the battle.');
-		}
-
-		console.debug('calling redirect');
-		redirect(303, `/battles/${id}`);
+		await battle.save().then(() => {
+			redirect(303, `/battle/${id}`);
+		});
 	}
 };

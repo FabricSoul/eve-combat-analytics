@@ -1,5 +1,5 @@
+import mongoose from '$lib/server/util/db';
 import { Model, Schema } from 'mongoose';
-import { connection } from '$lib/server/db';
 
 // 火力，摇修，点，毁电，传电
 
@@ -42,5 +42,5 @@ export const characterSchema = new Schema<Character>({
 });
 
 export const CharacterModel =
-	(connection.models.Character as Model<Character>) ||
-	connection.model<Character>('Character', characterSchema);
+	(mongoose.models.Character as Model<Character>) ||
+	mongoose.model<Character>('Character', characterSchema);

@@ -5,19 +5,31 @@
 
 	export let data: PageData;
 	const battle = data.battle;
-	console.log(battle);
+
+	const loading = false;
 
 	let files: FileList;
 	let errorMessage: string = '';
 
-	function onChangeHandler(e: Event): void {
-		console.log('file data:', e);
+	async function onChangeHandler(e: Event): Promise<void> {
 		console.log('files:', files);
 
 		if (files[0].type !== 'text/plain') {
 			errorMessage = 'Only text files are allowed';
 			return;
 		}
+
+		// Pass the file to server
+		const formData = new FormData();
+		formData.append('file', files[0]);
+		if (battle) {
+			formData.append('battleId', battle.id);
+		}
+
+		const response = await fetch(`?/upload`, {
+			method: 'POST',
+			body: formData
+		});
 	}
 </script>
 
@@ -26,6 +38,26 @@
 		<h1>System: {battle.system}</h1>
 		<h1>{battle.dateStart}</h1>
 		<h1>{battle.dateEnd}</h1>
+
+		{#if loading}
+			<section class="card w-full">
+				<div class="p-4 space-y-4">
+					<div class="placeholder" />
+					<div class="grid grid-cols-3 gap-8">
+						<div class="placeholder" />
+						<div class="placeholder" />
+						<div class="placeholder" />
+					</div>
+					<div class="grid grid-cols-4 gap-4">
+						<div class="placeholder" />
+						<div class="placeholder" />
+						<div class="placeholder" />
+						<div class="placeholder" />
+					</div>
+				</div>
+			</section>
+		{/if}
+
 		{#if battle.characters.length > 0}
 			{#each battle.characters as character}
 				<h1>{character.name}</h1>

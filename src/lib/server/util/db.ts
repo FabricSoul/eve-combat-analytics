@@ -13,23 +13,22 @@ if (!uri || !dbName || !username || !password) {
 }
 
 const targetUri = `mongodb://${username}:${password}@${uri}/${dbName}`;
-
 console.log('Connecting to database:', targetUri);
 
-export const connection = mongoose.createConnection(targetUri);
-
 export async function connectToDatabase() {
-	if (connection.readyState === 1) {
+	if (mongoose.connection.readyState === 1) {
 		console.log('Already connected to the database');
 		return;
 	}
 
-	await connection
-		.openUri(targetUri)
+	await mongoose
+		.connect(targetUri, { connectTimeoutMS: 5000 })
 		.then(() => {
-			console.log('Accessing the database successfully');
+			console.log('Connected to the database successfully');
 		})
 		.catch((err) => {
-			console.error(err);
+			console.error('Failed to connect to the database:', err);
 		});
 }
+
+export default mongoose;
