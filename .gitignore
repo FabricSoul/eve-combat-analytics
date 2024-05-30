@@ -13,3 +13,5 @@ mongo-data/
 docker-compose.yml
 systems.py
 mapSolarSystems.csv
+
+ecosystem.config.cjs
