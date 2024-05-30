@@ -31,7 +31,7 @@ export function generateLineChartDatasets(
 			fill: false,
 			borderColor: borderColor,
 			backgroundColor: borderColor,
-			tension: 0.1
+			tension: 0
 		};
 	});
 }

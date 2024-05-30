@@ -20,9 +20,13 @@
 	import { computePosition, autoUpdate, flip, shift, offset, arrow } from '@floating-ui/dom';
 	import { storePopup } from '@skeletonlabs/skeleton';
 	storePopup.set({ computePosition, autoUpdate, flip, shift, offset, arrow });
+
+	// Google Analytics
+	import Analytics from '$lib/components/Analytics.svelte';
 </script>
 
 <div>
+	<Analytics />
 	<AppBar
 		gridColumns="grid-cols-3"
 		slotLead="place-self-left"

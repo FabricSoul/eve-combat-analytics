@@ -70,10 +70,9 @@
 		const damageFromDatasets = generateLineChartDatasets(battle, 'DamageFromByTime');
 		const repairFromDatasets = generateLineChartDatasets(battle, 'RepairFromByTime');
 		const repairToDatasets = generateLineChartDatasets(battle, 'RepairToByTime');
-		const energyNutralizedDatasets = generateLineChartDatasets(battle, 'EnergyNutralizedByTime');
-		const energyDrainedFromDatasets = generateLineChartDatasets(battle, 'EnergyDrainedFromByTime');
-		const energyDrainedToDatasets = generateLineChartDatasets(battle, 'EnergyDrainedToByTime');
-		console.log(energyDrainedFromDatasets);
+		// const energyNutralizedDatasets = generateLineChartDatasets(battle, 'EnergyNutralizedByTime');
+		// const energyDrainedFromDatasets = generateLineChartDatasets(battle, 'EnergyDrainedFromByTime');
+		// const energyDrainedToDatasets = generateLineChartDatasets(battle, 'EnergyDrainedToByTime');
 
 		new Chart(damageToChart, {
 			type: 'line',
@@ -107,37 +106,37 @@
 			options: lineChartOptions
 		});
 
-		new Chart(energyNutralizedChart, {
-			type: 'line',
-			data: {
-				datasets: energyNutralizedDatasets
-			},
-			options: lineChartOptions
-		});
+		// new Chart(energyNutralizedChart, {
+		// 	type: 'line',
+		// 	data: {
+		// 		datasets: energyNutralizedDatasets
+		// 	},
+		// 	options: lineChartOptions
+		// });
 
-		new Chart(energyDrainedFromChart, {
-			type: 'line',
-			data: {
-				datasets: energyDrainedFromDatasets
-			},
-			options: lineChartOptions
-		});
+		// new Chart(energyDrainedFromChart, {
+		// 	type: 'line',
+		// 	data: {
+		// 		datasets: energyDrainedFromDatasets
+		// 	},
+		// 	options: lineChartOptions
+		// });
 
-		new Chart(energyDrainedToChart, {
-			type: 'line',
-			data: {
-				datasets: energyDrainedToDatasets
-			},
-			options: lineChartOptions
-		});
+		// new Chart(energyDrainedToChart, {
+		// 	type: 'line',
+		// 	data: {
+		// 		datasets: energyDrainedToDatasets
+		// 	},
+		// 	options: lineChartOptions
+		// });
 
 		const totalDamageDelt = generatePieChartDatasets(battle, 'totalDamageDelt');
 		const toalDamageTaken = generatePieChartDatasets(battle, 'totalDamageTaken');
 		const totalRepairGiven = generatePieChartDatasets(battle, 'totalRepairGiven');
 		const totalRepairTaken = generatePieChartDatasets(battle, 'totalRepairTaken');
-		const totalEnergyNutralized = generatePieChartDatasets(battle, 'totalEnergyNutralized');
-		const totalEnergyDrainedFrom = generatePieChartDatasets(battle, 'totalEnergyDrainedFrom');
-		const totalEnergyDrainedTo = generatePieChartDatasets(battle, 'totalEnergyDrainedTo');
+		// const totalEnergyNutralized = generatePieChartDatasets(battle, 'totalEnergyNutralized');
+		// const totalEnergyDrainedFrom = generatePieChartDatasets(battle, 'totalEnergyDrainedFrom');
+		// const totalEnergyDrainedTo = generatePieChartDatasets(battle, 'totalEnergyDrainedTo');
 
 		new Chart(totalDamageDeltChart, {
 			type: 'pie',
@@ -159,22 +158,52 @@
 			data: totalRepairTaken
 		});
 
-		new Chart(totalEnergyNutralizedChart, {
-			type: 'pie',
-			data: totalEnergyNutralized
-		});
+		// new Chart(totalEnergyNutralizedChart, {
+		// 	type: 'pie',
+		// 	data: totalEnergyNutralized
+		// });
 
-		new Chart(totalEnergyDrainedFromChart, {
-			type: 'pie',
-			data: totalEnergyDrainedFrom
-		});
+		// new Chart(totalEnergyDrainedFromChart, {
+		// 	type: 'pie',
+		// 	data: totalEnergyDrainedFrom
+		// });
 
-		new Chart(totalEnergyDrainedToChart, {
-			type: 'pie',
-			data: totalEnergyDrainedTo
-		});
+		// new Chart(totalEnergyDrainedToChart, {
+		// 	type: 'pie',
+		// 	data: totalEnergyDrainedTo
+		// });
 	});
 </script>
+
+<svelte:head>
+	<!-- SEO Meta Tags -->
+	<title>{battle.system} Battle | EVE Combat Analytics</title>
+	<meta
+		name="description"
+		content="Analyze the battle in {battle.system} involving {battle.characters
+			.length} characters using EVE Combat Analytics. Gain insights into damage dealt, damage received, repairs."
+	/>
+	<meta
+		name="keywords"
+		content="EVE Online, {battle.system}, combat analytics, combat logs, player performance, data visualization"
+	/>
+	<meta name="author" content="Fabric Soul" />
+
+	<!-- Open Graph Meta Tags -->
+	<meta property="og:site_name" content="EVE Combat Analytics" />
+	<meta property="og:url" content="https://ca.eveutil.org/battle/{battle.id}" />
+	<meta property="og:type" content="website" />
+	<meta
+		property="og:title"
+		content="{battle.system} Battle with {battle.characters
+			.length} Characters | EVE Combat Analytics"
+	/>
+	<meta
+		property="og:description"
+		content="Analyze the battle in {battle.system} involving {battle.characters
+			.length} characters using EVE Combat Analytics. Gain insights into damage dealt, damage received, repairs."
+	/>
+</svelte:head>
 
 <div class="min-w-3xl card p-4 flex flex-col space-y-2">
 	{#if battle}

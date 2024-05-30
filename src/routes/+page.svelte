@@ -70,6 +70,32 @@
 	}
 </script>
 
+<svelte:head>
+	<!-- SEO Meta Tags -->
+	<title>EVE Combat Analytics</title>
+	<meta
+		name="description"
+		content="EVE Combat Analytics is a powerful tool that helps EVE Online players analyze their combat performance using in-game combat logs. Gain valuable insights and optimize your gameplay strategies."
+	/>
+	<meta
+		name="keywords"
+		content="EVE Online, combat analytics, combat logs, player performance, gameplay optimization, data visualization"
+	/>
+	<meta name="author" content="Fabric Soul" />
+	<!-- Open Graph Meta Tags -->
+	<meta property="og:site_name" content="EVE Combat Analytics" />
+	<meta property="og:url" content="https://ca.eveutil.org" />
+	<meta property="og:type" content="website" />
+	<meta
+		property="og:title"
+		content="EVE Combat Analytics | Analyze and Optimize Your Combat Performance"
+	/>
+	<meta
+		property="og:description"
+		content="EVE Combat Analytics is a powerful tool that helps EVE Online players analyze their combat performance using in-game combat logs. Gain valuable insights and optimize your gameplay strategies."
+	/>
+</svelte:head>
+
 <div class="card grow max-w-3xl">
 	<form
 		method="POST"
