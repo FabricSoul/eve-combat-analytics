@@ -1,12 +1,12 @@
 import mongoose from 'mongoose';
-import { MONGO_DB, MONGO_URI, MONGO_PASS, MONGO_USER } from '$env/static/private';
+import {  MONGO_URI} from '$env/static/private';
 import { CharacterModel } from '../models/character';
 
-if (!MONGO_DB || !MONGO_URI || !MONGO_PASS || !MONGO_USER) {
+if (!MONGO_URI) {
 	throw new Error('Please define all the required environment variables');
 }
 
-const targetUri = `mongodb://${MONGO_USER}:${MONGO_PASS}@${MONGO_URI}/${MONGO_DB}`;
+const targetUri = MONGO_URI;
 
 export async function connectToDatabase() {
 	if (mongoose.connection.readyState === 1) {
