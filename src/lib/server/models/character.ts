@@ -1,5 +1,4 @@
-import mongoose from '$lib/server/util/db';
-import { Model, Schema } from 'mongoose';
+import mongoose, { Model, Schema } from 'mongoose';
 
 // 火力，摇修，点，毁电，传电
 
@@ -25,20 +24,20 @@ export interface Character {
 export const characterSchema = new Schema<Character>({
 	id: { type: Number, required: true },
 	name: { type: String, required: true },
-	damageDealt: { type: Number, required: true },
-	damageTaken: { type: Number, required: true },
-	repairGiven: { type: Number, required: true },
-	repairTaken: { type: Number, required: true },
-	warpDisrupted: { type: Number, required: true },
-	warpDisruptedBy: { type: Number, required: true },
-	warpScrambled: { type: Number, required: true },
-	warpScrambledBy: { type: Number, required: true },
-	energyNeutralized: { type: Number, required: true },
-	energyNeutralizedBy: { type: Number, required: true },
-	energyNosed: { type: Number, required: true },
-	energyNosedBy: { type: Number, required: true },
-	energyTransferred: { type: Number, required: true },
-	energyTransferredBy: { type: Number, required: true }
+	damageDealt: { type: Number, required: false },
+	damageTaken: { type: Number, required: false },
+	repairGiven: { type: Number, required: false },
+	repairTaken: { type: Number, required: false },
+	warpDisrupted: { type: Number, required: false },
+	warpDisruptedBy: { type: Number, required: false },
+	warpScrambled: { type: Number, required: false },
+	warpScrambledBy: { type: Number, required: false },
+	energyNeutralized: { type: Number, required: false },
+	energyNeutralizedBy: { type: Number, required: false },
+	energyNosed: { type: Number, required: false },
+	energyNosedBy: { type: Number, required: false },
+	energyTransferred: { type: Number, required: false },
+	energyTransferredBy: { type: Number, required: false }
 });
 
 export const CharacterModel =

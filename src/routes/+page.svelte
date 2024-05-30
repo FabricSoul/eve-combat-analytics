@@ -2,6 +2,7 @@
 	import { Autocomplete, popup } from '@skeletonlabs/skeleton';
 	import type { PopupSettings, AutocompleteOption } from '@skeletonlabs/skeleton';
 	import type { PageData } from './$types';
+	import { DateTime } from 'luxon';
 
 	let popupSettings: PopupSettings = {
 		event: 'focus-click',
@@ -41,41 +42,35 @@
 	import 'flatpickr/dist/flatpickr.css';
 	import { enhance } from '$app/forms';
 
-	// Get the current date and time in UTC
-	let currentTimestamp = Date.now();
-	// Subtract 1 hour from the current UTC date and time
-	let startTimestamp = currentTimestamp - 3600000;
-
-	let currentDateTime = new Date(currentTimestamp);
-	let startDateTime = new Date(startTimestamp);
-
-	// Set the date range in UTC
-	let dateUTC = [startDateTime, currentDateTime];
-
-	const options = {
-		enableTime: true,
-		dateFormat: 'Y-m-d H:i',
-		time_24hr: true,
-		mode: 'range',
-		maxDate: currentDateTime,
-		utc: true
-	};
-
 	export let data: PageData;
 	const battles = data.battles;
 
+	let currentDateTime = DateTime.local();
+	let startDateTime = currentDateTime.minus({ hours: 1 });
+
+	let dateUTC = [startDateTime.toJSDate(), currentDateTime.toJSDate()];
+
+	const options = {
+		enableTime: true,
+		dateFormat: 'yyyy-MM-dd HH:mm',
+		time_24hr: true,
+		mode: 'range',
+		maxDate: currentDateTime.toJSDate(),
+		utc: true,
+		formatDate: (date, format) => {
+			return DateTime.fromJSDate(date).toUTC().toFormat(format);
+		},
+		parseDate: (dateString, format) => {
+			return DateTime.fromFormat(dateString, format, { zone: 'utc' }).toJSDate();
+		}
+	};
+
 	function formatUTCDate(date: Date) {
-		const utcDate = new Date(date.toISOString());
-		const year = utcDate.getUTCFullYear();
-		const month = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
-		const day = String(utcDate.getUTCDate()).padStart(2, '0');
-		const hours = String(utcDate.getUTCHours()).padStart(2, '0');
-		const minutes = String(utcDate.getUTCMinutes()).padStart(2, '0');
-		return `${year}/${month}/${day} ${hours}:${minutes}`;
+		return DateTime.fromJSDate(date).toUTC().toFormat('yyyy/MM/dd HH:mm');
 	}
 </script>
 
-<div class="card grow min-w-full">
+<div class="card grow max-w-3xl">
 	<form
 		method="POST"
 		action="?/submit"
@@ -138,7 +133,7 @@
 					</div>
 				</div>
 				<div class="flex flex-col space-y-2">
-					<div><p><i class="fa-solid fa-clock"></i> Your Time</p></div>
+					<div><p><i class="fa-solid fa-clock"></i> EVE Time</p></div>
 					<div class="min-w-80">
 						<Flatpickr {options} bind:value={dateUTC} element="#my-picker">
 							<div class="input-group" id="my-picker">
@@ -163,7 +158,7 @@
 	</form>
 </div>
 
-<div class="min-w-full">
+<div class="max-w-3xl">
 	<h1>Recent battles</h1>
 	{#if battles.length === 0}
 		<p>No battles found.</p>

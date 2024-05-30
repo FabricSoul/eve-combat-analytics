@@ -10,11 +10,53 @@ export const load = (async () => {
 		const battles: IBattle[] = await BattleModel.find()
 			.sort({ dateStart: -1 }) // Sort by dateStart in descending order
 			.limit(5) // Limit to 5 documents
-			.populate('characters')
+			.populate({
+				path: 'characters',
+				select: '-__v'
+			})
 			.select('-_id -__v') // Exclude _id and __v fields
-			.lean();
+			.lean({
+				flattenMaps: true
+			});
 
-		return { battles: battles };
+		// console.log(
+		// 	'Battles characters:',
+		// 	battles.map((battle) => battle.characters)
+		// );
+
+		// Iterate through each battle and transform the characters array
+		const transformedBattles = battles.map((battle) => {
+			if (Array.isArray(battle.characters)) {
+				// Not passing _id field from the characters array
+				battle.characters = battle.characters.map((character) => {
+					const { _id, ...rest } = character;
+					return rest;
+				});
+			}
+
+			if (Array.isArray(battle.characterBattleData)) {
+				// Not passing _id field from the characterBattleData array
+				battle.characterBattleData = battle.characterBattleData.map((characterBattleData) => {
+					const { _id, ...rest } = characterBattleData;
+
+					// Remove the _id property from each object in the arrays
+					Object.keys(rest).forEach((key) => {
+						if (Array.isArray(rest[key])) {
+							rest[key] = rest[key].map((obj) => {
+								const { _id, ...objRest } = obj;
+								return objRest;
+							});
+						}
+					});
+
+					return rest;
+				});
+			}
+
+			return battle;
+		});
+
+		return { battles: transformedBattles };
 	} catch (err) {
 		console.error('Error fetching battles:', err);
 		return { battles: [] };

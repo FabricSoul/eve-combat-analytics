@@ -30,11 +30,11 @@
 		slotDefault="place-content-end"
 	>
 		<svelte:fragment slot="lead">
-			<a href="/"><h1>EVE DPS</h1></a>
+			<a href="/"><h1>EVE Combat Analytics</h1></a>
 		</svelte:fragment>
 		<svelte:fragment slot="trail"><LightSwitch /></svelte:fragment>
 	</AppBar>
-	<div class="mx-auto max-w-3xl mt-16 mb-28">
+	<div class="mx-auto mt-16 mb-28">
 		<div
 			class="container h-full mx-auto flex justify-center items-center flex-col space-y-8 min-w-full"
 		>
@@ -45,7 +45,7 @@
 	<AppBar
 		slotDefault="place-content-center"
 		gridColumns="grid-cols-1"
-		class="absolute inset-x-0 bottom-0"
+		class="fixed inset-x-0 bottom-0"
 	>
 		<div class="flex flex-col items-center">
 			<div class="text-sm mb-2">
@@ -57,11 +57,15 @@
 				<a href="/about" class="hover:text-sky-400 hover:underline"
 					><i class="fa-solid fa-circle-info"></i> About</a
 				>
+				<a href="/legal" class="hover:text-sky-400 hover:underline"
+					><i class="fa-solid fa-gavel"></i> Legal</a
+				>
 				<a href="https://discord.gg/GfPcWKyN9u" class="hover:text-sky-400 hover:underline"
 					><i class="fa-brands fa-discord"></i> Discord</a
 				>
-				<a href="https://github.com/FabricSoul/eve-dps" class="hover:text-sky-400 hover:underline"
-					><i class="fa-brands fa-github"></i> GitHub</a
+				<a
+					href="https://github.com/FabricSoul/eve-combat-analytics"
+					class="hover:text-sky-400 hover:underline"><i class="fa-brands fa-github"></i> GitHub</a
 				>
 			</div>
 		</div>

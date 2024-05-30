@@ -1,7 +1,6 @@
-import mongoose from '$lib/server/util/db';
-import { Model, Schema } from 'mongoose';
-import { type Character, characterSchema } from './character';
-import { datasetSchema, type Dataset } from './datasets';
+import mongoose, { Model, Schema } from 'mongoose';
+import { type Character, characterSchema } from '$lib/server/models/character';
+import { type CharacterBattleData, characterBattleDataSchema } from '$lib/server/models/datasets';
 
 export interface IBattle {
 	id: string;
@@ -9,7 +8,7 @@ export interface IBattle {
 	dateStart: Date;
 	dateEnd: Date;
 	characters: Character[];
-	dataset: Dataset;
+	characterBattleData: CharacterBattleData[];
 }
 
 const battleSchema = new Schema<IBattle>({
@@ -18,7 +17,7 @@ const battleSchema = new Schema<IBattle>({
 	dateStart: { type: Date, required: true },
 	dateEnd: { type: Date, required: true },
 	characters: [characterSchema],
-	dataset: datasetSchema
+	characterBattleData: [characterBattleDataSchema]
 });
 
 export const BattleModel =
