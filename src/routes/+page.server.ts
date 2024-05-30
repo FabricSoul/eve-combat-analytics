@@ -7,7 +7,9 @@ import { generateRandomId } from '$lib/server/util/battleHelper';
 
 export const load = (async () => {
 	try {
-		const battles: IBattle[] = await BattleModel.find()
+		const battles: IBattle[] = await BattleModel.find({
+			$expr: { $gt: [{ $size: "$characterBattleData" }, 0] }
+		})
 			.sort({ dateStart: -1 }) // Sort by dateStart in descending order
 			.limit(5) // Limit to 5 documents
 			.populate({
