@@ -80,6 +80,10 @@ export async function characterParser(
 				.select('name id')
 				.lean();
 			// Add the character to the battle
+			if (!character) {
+				console.error('Character not found');
+				return { valid: false, errorMsg: 'Character not found' };
+			}
 			await BattleModel.updateOne({ id: battleId }, { $push: { characters: character } });
 			console.log(`Character ${characterName} added to the battle`);
 
