@@ -34,63 +34,68 @@ export async function characterParser(
 	text: string,
 	battleId: string
 ): Promise<{ valid: boolean; errorMsg: string }> {
-	const lines = text.split('\n');
-	if (lines.length >= 3) {
-		const listenerLine = lines[2].trim();
-		const listenerNameMatch = listenerLine.match(/(?:Listener|收听者): (.+)/);
-		const characterName = listenerNameMatch ? listenerNameMatch[1] : '';
+	try {
+		const lines = text.split('\n');
+		if (lines.length >= 3) {
+			const listenerLine = lines[2].trim();
+			const listenerNameMatch = listenerLine.match(/(?:Listener|收听者): (.+)/);
+			const characterName = listenerNameMatch ? listenerNameMatch[1] : '';
 
-		// Get the first datetime from the log
-		const datetimeRegex = /\[ (\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}) \]/;
-		const firstDateTime = lines[5].match(datetimeRegex);
-		// const lastDateTime = lines[lines.length - 2].match(datetimeRegex);
+			// Get the first datetime from the log
+			const datetimeRegex = /\[ (\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}) \]/;
+			const firstDateTime = lines[5].match(datetimeRegex);
+			// const lastDateTime = lines[lines.length - 2].match(datetimeRegex);
 
-		// Check if first datetime is valid
-		if (!firstDateTime) {
-			console.error('Invalid datetime');
-			return { valid: false, errorMsg: 'Invalid log' };
-		}
-
-		// Get the battle object from the database, check if character already exists
-		const battle = await BattleModel.findOne({ id: battleId })
-			.populate('characters')
-			.select('-_id -__v')
-			.lean();
-
-		const characterExists = battle?.characters.find(
-			(character) => character.name === characterName
-		);
-
-		if (!characterExists) {
-			// check if the character already exists in the database
-			const dbCharacter = await querryCharacter(characterName);
-			if (!dbCharacter) {
-				console.log('New character detected, adding to the database');
-				const characterId = await getCharacterId(characterName);
-				if (characterId) {
-					const newCharacter = new CharacterModel({
-						id: characterId,
-						name: characterName
-					});
-					await newCharacter.save();
-				}
+			// Check if first datetime is valid
+			if (!firstDateTime) {
+				console.error('Invalid datetime');
+				return { valid: false, errorMsg: 'Invalid log' };
 			}
 
-			const character = await CharacterModel.findOne({ name: characterName })
-				.select('name id')
+			// Get the battle object from the database, check if character already exists
+			const battle = await BattleModel.findOne({ id: battleId })
+				.populate('characters')
+				.select('-_id -__v')
 				.lean();
-			// Add the character to the battle
-			if (!character) {
-				console.error('Character not found');
-				return { valid: false, errorMsg: 'Character not found' };
-			}
-			await BattleModel.updateOne({ id: battleId }, { $push: { characters: character } });
-			console.log(`Character ${characterName} added to the battle`);
 
-			return { valid: true, errorMsg: '' };
+			const characterExists = battle?.characters.find(
+				(character) => character.name === characterName
+			);
+
+			if (!characterExists) {
+				// check if the character already exists in the database
+				const dbCharacter = await querryCharacter(characterName);
+				if (!dbCharacter) {
+					console.log('New character detected, adding to the database');
+					const characterId = await getCharacterId(characterName);
+					if (characterId) {
+						const newCharacter = new CharacterModel({
+							id: characterId,
+							name: characterName
+						});
+						await newCharacter.save();
+					}
+				}
+
+				const character = await CharacterModel.findOne({ name: characterName })
+					.select('name id')
+					.lean();
+				// Add the character to the battle
+				if (!character) {
+					console.error('Character not found');
+					return { valid: false, errorMsg: 'Character not found' };
+				}
+				await BattleModel.updateOne({ id: battleId }, { $push: { characters: character } });
+				console.log(`Character ${characterName} added to the battle`);
+
+				return { valid: true, errorMsg: '' };
+			}
 		}
+		return { valid: false, errorMsg: 'Invalid log' };
+	} catch (error) {
+		console.error('Error:', error);
+		return { valid: false, errorMsg: 'Error parsing the log' };
 	}
-	return { valid: false, errorMsg: 'Invalid log' };
 }
 
 /**
