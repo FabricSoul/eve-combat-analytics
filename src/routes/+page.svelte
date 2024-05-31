@@ -47,18 +47,23 @@
 
 	let currentDateTime = DateTime.local();
 	let startDateTime = currentDateTime.minus({ hours: 1 });
+	const offsetInHours = currentDateTime.offset / 60;
+	const adjustedDateTime = currentDateTime.plus({ hours: -offsetInHours });
 
-	let dateUTC = [startDateTime.toJSDate(), currentDateTime.toJSDate()];
+	let dateUTC = [
+		startDateTime.plus({ hours: -offsetInHours }).toJSDate(),
+		currentDateTime.plus({ hours: -offsetInHours }).toJSDate()
+	];
 
 	const options = {
 		enableTime: true,
 		dateFormat: 'yyyy-MM-dd HH:mm',
 		time_24hr: true,
 		mode: 'range',
-		maxDate: currentDateTime.toJSDate(),
+		maxDate: adjustedDateTime.toJSDate(),
 		utc: true,
 		formatDate: (date, format) => {
-			return DateTime.fromJSDate(date).toUTC().toFormat(format);
+			return DateTime.fromJSDate(date).toUTC().minus({ hours: -offsetInHours }).toFormat(format);
 		},
 		parseDate: (dateString, format) => {
 			return DateTime.fromFormat(dateString, format, { zone: 'utc' }).toJSDate();
@@ -105,8 +110,14 @@
 			// `formData` is its `FormData` object that's about to be submitted
 			try {
 				formData.set('system', textInput);
-				formData.set('dateStart', dateUTC[0].toString());
-				formData.set('dateEnd', dateUTC[1].toString());
+				formData.set(
+					'dateStart',
+					DateTime.fromJSDate(dateUTC[0]).minus({ hours: -offsetInHours }).toString()
+				);
+				formData.set(
+					'dateEnd',
+					DateTime.fromJSDate(dateUTC[1]).minus({ hours: -offsetInHours }).toString()
+				);
 				formData.set('characters', JSON.stringify([]));
 				console.log('Form Data:', formData);
 			} catch (e) {
