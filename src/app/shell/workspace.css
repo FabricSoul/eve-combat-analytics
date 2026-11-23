@@ -5,8 +5,67 @@
 
 .app-shell .upload-tray { box-shadow: none; }
 
+.app-side-picker { position: relative; min-width: 0; }
+.app-side-picker-trigger.app-button {
+  width: max-content;
+  max-width: min(222px, 26vw);
+  justify-content: start;
+  gap: var(--space-2);
+}
+.app-side-picker-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-side-picker-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.app-side-picker-chevron {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-inline-start: auto;
+  border: solid currentColor;
+  border-width: 0 1px 1px 0;
+  rotate: 45deg;
+  translate: 0 -2px;
+}
+.app-side-picker-options {
+  position: absolute;
+  z-index: 8;
+  inset: calc(100% + var(--space-1)) 0 auto auto;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(360px, calc(100vw - var(--space-4)));
+  max-height: min(320px, 50dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-1);
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+.app-side-picker-options li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--row);
+  padding-inline: var(--space-2);
+  border-radius: var(--radius-ctl);
+  cursor: pointer;
+}
+.app-side-picker-options li:hover { background: var(--color-raised); }
+.app-side-picker-options li[aria-selected="true"] { background: var(--color-sel); }
+.app-side-picker-options li[data-active="true"] { outline: 1px solid var(--color-accent-line); outline-offset: -1px; }
+
 @media (760px <= width < 1100px) {
   .app-shell--battle .app-topbar-meta { display: inline; }
+  .app-topbar:has(.app-topbar-short-title) .app-topbar-full-title { display: none; }
+  .app-topbar .app-topbar-short-title { display: inline; }
+  .app-shell--battle .app-topbar-title { font-size: var(--fs); }
+}
+
+@media (760px <= width < 880px) {
+  .app-topbar-meta .app-topbar-isk { display: none; }
 }
 
 .battle-layout[data-layout="tablet"] {
@@ -127,7 +186,8 @@
   }
   .app-shell--battle .app-topbar-actions[data-menu-open="true"] { display: flex; }
   .app-topbar-menu-meta { display: block; color: var(--color-text-2); }
-  .app-topbar-side .app-select, .app-topbar-share .app-button { width: 100%; }
+  .app-side-picker, .app-topbar-share .app-button { width: 100%; }
+  .app-side-picker-trigger.app-button { width: 100%; max-width: none; }
   .app-topbar-share { flex-direction: column-reverse; }
   .app-topbar-share input { width: 100%; }
 

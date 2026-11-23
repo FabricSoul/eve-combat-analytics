@@ -1,6 +1,6 @@
 import { useMemo, useState, type MouseEvent, type FocusEvent } from 'react'
-import { buildRoster, fullSideOrder, sideName } from '../battle/roster/model'
-import { sideColor, sideLetter } from '../lib/sides'
+import { buildRoster, fullSideOrder } from '../battle/roster/model'
+import { sideColor, sideLetter, sideName } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
 import { useView } from '../state/view-store'
 import { TypeIcon } from '../ui/TypeIcon'
@@ -16,7 +16,10 @@ export function RosterRail() {
     () => summary && analysis ? buildRoster(summary, analysis, oursSide, lastKill) : [],
     [summary, analysis, oursSide, lastKill],
   )
-  const order = analysis ? fullSideOrder(analysis, oursSide) : []
+  const order = useMemo(() => analysis ? fullSideOrder(analysis, oursSide) : [], [analysis, oursSide])
+  const sideLabels = useMemo(() => summary && analysis
+    ? new Map([...order, -1].map((side) => [side, sideName(side, summary, analysis)]))
+    : new Map<number, string>(), [summary, analysis, order])
 
   function showName(event: MouseEvent<HTMLButtonElement> | FocusEvent<HTMLButtonElement>, name: string) {
     const bounds = event.currentTarget.getBoundingClientRect()
@@ -28,8 +31,8 @@ export function RosterRail() {
       <nav className="battle-rail" aria-label="飞行员名单" onScroll={() => setTooltip(null)}>
         {!analysis && <span className="sr-only" role="status">正在等待分析结果…</span>}
         {groups.map(({ side, rows }) => (
-          <section key={side} aria-label={sideName(side, order)}>
-            <div className="battle-rail-side" aria-hidden="true">
+          <section key={side} aria-label={sideLabels.get(side)}>
+            <div className="battle-rail-side" aria-hidden="true" title={sideLabels.get(side)}>
               <i className="side-dot" data-hollow={side < 0 ? '' : undefined}
                 style={side < 0 ? undefined : { background: sideColor(side, order) }} />
               {sideLetter(side, order)}

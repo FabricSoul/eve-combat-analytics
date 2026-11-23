@@ -1,4 +1,43 @@
-import type { Analysis, BattleSummary, SideSubject } from '@/core/contract'
+import type { Analysis, BattleSummary, SideSubject, TeamMember } from '@/core/contract'
+import { affiliationOf } from '../battle/roster/affiliation'
+import { fmtNum } from './format'
+
+/** A side's largest named affiliation and its total number of identified pilots. */
+export function sideName(side: number, summary: BattleSummary, analysis: Analysis): string {
+  if (side < 0) return '未分边'
+
+  const pilots = new Map<number, string>()
+  for (const entity of Object.values(analysis.entities)) {
+    if (entity.side === side && entity.charId !== null) pilots.set(entity.charId, entity.name)
+  }
+
+  function memberName(member: TeamMember) {
+    const id = Number(member.slice(member.indexOf(':') + 1))
+    return summary.meta.names[id]?.name
+  }
+
+  const groups = new Map<TeamMember, { name: string; pilots: number }>()
+  for (const id of pilots.keys()) {
+    const affiliation = affiliationOf(summary, id)
+    if (!affiliation) continue
+    const alliance: TeamMember | null = affiliation.allyId === null ? null : `ally:${affiliation.allyId}`
+    const corporation: TeamMember = `corp:${affiliation.corpId}`
+    const member = alliance && memberName(alliance) ? alliance : corporation
+    const existing = groups.get(member)
+    if (existing) existing.pilots++
+    else {
+      const name = memberName(member)
+      if (name) groups.set(member, { name, pilots: 1 })
+    }
+  }
+
+  const largest = [...groups.values()].sort((a, b) => b.pilots - a.pilots || a.name.localeCompare(b.name))[0]
+  const brName = summary.meta.teams[side]?.map(memberName).find(Boolean)
+  const name = largest?.name ?? [...pilots.values()].sort()[0] ?? brName ?? `第 ${side + 1} 方`
+  if (pilots.size === 0) return name
+  if (pilots.size === 1) return `${name} · 1 人`
+  return `${name} 等 ${fmtNum(pilots.size)} 人`
+}
 
 export function sideOrder(analysis: Analysis, oursSide: number): number[] {
   const sides = analysis.coverage.filter(({ side }) => side >= 0 && side !== oursSide)

@@ -1,14 +1,17 @@
-import { useState } from 'react'
-import type { BattleSummary } from '@/core/contract'
+import { useMemo, useState } from 'react'
+import type { Analysis, BattleSummary } from '@/core/contract'
 import { Icon } from '../battle/upload/icons'
 import { fmtDate, fmtIsk, fmtNum } from '../lib/format'
+import { sideColor, sideLetter, sideName, sideOrder } from '../lib/sides'
 import { Button } from '../ui/Button'
 import type { Appearance } from './AppShell'
+import { SidePicker } from './SidePicker'
 
 export interface TopBarProps {
   appearance: Appearance
   onToggleAppearance(): void
   summary?: BattleSummary | null
+  analysis?: Analysis | null
   oursSide?: number
   onOursSideChange?(side: number): void
   onUpload?(): void
@@ -17,7 +20,7 @@ export interface TopBarProps {
 }
 
 export function TopBar({
-  appearance, onToggleAppearance, summary, oursSide, onOursSideChange, onUpload, onOpenSides, shareUrl,
+  appearance, onToggleAppearance, summary, analysis, oursSide, onOursSideChange, onUpload, onOpenSides, shareUrl,
 }: TopBarProps) {
   const [share, setShare] = useState('')
   const [copied, setCopied] = useState(false)
@@ -25,14 +28,22 @@ export function TopBar({
   const system = summary?.meta.windows[0]
   const date = system ? fmtDate(system.start) : ''
   const title = system ? `${system.systemName} · ${date}` : 'EVE Combat Analytics'
-  const sides = summary && [...new Set([
-    ...summary.meta.teams.map((_, index) => index),
-    ...summary.sideOverrides.map(({ side }) => side).filter((side) => side >= 0),
-  ])].sort((a, b) => a - b)
+  const sides = useMemo(() => {
+    if (!summary || !analysis) return []
+    const indices = [...new Set([
+      ...summary.meta.teams.map((_, index) => index),
+      ...summary.sideOverrides.map(({ side }) => side).filter((side) => side >= 0),
+    ])].sort((a, b) => a - b)
+    const order = sideOrder(analysis, oursSide ?? 0)
+    return indices.map((side) => ({
+      side, label: sideName(side, summary, analysis), color: sideColor(side, order), letter: sideLetter(side, order),
+    }))
+  }, [summary, analysis, oursSide])
   const totalIsk = summary?.meta.killmails.reduce((sum, { value }) => sum + value, 0)
   const stats = summary && <>
-    <span className="app-number">{fmtNum(summary.meta.killmails.length)}</span> 次击毁 ·{' '}
-    <span className="app-number">{fmtIsk(totalIsk, 0)}</span> ISK · 日志{' '}
+    <span className="app-number">{fmtNum(summary.meta.killmails.length)}</span> 次击毁
+    <span className="app-topbar-isk"> · <span className="app-number">{fmtIsk(totalIsk, 0)}</span> ISK</span>
+    {' · 日志 '}
     <span className="app-number">{fmtNum(summary.logs.length)}</span> 份
   </>
 
@@ -53,7 +64,7 @@ export function TopBar({
     <header className="app-topbar" onBlur={(event) => {
       if (!event.currentTarget.contains(event.relatedTarget)) setMenuOpen(false)
     }} onKeyDown={(event) => {
-      if (event.key !== 'Escape' || !menuOpen) return
+      if (event.defaultPrevented || event.key !== 'Escape' || !menuOpen) return
       event.preventDefault()
       setMenuOpen(false)
       event.currentTarget.querySelector<HTMLButtonElement>('.app-topbar-menu-toggle')?.focus()
@@ -67,14 +78,7 @@ export function TopBar({
         aria-expanded={menuOpen} aria-controls="battle-topbar-actions" onClick={() => setMenuOpen(!menuOpen)}>⋯</Button>}
       <div className="app-topbar-actions" id={summary ? 'battle-topbar-actions' : undefined} data-menu-open={menuOpen}>
         {stats && <span className="app-topbar-menu-meta">{stats}</span>}
-        {sides && onOursSideChange && sides.length > 1 && (
-          <label className="app-topbar-side">
-            <span className="app-topbar-label">我方</span>
-            <select aria-label="我方" className="app-select" value={oursSide} onChange={(event) => onOursSideChange(Number(event.target.value))}>
-              {sides.map((side) => <option key={side} value={side}>第 {side + 1} 方</option>)}
-            </select>
-          </label>
-        )}
+        {onOursSideChange && sides.length > 1 && <SidePicker choices={sides} value={oursSide} onChange={onOursSideChange} />}
         {onOpenSides && <Button variant="ghost" onClick={() => { setMenuOpen(false); onOpenSides() }}>排边</Button>}
         {onUpload && <Button className="app-topbar-upload-desktop" onClick={onUpload}>上传日志</Button>}
         {shareUrl && (

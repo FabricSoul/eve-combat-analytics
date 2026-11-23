@@ -36,7 +36,7 @@ const panels = { roster: Roster, compare: CompareTable, kills: KillsList, fit: F
 const panelId = 'battle-panel'
 
 function BattleWorkspace() {
-  const { summary, status, error } = useBattleContext()
+  const { summary, analysis, status, error } = useBattleContext()
   const view = useView()
   const layout = useBattleLayout()
   const [phoneTab, setPhoneTab] = useState<PhoneTab>('events')
@@ -88,6 +88,7 @@ function BattleWorkspace() {
   return (
     <AppShell battle topBar={{
       summary,
+      analysis,
       oursSide: view.oursSide,
       onOursSideChange: view.setOursSide,
       onUpload: summary ? openPicker : undefined,
