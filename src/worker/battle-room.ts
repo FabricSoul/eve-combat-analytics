@@ -1,18 +1,21 @@
 import { DurableObject } from 'cloudflare:workers'
+import { analyze } from '../core/analysis/analyze'
 import { sideOf } from '../core/br/normalize'
 import { GamelogFormatError } from '../core/contract'
 import type {
-  ApiError, BattleMeta, BattleState, FitEntry, LogEvent, NameIndex, UploadedLog, UploadedLogSummary,
+  Analysis, ApiError, BattleMeta, FitEntry, LogEvent, NameIndex, ServerMessage, UploadedLogSummary,
 } from '../core/contract'
+import { analysisJson } from './analysis-json'
 import { ApiFailure, battlePath, errorResponse, readText, upstreamFailure } from './http'
 import type { Env } from './index'
 import { abortable, createServices } from './services'
 import type { Services } from './services'
-import { BattleStorage, packJson } from './storage'
+import { BattleStorage, packJson, packStream } from './storage'
 import type { StoredLog } from './storage'
 
 const NAME_LIMIT = 2000
 const ESI_NAME_BATCH = 500
+const SOCKET_LIMIT = 1024 * 1024
 const encoder = new TextEncoder()
 
 function characterId(ids: Record<string, number | null>, name: string): number | null {
@@ -40,13 +43,16 @@ function historicalSides(meta: BattleMeta): Map<number, number> {
 }
 
 type Battle = { meta: BattleMeta; sides: Map<number, number> }
-type LiveMessage =
-  | { type: 'snapshot'; state: BattleState }
-  | { type: 'log_added'; log: UploadedLog; names: NameIndex }
-  | { type: 'fit_set'; fit: FitEntry }
+
+type AnalysisRead =
+  | { status: 404 }
+  | { status: 503 }
+  | { status: 304; etag: string }
+  | { status: 200; etag: string; body: ReadableStream<Uint8Array<ArrayBuffer>> }
 
 export class BattleRoom extends DurableObject<Env> {
   protected readonly uploadEsiTimeoutMs: number = 15_000
+  protected readonly analysisDelayMs: number = 2_000
   private readonly store: BattleStorage
   private serviceInstance?: Services
   private battleCache?: Battle
@@ -97,7 +103,9 @@ export class BattleRoom extends DurableObject<Env> {
         const failure = upstreamFailure(error)
         return { error: failure.code, message: failure.message }
       }
-      this.store.initialize(await packJson(meta))
+      const chunks = await packJson(meta)
+      await this.scheduleAnalysis()
+      this.store.initialize(chunks)
       return { brId }
     })
   }
@@ -107,7 +115,14 @@ export class BattleRoom extends DurableObject<Env> {
       if (!this.store.exists()) throw new ApiFailure('br_not_found', 'Battle has not been created')
       const route = battlePath.exec(new URL(request.url).pathname)?.[2] ?? ''
       if (request.method === 'GET' && !route) {
-        return Response.json(await this.store.state((await this.battle()).meta))
+        return Response.json(this.store.summary((await this.battle()).meta))
+      }
+      if (request.method === 'GET' && route.startsWith('logs/')) {
+        const id = route.slice('logs/'.length)
+        if (!/^[a-f0-9]{64}$/.test(id)) throw new ApiFailure('bad_request', 'Invalid log ID')
+        const log = await this.store.logDetail(id)
+        if (!log) throw new ApiFailure('br_not_found', 'Log has not been uploaded to this battle')
+        return Response.json(log, { headers: { 'Cache-Control': 'public, max-age=31536000, immutable' } })
       }
       if (request.method === 'POST' && route === 'logs') {
         const text = await readText(request, 10 * 1024 * 1024, 'Gamelogs must be at most 10 MiB')
@@ -133,6 +148,49 @@ export class BattleRoom extends DurableObject<Env> {
     } catch (error) {
       return errorResponse(error)
     }
+  }
+
+  private scheduleAnalysis(): Promise<void> {
+    return this.ctx.storage.setAlarm(Date.now() + this.analysisDelayMs)
+  }
+
+  override async alarm(): Promise<void> {
+    if (!this.store.exists()) return
+    const { revision, analyzedRevision } = this.store.analysisStatus()
+    if (revision === analyzedRevision) return
+
+    const analysis = await this.analyzeRevision(revision)
+    if (!analysis) return
+    const chunks = await packStream(analysisJson(analysis))
+    const version = this.store.publishAnalysis(revision, chunks)
+    if (version !== undefined) this.broadcast({ type: 'analysis_ready', version })
+  }
+
+  private async analyzeRevision(revision: number): Promise<Analysis | undefined> {
+    const state = await this.store.state((await this.battle()).meta)
+    // An upload can commit while logs are being read. Its alarm will take a fresh snapshot.
+    if (this.store.analysisStatus().revision === revision) return analyze(state)
+  }
+
+  // RPC keeps the stored bytes compressed across the DO-to-Worker hop.
+  async readAnalysis(ifNoneMatch: string | null): Promise<AnalysisRead> {
+    if (!this.store.exists()) return { status: 404 }
+    const status = this.store.analysisStatus()
+    if (status.revision !== status.analyzedRevision && await this.ctx.storage.getAlarm() === null) {
+      // Rooms created by older versions can build their first result without changing battle data.
+      await this.scheduleAnalysis()
+    }
+    // Read the version and its chunks together, after any scheduling awaits.
+    const { version } = this.store.analysisStatus()
+    if (version === 0) return { status: 503 }
+
+    const etag = `"v${version}"`
+    const matches = ifNoneMatch?.split(',').some((value) => {
+      const candidate = value.trim()
+      return candidate === '*' || candidate.replace(/^W\//, '') === etag
+    })
+    if (matches) return { status: 304, etag }
+    return { status: 200, etag, body: new Blob(this.store.analysisChunks()).stream() }
   }
 
   private async upload(id: string, text: string): Promise<Response> {
@@ -172,8 +230,10 @@ export class BattleRoom extends DurableObject<Env> {
       const summary: UploadedLogSummary = {
         id, charId, charName, side, events: events.length, uploadedAt: log.uploadedAt,
       }
-      this.store.saveLog(log, await packJson(log.parsed), resolution)
-      this.broadcast({ type: 'log_added', log, names: resolution.names })
+      const packed = await packJson(log.parsed)
+      await this.scheduleAnalysis()
+      this.store.saveLog(log, packed, resolution)
+      this.broadcast({ type: 'log_added', log: summary, names: resolution.names })
       return Response.json(summary)
     } finally {
       clearTimeout(timeout)
@@ -260,14 +320,18 @@ export class BattleRoom extends DurableObject<Env> {
     }
     await this.store.migrateIfNeeded((await this.battle()).meta)
     const fit: FitEntry = { charId, eft, setAt: this.services.now() }
+    await this.scheduleAnalysis()
     this.store.setFit(fit)
     this.broadcast({ type: 'fit_set', fit })
     return Response.json(fit)
   }
 
-  private async openWebSocket(meta: BattleMeta): Promise<Response> {
-    const snapshot: LiveMessage = { type: 'snapshot', state: await this.store.state(meta) }
+  private openWebSocket(meta: BattleMeta): Response {
+    const snapshot: ServerMessage = { type: 'snapshot', state: this.store.summary(meta) }
     const text = JSON.stringify(snapshot)
+    if (encoder.encode(text).byteLength >= SOCKET_LIMIT) {
+      throw new ApiFailure('too_large', 'Battle snapshot is too large for WebSocket. Fetch the battle over HTTP.')
+    }
     const { 0: client, 1: server } = new WebSocketPair()
     this.ctx.acceptWebSocket(server)
     server.send(text)
@@ -284,13 +348,15 @@ export class BattleRoom extends DurableObject<Env> {
     else ws.close()
   }
 
-  private broadcast(message: LiveMessage): void {
+  private broadcast(message: ServerMessage): void {
     const sockets = this.ctx.getWebSockets()
     if (!sockets.length) return
     const text = JSON.stringify(message)
+    const fits = encoder.encode(text).byteLength < SOCKET_LIMIT
     for (const socket of sockets) {
       try {
-        socket.send(text)
+        if (fits) socket.send(text)
+        else socket.close(1009, 'Update too large. Fetch the battle over HTTP.')
       } catch {
         // A disconnected viewer does not prevent other viewers from receiving the update.
       }

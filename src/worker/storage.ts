@@ -1,5 +1,5 @@
 import type {
-  BattleMeta, BattleState, FitEntry, LogEvent, NameIndex, ParsedLog, UploadedLog, UploadedLogSummary,
+  BattleMeta, BattleState, BattleSummary, FitEntry, LogEvent, NameIndex, ParsedLog, UploadedLog, UploadedLogSummary,
 } from '../core/contract'
 
 type LogRow = Pick<UploadedLogSummary, keyof UploadedLogSummary> & { unparsedCount: number | null }
@@ -10,7 +10,11 @@ export type PackedJson = ArrayBuffer[]
 const CHUNK_BYTES = 1024 * 1024
 
 export async function packJson(value: unknown): Promise<PackedJson> {
-  const stream = new Blob([JSON.stringify(value)]).stream().pipeThrough(new CompressionStream('gzip'))
+  return packStream(new Blob([JSON.stringify(value)]).stream())
+}
+
+export async function packStream(json: ReadableStream<BufferSource>): Promise<PackedJson> {
+  const stream = json.pipeThrough(new CompressionStream('gzip'))
   const packed = await new Response(stream).arrayBuffer()
   const chunks: PackedJson = []
   for (let offset = 0; offset < packed.byteLength; offset += CHUNK_BYTES) {
@@ -101,11 +105,18 @@ export class BattleStorage {
     ).toArray()
   }
 
+  private summarizeLog({ id, charId, charName, side, events, uploadedAt }: LogRow): UploadedLogSummary {
+    return { id, charId, charName, side, events, uploadedAt }
+  }
+
   logById(id: string): UploadedLogSummary | undefined {
     const row = this.logRows(id)[0]
-    if (!row) return undefined
-    const { id: logId, charId, charName, side, events, uploadedAt } = row
-    return { id: logId, charId, charName, side, events, uploadedAt }
+    return row && this.summarizeLog(row)
+  }
+
+  async logDetail(id: string): Promise<StoredLog | undefined> {
+    const row = this.logRows(id)[0]
+    return row && this.getLog(row)
   }
 
   private parsed(row: Pick<LogRow, 'id' | 'charId'>): Promise<ParsedLog> {
@@ -118,7 +129,7 @@ export class BattleStorage {
     return unpackJson(chunks.map(({ data }) => data))
   }
 
-  async getLog({ id, charId, charName, side, uploadedAt, unparsedCount }: LogRow): Promise<StoredLog> {
+  private async getLog({ id, charId, charName, side, uploadedAt, unparsedCount }: LogRow): Promise<StoredLog> {
     const parsed = await this.parsed({ id, charId })
     return {
       id, charId, charName, side, uploadedAt,
@@ -139,16 +150,69 @@ export class BattleStorage {
     return !!this.sql.exec('SELECT 1 FROM names WHERE name = ?', name).toArray()[0]
   }
 
-  async state(meta: BattleMeta): Promise<BattleState> {
-    const rows = this.logRows()
+  private fitsAndNames(): Pick<BattleState, 'fits' | 'names'> {
     const fits = this.sql.exec<FitEntry & Record<string, SqlStorageValue>>('SELECT * FROM fits ORDER BY charId').toArray()
     const names: NameIndex = Object.fromEntries(
       this.sql.exec<{ name: string; charId: number | null; side: number | null }>(
         'SELECT * FROM names',
       ).toArray().map(({ name, charId, side }) => [name, charId === null ? null : { charId, side: side ?? -1 }]),
     )
-    const logs = await Promise.all(rows.map((row) => this.getLog(row)))
+    return { fits, names }
+  }
+
+  summary(meta: BattleMeta): BattleSummary {
+    const logs = this.logRows().map((row) => this.summarizeLog(row))
+    return { meta, logs, ...this.fitsAndNames(), analysisVersion: this.analysisStatus().version }
+  }
+
+  async state(meta: BattleMeta): Promise<BattleState> {
+    const rows = this.logRows()
+    const { fits, names } = this.fitsAndNames()
+    const logs: StoredLog[] = []
+    // Read one JSON value at a time to cap transient decompression and parsing memory.
+    for (const row of rows) logs.push(await this.getLog(row))
     return { meta, logs, fits, names }
+  }
+
+  analysisStatus(): { revision: number; analyzedRevision: number; version: number } {
+    if (!this.hasTable('analysis_state')) return { revision: 0, analyzedRevision: -1, version: 0 }
+    return this.sql.exec<{ revision: number; analyzedRevision: number; version: number }>(
+      'SELECT revision, analyzedRevision, version FROM analysis_state WHERE id = 1',
+    ).one()
+  }
+
+  private setupAnalysis(): void {
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS analysis_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        revision INTEGER NOT NULL, analyzedRevision INTEGER NOT NULL, version INTEGER NOT NULL
+      );
+      INSERT OR IGNORE INTO analysis_state VALUES (1, 0, -1, 0);
+      CREATE TABLE IF NOT EXISTS analysis_chunks (seq INTEGER PRIMARY KEY, data BLOB NOT NULL);
+    `)
+  }
+
+  private markAnalysisDirty(): void {
+    if (!this.hasTable('analysis_state')) this.setupAnalysis()
+    this.sql.exec('UPDATE analysis_state SET revision = revision + 1 WHERE id = 1')
+  }
+
+  analysisChunks(): PackedJson {
+    return this.sql.exec<{ data: ArrayBuffer }>('SELECT data FROM analysis_chunks ORDER BY seq')
+      .toArray().map(({ data }) => data)
+  }
+
+  publishAnalysis(revision: number, chunks: PackedJson): number | undefined {
+    return this.storage.transactionSync(() => {
+      const status = this.analysisStatus()
+      if (status.revision !== revision || status.analyzedRevision === revision) return undefined
+      if (status.version === 0) this.setupAnalysis()
+      const version = status.version + 1
+      this.sql.exec('DELETE FROM analysis_chunks')
+      chunks.forEach((data, seq) => this.sql.exec('INSERT INTO analysis_chunks VALUES (?, ?)', seq, data))
+      this.sql.exec('UPDATE analysis_state SET version = ?, analyzedRevision = ? WHERE id = 1', version, revision)
+      return version
+    })
   }
 
   saveLog(
@@ -169,13 +233,17 @@ export class BattleStorage {
       for (const [name, entry] of Object.entries(resolution.names)) {
         this.sql.exec('INSERT INTO names VALUES (?, ?, ?)', name, entry?.charId ?? null, entry?.side ?? null)
       }
+      this.markAnalysisDirty()
     })
   }
 
   setFit({ charId, eft, setAt }: FitEntry): void {
-    this.sql.exec(
-      'INSERT INTO fits VALUES (?, ?, ?) ON CONFLICT(charId) DO UPDATE SET eft = excluded.eft, setAt = excluded.setAt',
-      charId, eft, setAt,
-    )
+    this.storage.transactionSync(() => {
+      this.sql.exec(
+        'INSERT INTO fits VALUES (?, ?, ?) ON CONFLICT(charId) DO UPDATE SET eft = excluded.eft, setAt = excluded.setAt',
+        charId, eft, setAt,
+      )
+      this.markAnalysisDirty()
+    })
   }
 }

@@ -1,12 +1,13 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { env, exports as worker } from 'cloudflare:workers'
-import { evictDurableObject, runInDurableObject } from 'cloudflare:test'
+import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test'
 import { expect, it } from 'vitest'
 import { sideOf } from '../core/br/normalize'
-import type { BattleState, FitEntry, NameIndex, UploadedLog, UploadedLogSummary } from '../core/contract'
+import type { Analysis, BattleSummary, ServerMessage, UploadedLog, UploadedLogSummary } from '../core/contract'
+import router from './index'
 import type { Env } from './index'
 import { packJson } from './storage'
-import { brId, end, largeMeta, meta, now, parseGamelog, start, teams } from './test/entry'
+import { brId, end, largeMeta, meta, now, parseGamelog, realFightId, start, teams } from './test/entry'
 
 declare global {
   namespace Cloudflare {
@@ -57,35 +58,60 @@ function setFit(id: string, eft: string) {
   return worker.default.fetch(`${battle(id)}/fits/100`, { method: 'PUT', body: eft })
 }
 
-async function state(id: string): Promise<BattleState> {
+async function readLogDetail(id: string, logId: string): Promise<UploadedLog & { unparsedCount: number }> {
+  const response = await worker.default.fetch(`${battle(id)}/logs/${logId}`)
+  expect(response.status).toBe(200)
+  expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
+  return response.json()
+}
+
+const analysisUrl = (id: string) => `${battle(id)}/analysis`
+// Call the public handler directly when inspecting gzip bytes. The test loopback fetch decodes Content-Encoding.
+const rawAnalysis = (id: string) => router.fetch(new Request(analysisUrl(id)), env)
+const MIB = 1024 * 1024
+
+async function decodeAnalysis(response: Response): Promise<{ value: Analysis; gzipBytes: number; jsonBytes: number }> {
+  expect(response.status).toBe(200)
+  expect(response.headers.get('content-encoding')).toBe('gzip')
+  const gzip = await response.arrayBuffer()
+  expect([...new Uint8Array(gzip, 0, 2)]).toEqual([0x1f, 0x8b])
+  const stream = new Blob([gzip]).stream().pipeThrough(new DecompressionStream('gzip'))
+  const json = await new Response(stream).arrayBuffer()
+  return {
+    value: JSON.parse(new TextDecoder().decode(json)),
+    gzipBytes: gzip.byteLength,
+    jsonBytes: json.byteLength,
+  }
+}
+
+async function state(id: string): Promise<BattleSummary> {
   const response = await worker.default.fetch(battle(id))
   expect(response.status).toBe(200)
   return response.json()
 }
-
-type LiveMessage =
-  | { type: 'snapshot'; state: BattleState }
-  | { type: 'log_added'; log: UploadedLog; names: NameIndex }
-  | { type: 'fit_set'; fit: FitEntry }
 
 async function connect(id: string) {
   const response = await worker.default.fetch(`${battle(id)}/ws`, { headers: { Upgrade: 'websocket' } })
   expect(response.status).toBe(101)
   const ws = response.webSocket!
   expect(ws).toBeDefined()
-  const messages: LiveMessage[] = []
-  const listeners: Array<(message: LiveMessage) => void> = []
+  const sizes: number[] = []
+  const messages: ServerMessage[] = []
+  const listeners: Array<(message: ServerMessage) => void> = []
   ws.addEventListener('message', (event) => {
-    const message = JSON.parse(String(event.data)) as LiveMessage
+    const text = String(event.data)
+    sizes.push(new TextEncoder().encode(text).byteLength)
+    const message = JSON.parse(text) as ServerMessage
     const listener = listeners.shift()
     if (listener) listener(message)
     else messages.push(message)
   })
   ws.accept()
   return {
+    sizes,
     next: () => {
       const message = messages.shift()
-      return message ? Promise.resolve(message) : new Promise<LiveMessage>((resolve) => listeners.push(resolve))
+      return message ? Promise.resolve(message) : new Promise<ServerMessage>((resolve) => listeners.push(resolve))
     },
     close: () => ws.close(1000),
   }
@@ -104,7 +130,7 @@ it('creates one room from a BR URL and persists creation across instance evictio
   await evictDurableObject(env.BATTLE.getByName(brId))
   expect(await state(brId)).toEqual({
     meta: { ...meta, teams },
-    logs: [], fits: [], names: {},
+    logs: [], fits: [], names: {}, analysisVersion: 0,
   })
 })
 
@@ -121,7 +147,9 @@ it('stores only events within inclusive windows and resolves distinct visible na
   })
   const result = await state(id)
   expect(result.logs[0]).toMatchObject({ id: expectedId, charId: 100, uploadedAt: now, side: 1 })
-  expect(result.logs[0]?.parsed.events.map((event) => event.t)).toEqual([start, start + 1, end])
+  expect(result.logs.every((log) => !('parsed' in log))).toBe(true)
+  const detail = await readLogDetail(id, expectedId)
+  expect(detail.parsed.events.map((event) => event.t)).toEqual([start, start + 1, end])
   expect(result.names).toEqual({ Target: { charId: 101, side: 3 }, NPC: null })
   expect(meta.killmails.some((km) => [km.victim, ...km.attackers].some((pilot) => pilot.charId === 100))).toBe(false)
 })
@@ -191,7 +219,8 @@ it('round-trips 3,000 parsed events through SQLite after instance eviction', asy
   const id = await prepare(3)
   const response = await upload(id, 'long log')
   expect(response.status).toBe(200)
-  expect(await response.json()).toMatchObject({ events: 3000 })
+  const summary = await response.json<UploadedLogSummary>()
+  expect(summary.events).toBe(3000)
   const stub = env.BATTLE.getByName(id)
   const stored = await runInDurableObject(stub, (_, { storage }) =>
     storage.sql.exec<{ bytes: number }>('SELECT sum(length(data)) AS bytes FROM log_chunks').one().bytes,
@@ -200,7 +229,7 @@ it('round-trips 3,000 parsed events through SQLite after instance eviction', asy
   expect(stored).toBeLessThan(2 * 1024 * 1024)
   console.info(`3,000-event log payload in SQLite: ${stored} bytes`)
   await evictDurableObject(stub)
-  expect((await state(id)).logs[0]?.parsed).toEqual(parseGamelog('long log'))
+  expect((await readLogDetail(id, summary.id)).parsed).toEqual(parseGamelog('long log'))
 })
 
 it('stores fit text verbatim and broadcasts the fit', async () => {
@@ -249,6 +278,9 @@ it('I5 stores a >3 MB BR in bounded gzip chunks and reads it back after eviction
   expect(lengths.length).toBeGreaterThan(1)
   await evictDurableObject(stub)
   expect((await state(id)).meta).toEqual(expected)
+  const ws = await worker.default.fetch(`${battle(id)}/ws`, { headers: { Upgrade: 'websocket' } })
+  expect(ws.status).toBe(413)
+  expect(await ws.json()).toMatchObject({ error: 'too_large' })
 }, 15000)
 
 it('I6 rejects a streamed fit after 64 KiB', async () => {
@@ -327,10 +359,7 @@ it('M3 limits stored unparsed diagnostics to 500 lines while retaining their tot
   const id = await prepare(918)
   const response = await upload(id, 'many unknown')
   const result = await response.json<UploadedLogSummary>()
-  const responseState = await (await worker.default.fetch(battle(id))).json<{
-    logs: Array<UploadedLog & { unparsedCount: number }>
-  }>()
-  const log = responseState.logs.find(({ id }) => id === result.id)!
+  const log = await readLogDetail(id, result.id)
   expect(log.parsed.unparsed).toEqual(parseGamelog('many unknown').unparsed.slice(0, 500))
   expect(log.unparsedCount).toBe(550)
 })
@@ -378,7 +407,7 @@ it('keeps files from the old one-log schema readable and migrates them on append
     storage.sql.exec('INSERT INTO logs VALUES (100, ?, ?, 1, ?, ?)', originalId, parsed.listener, now, parsed.events.length)
     storage.sql.exec('INSERT INTO log_chunks VALUES (100, 0, ?)', packed!)
   })
-  expect((await state(id)).logs[0]).toMatchObject({ id: originalId, parsed })
+  expect(await readLogDetail(id, originalId)).toMatchObject({ parsed })
   const uploaded = await upload(id, 'valid log')
   expect(uploaded.status).toBe(200)
   const next = await uploaded.json<UploadedLogSummary>()
@@ -386,5 +415,131 @@ it('keeps files from the old one-log schema readable and migrates them on append
   const current = await state(id)
   expect(current.meta.brId).toBe(id)
   expect(current.logs.map(({ id: logId }) => logId).sort()).toEqual([originalId, next.id].sort())
-  expect(current.logs.find((log) => log.id === originalId)?.parsed).toEqual(parsed)
+  expect((await readLogDetail(id, originalId)).parsed).toEqual(parsed)
 })
+
+it('acknowledges uploads before one analysis for a burst, then serves and revalidates the stored version', async () => {
+  const id = await prepare(924)
+  const stub = env.BATTLE.getByName(id)
+  const viewer = await connect(id)
+  try {
+    expect(await viewer.next()).toMatchObject({ type: 'snapshot', state: { analysisVersion: 0 } })
+    const pending = await worker.default.fetch(analysisUrl(id))
+    expect(pending.status).toBe(503)
+    expect(await pending.json()).toMatchObject({ error: 'br_unavailable' })
+
+    for (const text of ['valid log', 'replacement']) {
+      const response = await upload(id, text)
+      expect(response.status).toBe(200)
+      await response.json()
+      expect(await viewer.next()).toMatchObject({ type: 'log_added' })
+    }
+    const fit = await setFit(id, '[Rifter, Fleet]')
+    expect(fit.status).toBe(200)
+    await fit.json()
+    expect(await viewer.next()).toMatchObject({ type: 'fit_set' })
+    expect((await state(id)).analysisVersion).toBe(0)
+    await evictDurableObject(stub)
+    expect(await runDurableObjectAlarm(stub)).toBe(true)
+    expect(await viewer.next()).toEqual({ type: 'analysis_ready', version: 1 })
+    expect((await state(id)).analysisVersion).toBe(1)
+    expect(await runDurableObjectAlarm(stub)).toBe(false)
+
+    const response = await rawAnalysis(id)
+    expect(response.headers.get('etag')).toBe('"v1"')
+    expect((await decodeAnalysis(response)).value.interactions).not.toHaveLength(0)
+    const cached = await worker.default.fetch(analysisUrl(id), { headers: { 'If-None-Match': 'W/"v1"' } })
+    expect(cached.status).toBe(304)
+    expect(cached.headers.get('etag')).toBe('"v1"')
+    expect(await cached.text()).toBe('')
+
+    const repeat = await upload(id, 'valid log')
+    expect(repeat.status).toBe(200)
+    await repeat.json()
+    expect(await runDurableObjectAlarm(stub)).toBe(false)
+    const updatedFit = await setFit(id, '[Rifter, Updated]')
+    expect(updatedFit.status).toBe(200)
+    await updatedFit.json()
+    expect(await viewer.next()).toMatchObject({ type: 'fit_set' })
+    expect(await runDurableObjectAlarm(stub)).toBe(true)
+    expect(await viewer.next()).toEqual({ type: 'analysis_ready', version: 2 })
+    const latest = await worker.default.fetch(analysisUrl(id), { headers: { 'If-None-Match': '"v1"' } })
+    expect(latest.status).toBe(200)
+    expect(latest.headers.get('etag')).toBe('"v2"')
+    await latest.arrayBuffer()
+    expect(Math.max(...viewer.sizes)).toBeLessThan(MIB)
+  } finally {
+    viewer.close()
+  }
+})
+
+it('sends analysis updates and a compact snapshot with forty 3,000-event logs', async () => {
+  const id = await prepare(925)
+  for (let i = 0; i < 39; i++) {
+    const response = await upload(id, `pilot ${i}`)
+    expect(response.status).toBe(200)
+    await response.json()
+  }
+  const viewer = await connect(id)
+  try {
+    expect(await viewer.next()).toMatchObject({ type: 'snapshot' })
+    const uploadResponse = await upload(id, 'pilot 39')
+    expect(uploadResponse.status).toBe(200)
+    const last = await uploadResponse.json<UploadedLogSummary>()
+    expect(await viewer.next()).toEqual({ type: 'log_added', log: last, names: {} })
+    expect(await runDurableObjectAlarm(env.BATTLE.getByName(id))).toBe(true)
+    expect(await viewer.next()).toEqual({ type: 'analysis_ready', version: 1 })
+    const forty = await connect(id)
+    try {
+      const summary = await state(id)
+      expect(summary.logs).toHaveLength(40)
+      expect(summary.logs.every((log) => log.events === 3000 && !('parsed' in log))).toBe(true)
+      expect(await forty.next()).toEqual({ type: 'snapshot', state: summary })
+      const largest = Math.max(...viewer.sizes, ...forty.sizes)
+      expect(largest).toBeLessThan(MIB)
+      console.info(`Largest 40-log WebSocket message: ${largest} bytes`)
+    } finally {
+      forty.close()
+    }
+  } finally {
+    viewer.close()
+  }
+}, 30_000)
+
+it('analyzes all 17 real fight logs in workerd and matches Node', async () => {
+  const id = realFightId
+  const createResponse = await create(id)
+  expect(createResponse.status).toBe(200)
+  await createResponse.json()
+  const fixture = env.REAL_FIGHT_INFO
+  expect(fixture.listeners).toHaveLength(17)
+  for (let i = 0; i < fixture.listeners.length; i++) {
+    const source = await env.REAL_FIGHT_LOGS.fetch(`https://fixture.local/${i}`)
+    expect(source.status).toBe(200)
+    const response = await upload(id, await source.text())
+    expect(response.status, `fixture log ${i}: ${response.status === 200 ? '' : await response.text()}`).toBe(200)
+    expect(await response.json()).toMatchObject({ charId: fixture.listeners[i]!.charId })
+  }
+  expect((await state(id)).analysisVersion).toBe(0)
+  const stub = env.BATTLE.getByName(id)
+  const start = Date.now()
+  expect(await runDurableObjectAlarm(stub)).toBe(true)
+  const elapsed = Date.now() - start
+  const chunks = await runInDurableObject(stub, (_, { storage }) =>
+    storage.sql.exec<{ bytes: number }>('SELECT length(data) AS bytes FROM analysis_chunks ORDER BY seq').toArray(),
+  )
+  expect(chunks.length).toBeGreaterThan(1)
+  expect(Math.max(...chunks.map(({ bytes }) => bytes))).toBeLessThanOrEqual(MIB)
+  await evictDurableObject(stub)
+  const version = (await state(id)).analysisVersion
+  expect(version).toBe(1)
+  const response = await rawAnalysis(id)
+  expect(response.headers.get('etag')).toBe('"v1"')
+  const { value, gzipBytes, jsonBytes } = await decodeAnalysis(response)
+  expect(value.interactions.length).toBe(fixture.expected.interactions)
+  expect(gzipBytes).toBe(chunks.reduce((sum, { bytes }) => sum + bytes, 0))
+  console.info(JSON.stringify({
+    analysisVersion: version, interactions: value.interactions.length, gzipBytes, jsonBytes,
+    workerdAlarmMs: elapsed, nodeAnalyzeMs: fixture.expected.nodeMilliseconds, nodeJsonBytes: fixture.expected.jsonBytes,
+  }))
+}, 90_000)

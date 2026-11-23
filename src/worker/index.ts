@@ -1,4 +1,5 @@
 import type { BattleRoom } from './battle-room'
+import type { ApiError } from '../core/contract'
 import { parseBrUrl } from '../core/br/url'
 import { ApiFailure, battlePath, errorResponse } from './http'
 
@@ -28,9 +29,25 @@ export default {
         return Response.json(result)
       }
 
-      const brId = battlePath.exec(url.pathname)?.[1]?.toLowerCase()
+      const route = battlePath.exec(url.pathname)
+      const brId = route?.[1]?.toLowerCase()
       if (!brId) throw new ApiFailure('br_not_found', 'Battle API route not found')
-      return await env.BATTLE.get(env.BATTLE.idFromName(brId)).fetch(request)
+      const room = env.BATTLE.get(env.BATTLE.idFromName(brId))
+      if (request.method === 'GET' && route?.[2] === 'analysis') {
+        const result = await room.readAnalysis(request.headers.get('If-None-Match'))
+        if (result.status === 404) throw new ApiFailure('br_not_found', 'Battle has not been created')
+        if (result.status === 503) {
+          return Response.json({ error: 'br_unavailable', message: 'Battle analysis is pending' } satisfies ApiError, {
+            status: 503, headers: { 'Retry-After': '2', 'Cache-Control': 'no-store' },
+          })
+        }
+        const headers = new Headers({ ETag: result.etag, 'Cache-Control': 'no-cache' })
+        if (result.status === 304) return new Response(null, { status: 304, headers })
+        headers.set('Content-Type', 'application/json; charset=utf-8')
+        headers.set('Content-Encoding', 'gzip')
+        return new Response(result.body, { headers, encodeBody: 'manual' })
+      }
+      return await room.fetch(request)
     } catch (error) {
       return errorResponse(error)
     }

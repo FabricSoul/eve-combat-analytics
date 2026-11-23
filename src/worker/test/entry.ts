@@ -2,8 +2,10 @@ import composition from '../../../fixtures/br/6b035d82a6d97f0534b7e73b.compositi
 import names from '../../../fixtures/br/6b035d82a6d97f0534b7e73b.names.json'
 import { normalizeBrComposition } from '../../core/br/normalize'
 import { GamelogFormatError } from '../../core/contract'
-import type { BattleMeta, LogEvent, ParsedLog } from '../../core/contract'
+import type { BattleMeta, LogEvent, NameIndex, ParsedLog } from '../../core/contract'
+import { parseGamelog as parseRealGamelog } from '../../core/log/parse'
 import { BattleRoom as ProductionBattleRoom } from '../index'
+import type { Services } from '../services'
 
 export { default } from '../index'
 
@@ -81,9 +83,49 @@ export function parseGamelog(text: string): ParsedLog {
   }
 }
 
+export const realFightId = '000000000000000000125990'
+
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      REAL_FIGHT_INFO: {
+        meta: BattleMeta
+        names: NameIndex
+        listeners: { charId: number; charName: string; side: number }[]
+        expected: { interactions: number; jsonBytes: number; nodeMilliseconds: number }
+      }
+      REAL_FIGHT_LOGS: Fetcher
+    }
+  }
+}
+
+function realFightServices({ meta, names, listeners }: Cloudflare.Env['REAL_FIGHT_INFO']): Services {
+  const characters = new Map(Object.entries(names).map(([name, entry]) => [name, entry?.charId ?? null]))
+  const sides = new Map(Object.values(names).flatMap((entry) => entry ? [[entry.charId, entry.side]] as const : []))
+  for (const { charName, charId, side } of listeners) {
+    characters.set(charName, charId)
+    sides.set(charId, side)
+  }
+  return {
+    parseGamelog: parseRealGamelog,
+    async fetchBattleMeta(brId) { return { ...meta, brId } },
+    async namesToCharacters(names) { return Object.fromEntries(names.map((name) => [name, characters.get(name) ?? null])) },
+    async affiliations(ids) {
+      return ids.map((charId) => {
+        const member = meta.teams[sides.get(charId) ?? -1]?.[0]
+        const [kind, id] = member?.split(':') ?? []
+        return { charId, corpId: kind === 'corp' ? Number(id) : 1, allyId: kind === 'ally' ? Number(id) : null }
+      })
+    },
+    now: () => now,
+  }
+}
+
 export class BattleRoom extends ProductionBattleRoom {
   protected readonly uploadEsiTimeoutMs = 100
+  protected readonly analysisDelayMs = 60_000
   protected override makeServices() {
+    if (this.ctx.id.name === realFightId) return realFightServices((this.env as Cloudflare.Env).REAL_FIGHT_INFO)
     let fetched = false
     let slow = true
     let slowBatch = true
