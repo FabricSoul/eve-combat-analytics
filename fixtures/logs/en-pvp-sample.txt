@@ -1,0 +1,51 @@
+# Synthetic Gamelog. All pilot names, timings and amounts are invented.
+# 01–08, 11–14, 35: local PvE log, task brief and EveDpsOverlay phase-1 damage/miss formats.
+# 09–10: HenriFrancais/evebattlehistory app/logs/parse.py and CCP Upwell 2.0 patch notes (structure cap).
+# 15–22: task brief (remote repairs); evebattlehistory (armor, shield and capacitor).
+# 23–27, 38–40: evebattlehistory and CCP client labels (neut, NOS, alternate capacitor transfer).
+# 28–34, 36–37: local PvE log and evebattlehistory (points, ECM, owned-drone miss, legacy quality).
+------------------------------------------------------------
+  Gamelog
+  Listener: Arden Gale
+  Session Started: 2026.11.07 13:28:00
+------------------------------------------------------------
+[ 2026.11.07 13:28:01 ] (combat) <color=0xff00ffff><b>366</b> <color=0x77ffffff><font size=10>to</font> <b><color=0xffffffff>Merin Vale[COAL](Hurricane)</b><font size=10><color=0x77ffffff> - 425mm AutoCannon II - Hits
+[ 2026.11.07 13:28:02 ] (combat) <color=0xffcc0000><b>12</b> <font size=10>from</font> <b>Talin Roe [CROW] [SABLE] (Muninn)</b> - 720mm Howitzer Artillery II - Wrecks
+[ 2026.11.07 13:28:03 ] (combat) <color=0xffcc0000><b>5</b> <font size=10>from</font> <b>Coreli Initiate</b> - Glances Off
+[ 2026.11.07 13:28:04 ] (combat) &lt;b&gt;9&lt;/b&gt; &lt;font size=10&gt;to&lt;/font&gt; &lt;b&gt;Stabber [Alsie North]&lt;/b&gt; - Railgun - Grazes
+[ 2026.11.07 13:28:05 ] (combat) <b>30</b> <font size=10>from</font> <b>[COAL] Merin Vale</b> - Railgun - Smashes
+[ 2026.11.07 13:28:06 ] (combat) <b>21</b> <font size=10>to</font> <b>Orin Far (Ferox)</b> - Railgun - Penetrates
+[ 2026.11.07 13:28:07 ] (combat) <b>200</b> <font size=10>to</font> <b>Rupture <i>Run - Run [ALL]</i> [Alsie North]</b> - Scourge Fury Heavy Missile
+[ 2026.11.07 13:28:08 ] (combat) <b>80</b> <font size=10>from</font> <b>Torin Est (Osprey)</b> - Hobgoblin II
+[ 2026.11.07 13:28:09 ] (combat) <b>430</b> <font size=10>to</font> <b>J112233 - Moon &amp; Anchor[COAL](Fortizar)</b> - Nova Cruise Missile - Hits - Hits (200 deflected)
+[ 2026.11.07 13:28:10 ] (combat) <b>210</b> <font size=10>to</font> <b>Long Watch[COAL](Astrahus)</b> - Hits (210 deflected)
+[ 2026.11.07 13:28:11 ] (combat) Your group of <b>Dual 180mm AutoCannon II</b> misses <b>Merin Vale[COAL](Hurricane)</b> completely - Dual 180mm AutoCannon II
+[ 2026.11.07 13:28:12 ] (combat) Your <b>Light Ion Blaster II</b> misses <b>Coreli Initiate</b> completely - Light Ion Blaster II
+[ 2026.11.07 13:28:13 ] (combat) <b>Coreli Initiate</b> misses you completely
+[ 2026.11.07 13:28:14 ] (combat) <b>Merin Vale[COAL](Hurricane)</b> misses you completely - Dual 180mm AutoCannon II
+[ 2026.11.07 13:28:15 ] (combat) <b>100</b> <font size=10>remote armor repaired to</font> <b>Merin Vale</b> - Medium Remote Armor Repairer II
+[ 2026.11.07 13:28:16 ] (combat) <b>101</b> <font size=10>remote armor repaired by</font> <b>Merin Vale</b>
+[ 2026.11.07 13:28:17 ] (combat) <b>102</b> <font size=10>remote shield boosted to</font> <b>Coreli Initiate</b> - Medium Remote Shield Booster II
+[ 2026.11.07 13:28:18 ] (combat) <b>103</b> <font size=10>remote shield boosted by</font> <b>Merin Vale</b> - - Medium Remote Shield Booster II
+[ 2026.11.07 13:28:19 ] (combat) <b>104</b> <font size=10>remote hull repaired to</font> <b>Merin Vale</b> - Large Remote Hull Repairer II
+[ 2026.11.07 13:28:20 ] (combat) <b>105</b> <font size=10>remote hull repaired by</font> <b>Merin Vale</b> - Large Remote Hull Repairer II
+[ 2026.11.07 13:28:21 ] (combat) <b>106</b> <font size=10>remote capacitor transmitted to</font> <b>Merin Vale</b> - Large Remote Capacitor Transmitter II
+[ 2026.11.07 13:28:22 ] (combat) <b>107</b> <font size=10>remote capacitor transmitted by</font> <b>Merin Vale</b> - Large Remote Capacitor Transmitter II
+[ 2026.11.07 13:28:23 ] (combat) <color=0xff7fffff><b>82 GJ</b> <font size=10>energy neutralized</font> <b>Merin Vale</b> - Medium Energy Neutralizer II
+[ 2026.11.07 13:28:24 ] (combat) &lt;color=0xffe57f7f&gt;&lt;b&gt;61 GJ&lt;/b&gt; <font size=10>energy neutralized</font> <b>Merin Vale</b> - - Medium Energy Neutralizer II
+[ 2026.11.07 13:28:25 ] (combat) <color=0xff7fffff><b>+16 GJ</b> <font size=10>energy drained from</font> <b>Merin Vale</b> - Small Energy Nosferatu II
+[ 2026.11.07 13:28:26 ] (combat) <color=0xffe57f7f><b>-12 GJ</b> <font size=10>energy drained to</font> <b>Merin Vale</b> - - Small Energy Nosferatu II
+[ 2026.11.07 13:28:27 ] (combat) <color=0xffe57f7f><b>-0 GJ</b> <font size=10>energy drained to</font> <b>Merin Vale</b>
+[ 2026.11.07 13:28:28 ] (combat) Warp scramble attempt from <b>Merin Vale</b> to you!
+[ 2026.11.07 13:28:29 ] (combat) Warp disruption attempt from you - to <b>Merin Vale</b>!
+[ 2026.11.07 13:28:30 ] (combat) Warp disruption attempt from <b>Merin Vale</b> to You!
+[ 2026.11.07 13:28:31 ] (combat) Warp scramble attempt from you to <b>Merin Vale</b>
+[ 2026.11.07 13:28:32 ] (combat) Warp scramble attempt from <b>Coreli Initiate</b>
+[ 2026.11.07 13:28:33 ] (combat) Your target locks broken by <b>Merin Vale</b> - Burst Jammer II
+[ 2026.11.07 13:28:34 ] (combat) <b>Merin Vale</b> - target locks broken - Burst Jammer II
+[ 2026.11.07 13:28:35 ] (combat) <b>72</b> <font size=10>to</font> <b>Merin Vale</b> - Large Plasma Smartbomb II
+[ 2026.11.07 13:28:36 ] (combat) <b>Hobgoblin II belonging to Merin Vale</b> misses you completely - Hobgoblin II
+[ 2026.11.07 13:28:37 ] (combat) <b>42</b> <font size=10>from</font> <b>Merin Vale</b> - Turret - Barely Scratches
+[ 2026.11.07 13:28:38 ] (combat) <color=0xffe57f7f><b>43 GJ</b> <font size=10>from</font> <b>Merin Vale</b> - Medium Energy Neutralizer II - Energy neutralized
+[ 2026.11.07 13:28:39 ] (combat) <color=0xff7fffff><b>37 GJ</b> <font size=10>remote energy transferred to</font> <b>Merin Vale</b> - Remote Capacitor Transmitter II
+[ 2026.11.07 13:28:40 ] (combat) <color=0xff7fffff><b>+38 GJ</b> <font size=10>remote energy transferred from</font> <b>Merin Vale</b> - Remote Capacitor Transmitter II

@@ -1,0 +1,50 @@
+# Synthetic Gamelog. All pilot names, timings and amounts are invented.
+# Header and 01–06, 10–17: previous repo at 6eb3f3e and CCP localization resources (TQ build 3724492).
+# 07, 09, 30: task-brief Chinese adaptations of the English quality-less forms.
+# 08: CCP Upwell 2.0 cap semantics and CCP client label 530702.
+# 10–11: group/single adaptation of the previous repo's outgoing miss pattern.
+# 18–21, 35–36: CCP client labels 526553–526557 and 519185–519186 (hull and capacitor).
+# 22–25, 31: old repo and CCP labels 517454, 517492, 519046–519047, 517452 (neut/NOS).
+# 26–29: CCP warp labels 258929, 258954, 519384–519385; 32–34: CCP ECM labels; 37: CCP owned-drone miss.
+------------------------------------------------------------
+  游戏记录
+  收听者： 林砚星
+  进程开始: 2026.11.07 13:28:00
+------------------------------------------------------------
+[ 2026.11.07 13:28:01 ] (combat) <color=0xff00ffff><b>36</b> <font size=10>对</font> <b>秋杉[TIDE](飓风级)</b> - 425毫米自动加农炮 II - 命中
+[ 2026.11.07 13:28:02 ] (combat) <color=0xffcc0000><b>22</b> <font size=10>来自</font> <b>白桥 [TIDE] [HUSH] (缪宁级)</b> - 720毫米榴弹炮 II - 致命一击
+[ 2026.11.07 13:28:03 ] (combat) &lt;b&gt;2&lt;/b&gt; &lt;font size=10&gt;来自&lt;/font&gt; &lt;b&gt;天蛇哨兵&lt;/b&gt; - 擦过
+[ 2026.11.07 13:28:04 ] (combat) <b>9</b><font size=10>对</font><b>刺客级 [迟夜星]</b> - 磁轨炮 - 轻轻擦过
+[ 2026.11.07 13:28:05 ] (combat) <b>12</b> <font size=10>来自</font> <b>[TIDE] 秋杉</b> - 磁轨炮 - 强力一击
+[ 2026.11.07 13:28:06 ] (combat) <b>77</b> <font size=10>对</font> <b>暮霜 (巨鸟级)</b> - 磁轨炮 - 穿透
+[ 2026.11.07 13:28:07 ] (combat) <b>200</b> <font size=10>对</font> <b>断崖级 <i>远夜 [ALL]</i> [迟夜星]</b> - 雷神重型导弹
+[ 2026.11.07 13:28:08 ] (combat) <b>430</b> <font size=10>对</font> <b>J112233 - 深空灯塔[TIDE](铁壁)</b> - 巡航导弹 - 命中 - 命中 (<b>200</b>偏离)
+[ 2026.11.07 13:28:09 ] (combat) <b>51</b> <font size=10>来自</font> <b>秋杉</b> - 地精灵 II
+[ 2026.11.07 13:28:10 ] (combat) 你的一组<b>磁轨炮</b>*完全没有打中<b>秋杉[TIDE](飓风级)</b> - 磁轨炮
+[ 2026.11.07 13:28:11 ] (combat) 你的<b>磁轨炮</b>完全没有打中<b>秋杉</b> - 磁轨炮
+[ 2026.11.07 13:28:12 ] (combat) <b>秋杉</b>完全没有打中你 - 磁轨炮
+[ 2026.11.07 13:28:13 ] (combat) <b>天蛇哨兵</b>完全没有打中你
+[ 2026.11.07 13:28:14 ] (combat) <b>20</b><font size=10>远程装甲维修量至</font><b>秋杉</b> - 远程装甲维修器 II
+[ 2026.11.07 13:28:15 ] (combat) <b>21</b> 远程装甲维修量 由 <b>秋杉</b> - 远程装甲维修器 II
+[ 2026.11.07 13:28:16 ] (combat) <b>22</b> 远程护盾回充增量 至 <b>秋杉</b> - 远程护盾回充增量器 II
+[ 2026.11.07 13:28:17 ] (combat) <b>23</b> 远程护盾回充增量 由 <b>秋杉</b> - 远程护盾回充增量器 II
+[ 2026.11.07 13:28:18 ] (combat) <b>24</b> 远程结构维修量 至 <b>秋杉</b> - 远程结构维修器 II
+[ 2026.11.07 13:28:19 ] (combat) <b>25</b> 远程结构维修量 由 <b>秋杉</b> - 远程结构维修器 II
+[ 2026.11.07 13:28:20 ] (combat) <b>26</b> 远程电容传输 至 <b>秋杉</b> - 远程电容传输装置 II
+[ 2026.11.07 13:28:21 ] (combat) <b>27</b> 远程电容传输量 由 <b>秋杉</b> - 远程电容传输装置 II
+[ 2026.11.07 13:28:22 ] (combat) <color=0xff7fffff><b>42 GJ</b><font size=10>能量中和</font><b>秋杉</b> - 中型能量中和器 II
+[ 2026.11.07 13:28:23 ] (combat) <color=0xffe57f7f><b>33 GJ</b><font size=10>能量中和</font><b>秋杉</b> - 中型能量中和器 II
+[ 2026.11.07 13:28:24 ] (combat) <color=0xff7fffff><b>+14 GJ</b><font size=10>被从</font><b>秋杉</b>吸取 - 小型掠能器 II
+[ 2026.11.07 13:28:25 ] (combat) <color=0xffe57f7f><b>-12 GJ</b><font size=10>被吸取到</font><b>秋杉</b> - 小型掠能器 II
+[ 2026.11.07 13:28:26 ] (combat) <font size=10>来自</font> <b>秋杉</b> <b>试图跃迁扰频</b> <b>你</b>！
+[ 2026.11.07 13:28:27 ] (combat) <b>你</b> 试图跃迁扰断 <b>秋杉</b>!
+[ 2026.11.07 13:28:28 ] (combat) <b>你</b>试图跃迁扰频<b>秋杉</b>！
+[ 2026.11.07 13:28:29 ] (combat) <b>秋杉</b> 试图跃迁扰断 <b>你</b>！
+[ 2026.11.07 13:28:30 ] (combat) <b>71</b> <font size=10>对</font> <b>秋杉</b> - 大型等离子立体炸弹 II
+[ 2026.11.07 13:28:31 ] (combat) <b>秋杉</b>被<font size=10>中型能量中和器 II</font>能量中和<color=0xffe57f7f><b>45GJ</b>
+[ 2026.11.07 13:28:32 ] (combat) <b>秋杉</b>的<font size=10>ECM脉冲波 II</font>令你的<b>目标锁定丢失</b>
+[ 2026.11.07 13:28:33 ] (combat) 你的 <b>目标锁定丢失</b> 于 <b>天蛇哨兵</b>
+[ 2026.11.07 13:28:34 ] (combat) <font size=10>ECM脉冲波 II</font>对<b>秋杉目标锁定丢失</b>
+[ 2026.11.07 13:28:35 ] (combat) <color=0xff7fffff><b>32 GJ</b><font size=10>远程能量传输至</font><b>秋杉</b> - 远程电容传输装置 II
+[ 2026.11.07 13:28:36 ] (combat) <color=0xff7fffff><b>+33 GJ</b><font size=10>来自</font><b>秋杉</b>远程能量传输 - 远程电容传输装置 II
+[ 2026.11.07 13:28:37 ] (combat) 秋杉的地精灵 II完全没有击中你 - 地精灵 II
