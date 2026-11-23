@@ -14,6 +14,7 @@ export function counterparty(label: string, raw: string): Counterparty {
     name: null,
     corpTicker: null,
     allianceTicker: null,
+    shipTypeId: null,
     shipType: null,
   }
 

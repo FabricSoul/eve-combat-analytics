@@ -13,7 +13,7 @@ export const battleStart = 1_795_374_000_000
 export const at = (seconds: number) => battleStart + seconds * 1000
 
 export function other(name: string | null, shipType: string | null = null, raw = name ?? ''): Counterparty {
-  return { raw, name, corpTicker: null, allianceTicker: null, shipType }
+  return { raw, name, corpTicker: null, allianceTicker: null, shipType, shipTypeId: null }
 }
 
 type EventFields = Omit<Extract<LogEvent, { kind: 'damage' }>, 't' | 'line' | 'other'>

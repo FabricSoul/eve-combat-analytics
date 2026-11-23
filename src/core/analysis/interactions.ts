@@ -33,7 +33,7 @@ function resolveCounterparty(
   return entity.key
 }
 
-function fromEvent(event: LogEvent, logId: string, from: EntityKey, to: EntityKey): Interaction {
+function fromEvent(event: Exclude<LogEvent, { kind: "ewar_seen" }>, logId: string, from: EntityKey, to: EntityKey): Interaction {
   return {
     t: event.t,
     from,
@@ -134,6 +134,8 @@ export function collectInteractions(state: BattleState, entities: Map<EntityKey,
   for (const log of logs) {
     const listener = charKey(log.charId)
     for (const event of log.parsed.events) {
+      // Third-party ewar is not attributed yet (follow-up task F3).
+      if (event.kind === 'ewar_seen') continue
       const other = resolveCounterparty(event.other, state, entities, byDisplayName)
       const outgoing = event.dir === 'out'
       const from = outgoing ? listener : other

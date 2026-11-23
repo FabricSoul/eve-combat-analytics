@@ -39,8 +39,10 @@ export interface Counterparty {
   name: string | null
   corpTicker: string | null
   allianceTicker: string | null
-  /** Ship type name as shown, e.g. "Hurricane Fleet Issue". */
+  /** Ship type name as shown, e.g. "Hurricane Fleet Issue" or "勒沙克级". */
   shipType: string | null
+  /** CCP type id of the ship, from src/core/data/ship-types.json (en and zh names); null when unknown. */
+  shipTypeId: number | null
 }
 
 interface EventBase {
@@ -102,7 +104,17 @@ export interface EwarEvent extends EventBase {
   ewar: EwarType
 }
 
-export type LogEvent = DamageEvent | MissEvent | RepairEvent | CapEvent | EwarEvent
+/**
+ * Ewar between two other parties that the listener's client reported, e.g.
+ * "Warp scramble attempt from Leshak to Bhaalgorn". `source` applies it to `other`.
+ */
+export interface ObservedEwarEvent extends EventBase {
+  kind: 'ewar_seen'
+  ewar: EwarType
+  source: Counterparty
+}
+
+export type LogEvent = DamageEvent | MissEvent | RepairEvent | CapEvent | EwarEvent | ObservedEwarEvent
 
 export interface ParsedLog {
   /** Character name from the "Listener:" / "收听者:" header line. */
@@ -261,8 +273,12 @@ export type ServerMessage =
 
 // ───────────────────────────── Analysis ─────────────────────────────
 
-/** `char:<id>` when resolved, else `name:<display name>` (NPCs, unresolved). */
-export type EntityKey = `char:${number}` | `name:${string}`
+/**
+ * `char:<id>` when resolved to a character; `ship:<typeId>:<side>` for a pilot seen only as a ship type
+ * (the listener's overview hid the name) that could not be matched to one character; `name:<label>` for
+ * NPCs, structures and anything else unresolved.
+ */
+export type EntityKey = `char:${number}` | `ship:${number}:${number}` | `name:${string}`
 
 export interface Entity {
   key: EntityKey

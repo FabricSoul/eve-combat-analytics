@@ -27,7 +27,7 @@ function party(
   allianceTicker: string | null = null,
   shipType: string | null = null,
 ): Counterparty {
-  return { raw, name, corpTicker, allianceTicker, shipType }
+  return { raw, name, corpTicker, allianceTicker, shipType, shipTypeId: null }
 }
 
 function damage(dir: 'in' | 'out', amount: number, weapon: string | null, quality: HitQuality) {
@@ -304,7 +304,7 @@ it.skipIf(!pvePath)('accounts for all 3,075 local PvE combat entries and their t
       counts.damage[event.dir]++
       counts.damageHp[event.dir] += event.amount
     } else if (event.kind === 'miss') counts.miss[event.dir]++
-    else counts[event.kind]++
+    else if (event.kind !== "ewar_seen") counts[event.kind]++
   }
   expect(unparsed).toEqual([])
   expect(events).toHaveLength(3_075)

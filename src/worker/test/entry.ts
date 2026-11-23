@@ -24,7 +24,7 @@ function event(t: number, line: number, name: string | null, raw = name ?? ''): 
     amount: 100,
     quality: 'Hits',
     weapon: 'Test Turret',
-    other: { name, raw, corpTicker: null, allianceTicker: null, shipType: null },
+    other: { name, raw, corpTicker: null, allianceTicker: null, shipType: null, shipTypeId: null },
   }
 }
 
