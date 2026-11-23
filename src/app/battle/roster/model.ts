@@ -12,7 +12,8 @@ export interface RosterTag {
 
 export interface RosterRow {
   key: EntityKey
-  charId: number
+  /** null for pilots the overview hid (ship:) or we could not resolve (name:): no portrait, no side override. */
+  charId: number | null
   name: string
   side: number
   hasLog: boolean
@@ -80,7 +81,7 @@ function tagOf(entity: Entity, charId: number, summary: BattleSummary, analysis:
 
 /**
  * Roster groups: our side first (pilots with logs, then the rest), then each other side by population, then 未分边.
- * Inside a group pilots are ordered by damage output.
+ * Inside a group: character rows first (ours: with logs first), then ship:/name: rows, each by damage output.
  */
 export function buildRoster(summary: BattleSummary, analysis: Analysis, oursSide: number): RosterGroup[] {
   const dead = new Set(summary.meta.killmails.flatMap(({ victim }) => victim.charId === null ? [] : [victim.charId]))
@@ -88,23 +89,25 @@ export function buildRoster(summary: BattleSummary, analysis: Analysis, oursSide
   const bySide = new Map<number, RosterRow[]>()
 
   for (const entity of Object.values(analysis.entities)) {
-    if (entity.charId === null) continue
     const ship = entity.shipTypes[0] ?? null
+    const { charId } = entity
+    const keyType = /^ship:(\d+):/.exec(entity.key)?.[1]
     const row: RosterRow = {
-      key: entity.key, charId: entity.charId, name: entity.name, side: entity.side, hasLog: entity.hasLog,
-      dead: dead.has(entity.charId), ship, shipTypeId: shipTypeIdByName(ship),
-      tag: tagOf(entity, entity.charId, summary, analysis),
+      key: entity.key, charId, name: entity.name, side: entity.side, hasLog: entity.hasLog,
+      dead: charId !== null && dead.has(charId), ship,
+      shipTypeId: keyType ? Number(keyType) : shipTypeIdByName(ship),
+      tag: charId === null ? null : tagOf(entity, charId, summary, analysis),
     }
     bySide.set(entity.side, [...bySide.get(entity.side) ?? [], row])
   }
 
   const rank = (row: RosterRow) => output.get(row.key) ?? [0, 0]
   const byOutput = (a: RosterRow, b: RosterRow) =>
-    rank(b)[0] - rank(a)[0] || rank(b)[1] - rank(a)[1] || a.name.localeCompare(b.name)
+    Number(a.charId === null) - Number(b.charId === null) || rank(b)[0] - rank(a)[0] || rank(b)[1] - rank(a)[1] || a.name.localeCompare(b.name)
   const sides = [...fullSideOrder(analysis, oursSide), -1]
   return sides.flatMap((side) => {
     const rows = (bySide.get(side) ?? []).sort(side === oursSide
-      ? (a, b) => Number(b.hasLog) - Number(a.hasLog) || byOutput(a, b)
+      ? (a, b) => Number(a.charId === null) - Number(b.charId === null) || Number(b.hasLog) - Number(a.hasLog) || byOutput(a, b)
       : byOutput)
     return rows.length === 0 ? [] : [{ side, rows, withLog: rows.filter((row) => row.hasLog).length }]
   })

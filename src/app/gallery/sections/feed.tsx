@@ -6,8 +6,8 @@ import { loadUiFixture } from '../../test/ui-fixture'
 
 const fixture = loadUiFixture()
 const ours = defaultOursSide(fixture.summary)
-// The boards' window: 92 s into the fight (15:43:02 on J125990).
-const at = fixture.analysis.timeline.start + 92_000
+// The boards' window: the 10 s ending with second 92 of the fight (15:43:02 on J125990), as c6-merged draws it.
+const at = fixture.analysis.timeline.start + 92_999
 
 function Mode({ mode }: { mode: FeedMode }) {
   const { setFeedMode } = useView()

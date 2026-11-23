@@ -98,7 +98,7 @@ export function SidesPanel({ onClose }: SidesPanelProps) {
       </div>
       {unassigned && <div className="sides-notice" role="status">还有 {unassigned.pilotCount} 人未分边</div>}
       {mover.error && <div className="sides-notice" role="alert">{mover.error}</div>}
-      <div className="sides-cols" style={{ gridTemplateColumns: `repeat(${shown.length}, minmax(0, 1fr))` }}>
+      <div className="sides-cols" style={{ gridTemplateColumns: `repeat(${shown.length}, minmax(220px, 1fr))` }}>
         {shown.map((column) => {
           const key = column === 'new' ? 'new' : column.side
           const letter = column === 'new' ? null : sideLetter(column.side, order)

@@ -2,6 +2,8 @@ import type { Analysis, BattleSummary, SideSubject } from '@/core/contract'
 import { affiliationOf } from './affiliation'
 import { buildRoster, fullSideOrder, type RosterRow } from './model'
 
+export type CharRow = RosterRow & { charId: number }
+
 export interface SideGroup {
   /** What moving this row moves: the alliance, else the corporation, else the character alone. */
   subject: SideSubject
@@ -9,7 +11,7 @@ export interface SideGroup {
   /** Alliance or corporation id (the image id); the character id for kind 'char'. */
   id: number
   name: string
-  pilots: RosterRow[]
+  pilots: CharRow[]
 }
 
 export interface SideColumn {
@@ -27,7 +29,7 @@ export interface SideColumns {
   order: number[]
 }
 
-function groupPilots(summary: BattleSummary, rows: readonly RosterRow[]): SideGroup[] {
+function groupPilots(summary: BattleSummary, rows: readonly CharRow[]): SideGroup[] {
   const groups = new Map<SideSubject, SideGroup>()
   for (const row of rows) {
     const affiliation = affiliationOf(summary, row.charId)
@@ -45,7 +47,8 @@ export function buildSideColumns(summary: BattleSummary, analysis: Analysis, our
   const order = fullSideOrder(analysis, oursSide)
   const roster = buildRoster(summary, analysis, oursSide)
   const column = (side: number): SideColumn => {
-    const rows = roster.find((group) => group.side === side)?.rows ?? []
+    // Only characters can be moved: side overrides have no subject for ship:/name: pilots.
+    const rows = (roster.find((group) => group.side === side)?.rows ?? []).filter((row): row is CharRow => row.charId !== null)
     return { side, groups: groupPilots(summary, rows), pilotCount: rows.length, withLog: rows.filter((row) => row.hasLog).length }
   }
   const unassigned = column(-1)

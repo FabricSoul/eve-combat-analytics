@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
 import { useView } from '../state/view-store'
 import { Roster } from './Roster'
-import { mountApp, tinySummary } from './roster/testing'
+import { mountApp, tinyAnalysis, tinySummary } from './roster/testing'
 
 let mounted: ReturnType<typeof mountApp>
 beforeEach(() => { vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true) })
@@ -34,6 +34,23 @@ describe('Roster', () => {
     expect(row('Pilot1').querySelector('.app-tag')).toBeNull()
     expect(row('Pilot1').textContent).toContain('Leshak')
     expect(row('Pilot1').querySelector('img.app-type-icon')?.getAttribute('src')).toContain('/types/47271/icon')
+  })
+
+  it('lists ship: and name: pilots after the characters, with a placeholder portrait, the key\'s ship and no menu', () => {
+    const extra = [
+      { key: 'ship:587:1', name: 'Rifter', charId: null, side: 1, sideSource: 'br', shipTypes: ['Rifter'], hasLog: false },
+      { key: 'name:Hidden', name: 'Hidden', charId: null, side: 1, sideSource: 'br', shipTypes: ['Leshak'], hasLog: false },
+    ] as const
+    mounted = mountApp(createElement(Roster), {
+      summary: tinySummary,
+      analysis: { ...tinyAnalysis, entities: { ...tinyAnalysis.entities, ...Object.fromEntries(extra.map((e) => [e.key, { ...e, shipTypes: [...e.shipTypes] }])) } },
+    })
+    expect(names()).toEqual(['Pilot3', 'Pilot1', 'Pilot2', 'Pilot5', 'Pilot4', 'Hidden', 'Rifter', 'Pilot6'])
+    const ship = row('Rifter')
+    expect(ship.querySelector('img.app-portrait')).toBeNull()
+    expect(ship.querySelector('span.app-portrait')).not.toBeNull()
+    expect(ship.querySelector('img.app-type-icon')?.getAttribute('src')).toContain('/types/587/icon')
+    expect(ship.querySelector('.roster-more')).toBeNull()
   })
 
   it('selects on click and clears on a second click', () => {

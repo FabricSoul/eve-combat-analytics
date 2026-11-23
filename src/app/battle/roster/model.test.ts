@@ -62,14 +62,25 @@ describe('buildRoster', () => {
     expect(groups[2]?.rows.map((r) => r.charId)).toEqual([5, 4])
   })
 
-  it('marks log dots, dead pilots and ship type ids; skips entities without a character', () => {
-    const groups = buildRoster(base, analysisOf([...entities, entity(8, 1, { charId: null, key: 'name:NPC' })]), 0)
-    const rows = groups.flatMap((g) => g.rows)
+  it('marks log dots, dead pilots and ship type ids', () => {
+    const rows = buildRoster(base, analysisOf(entities), 0).flatMap((g) => g.rows)
     expect(rows.find((r) => r.charId === 4)?.dead).toBe(true)
     expect(rows.find((r) => r.charId === 5)?.dead).toBe(false)
     expect(rows.find((r) => r.charId === 1)?.hasLog).toBe(true)
     expect(rows.find((r) => r.charId === 1)?.shipTypeId).toBe(47271)
-    expect(rows.some((r) => r.key === 'name:NPC')).toBe(false)
+  })
+
+  it('lists ship: and name: entities after the char: rows of their side, with the key\'s ship type and no portrait', () => {
+    const extra: Entity[] = [
+      { key: 'ship:587:1', name: 'Rifter', charId: null, side: 1, sideSource: 'br', shipTypes: ['Rifter'], hasLog: false },
+      { key: 'name:Hidden Pilot', name: 'Hidden Pilot', charId: null, side: 1, sideSource: 'br', shipTypes: ['Leshak'], hasLog: false },
+    ]
+    const analysis = analysisOf([...entities, ...extra])
+    analysis.stats.push({ ...stats(0, 99_999), key: 'ship:587:1' }, { ...stats(0, 1), key: 'name:Hidden Pilot' })
+    const side1 = buildRoster(base, analysis, 0).find((g) => g.side === 1)!.rows
+    expect(side1.map((r) => r.key)).toEqual(['char:5', 'char:4', 'ship:587:1', 'name:Hidden Pilot'])
+    expect(side1[2]).toMatchObject({ charId: null, name: 'Rifter', shipTypeId: 587, hasLog: false, tag: null })
+    expect(side1[3]).toMatchObject({ charId: null, name: 'Hidden Pilot', shipTypeId: 47271 })
   })
 
   it('tags only changed sides: 据日志 with the reason, 手动 with the change time', () => {
@@ -112,6 +123,7 @@ describe('buildRoster on J125990', () => {
     expect(ours.slice(0, firstUnlogged).every((r) => r.hasLog)).toBe(true)
     expect(ours.slice(firstUnlogged).some((r) => r.hasLog)).toBe(false)
     expect(groups.at(-1)?.side).toBe(-1)
-    expect(groups.at(-1)?.rows).toHaveLength(23)
+    expect(groups.at(-1)?.rows.filter((r) => r.charId !== null)).toHaveLength(23)
+    expect(groups.at(-1)?.rows.slice(0, 23).every((r) => r.charId !== null)).toBe(true)
   })
 })

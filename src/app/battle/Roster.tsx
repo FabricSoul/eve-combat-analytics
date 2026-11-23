@@ -14,7 +14,7 @@ import './roster/roster.css'
 
 export interface RosterProps {}
 
-interface OpenMenu { row: RosterRow; x: number; y: number }
+interface OpenMenu { row: RosterRow & { charId: number }; x: number; y: number }
 
 export function Roster(_props: RosterProps) {
   const { summary, analysis } = useBattleContext()
@@ -30,7 +30,7 @@ export function Roster(_props: RosterProps) {
   if (groups.length === 0) return <div className="roster-note">这场战斗还没有名单。</div>
   const order = fullSideOrder(analysis, view.oursSide)
 
-  function sectionsFor(row: RosterRow): SideMenuSection[] {
+  function sectionsFor(row: RosterRow & { charId: number }): SideMenuSection[] {
     const affiliation = summary ? affiliationOf(summary, row.charId) : null
     const names = summary?.meta.names ?? {}
     const sections: SideMenuSection[] = [{ heading: `移到… · ${row.name}`, subject: `char:${row.charId}`, current: row.side }]
@@ -44,9 +44,11 @@ export function Roster(_props: RosterProps) {
   }
 
   function open(row: RosterRow, event: MouseEvent, anchor: boolean) {
+    // ship:/name: pilots have no side subject, so there is nothing to move.
+    if (row.charId === null) return
     event.preventDefault()
     const box = event.currentTarget.getBoundingClientRect()
-    setMenu({ row, x: anchor ? box.left : event.clientX, y: anchor ? box.bottom : event.clientY })
+    setMenu({ row: row as OpenMenu['row'], x: anchor ? box.left : event.clientX, y: anchor ? box.bottom : event.clientY })
   }
 
   return (
@@ -75,8 +77,10 @@ export function Roster(_props: RosterProps) {
                   {row.tag ? <Tag title={row.tag.title} data-kind={row.tag.kind}>{row.tag.kind === 'log' ? '据日志' : '手动'}</Tag> : <span />}
                   <span className="roster-ship"><TypeIcon typeId={row.shipTypeId} size={16} />{row.ship}</span>
                 </button>
-                <button type="button" className="roster-more" aria-label={`${row.name} 的操作`} aria-haspopup="menu"
-                  aria-expanded={menu?.row.key === row.key} onClick={(event) => open(row, event, true)}>⋯</button>
+                {row.charId !== null && (
+                  <button type="button" className="roster-more" aria-label={`${row.name} 的操作`} aria-haspopup="menu"
+                    aria-expanded={menu?.row.key === row.key} onClick={(event) => open(row, event, true)}>⋯</button>
+                )}
               </div>
             ))}
           </section>

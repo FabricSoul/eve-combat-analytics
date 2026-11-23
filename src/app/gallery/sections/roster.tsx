@@ -20,17 +20,17 @@ function Select({ keyOf }: { keyOf: EntityKey }) {
   return null
 }
 
-function Box({ label, children }: { label: string; children: ReactNode }) {
+function Box({ label, children, hover }: { label: string; children: ReactNode; hover?: boolean }) {
   return (
     <>
       <span className="app-token-usage">{label}</span>
-      <div style={{ width: 280, overflow: 'auto', background: 'var(--color-surface)', border: '1px solid var(--color-hair)' }}>{children}</div>
+      <div className="roster-bare" data-hover={hover ? '' : undefined} style={{ width: 280 }}>{children}</div>
     </>
   )
 }
 
-function State({ label, keyOf, patch, selected, manual }: {
-  label: string; keyOf: EntityKey; patch?: Parameters<typeof onlyPilot>[2]; selected?: boolean; manual?: boolean
+function State({ label, keyOf, patch, selected, manual, hover }: {
+  label: string; keyOf: EntityKey; patch?: Parameters<typeof onlyPilot>[2]; selected?: boolean; manual?: boolean; hover?: boolean
 }) {
   const data = onlyPilot(fixture, keyOf, patch)
   const charId = data.analysis.entities[keyOf]?.charId
@@ -38,7 +38,7 @@ function State({ label, keyOf, patch, selected, manual }: {
     ? { ...data.summary, sideOverrides: [{ subject: `char:${charId}` as const, side: ours, source: 'manual' as const, setAt: Date.UTC(2025, 5, 22, 16, 5) }] }
     : data.summary
   return (
-    <Box label={label}>
+    <Box label={label} hover={hover}>
       <BattleProvider static={{ ...data, summary }}>
         <ViewProvider syncUrl={false} defaultSide={ours}>
           {selected && <Select keyOf={keyOf} />}
@@ -50,7 +50,7 @@ function State({ label, keyOf, patch, selected, manual }: {
 }
 
 function RosterSection() {
-  const logged = pick((e) => e.hasLog && e.sideSource === 'br')
+  const logged = pick((e) => e.hasLog && e.sideSource === 'br' && !deadIds.has(e.charId))
   const unlogged = pick((e) => !e.hasLog && e.sideSource === 'br' && !deadIds.has(e.charId))
   const dead = pick((e) => !e.hasLog && e.charId !== null && deadIds.has(e.charId))
   const corrected = pick((e) => e.sideSource === 'log')
@@ -59,7 +59,7 @@ function RosterSection() {
     <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: 'var(--space-2) var(--space-4)', alignItems: 'start' }}>
         <State label="默认（有日志）" keyOf={logged.key} />
-        <State label="悬停：把鼠标移到任意一行，会显示 ⋯" keyOf={unlogged.key} />
+        <State label="悬停（底色变深，显示 ⋯）" keyOf={unlogged.key} hover />
         <State label="选中（金色左线 + 浅底）" keyOf={logged.key} selected />
         <State label="没上传日志（空心圈）" keyOf={unlogged.key} />
         <State label="已被击毁（划线、图标变暗）" keyOf={dead.key} />

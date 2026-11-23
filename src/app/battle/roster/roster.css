@@ -57,7 +57,7 @@
 .sides-hint { color: var(--color-text-2); font-size: var(--fs-s); }
 .sides-actions { display: flex; gap: var(--space-2); margin-inline-start: auto; }
 .sides-notice { padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--color-hair); font-size: var(--fs-s); }
-.sides-cols { display: grid; flex: 1; min-height: 0; gap: var(--space-3); padding: var(--space-3); overflow: auto; }
+.sides-cols { display: grid; flex: 1; min-height: 0; gap: var(--space-3); padding: var(--space-3); overflow: auto; overscroll-behavior-x: contain; }
 .sides-col {
   display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--color-hair); border-radius: var(--radius-card);
   background: var(--color-surface);
@@ -85,3 +85,13 @@
 
 .sides-col-head > span:first-of-type { white-space: nowrap; }
 .sides-col-head .roster-count { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* Tag for a side corrected from log evidence: accent-line border, text color (board c1-spec). */
+.roster-row .app-tag[data-kind="log"] { border-color: color-mix(in srgb, var(--color-accent-line) 60%, transparent); color: var(--color-text); }
+/* One row on its own, as drawn on the c1-spec board; the gallery uses it for the state list. */
+.roster-bare { overflow: hidden; border: 1px solid var(--color-hair); border-radius: var(--radius-ctl); background: var(--color-surface); }
+.roster-bare .roster-head { display: none; }
+.roster-bare .roster-row { border-bottom: 0; }
+.roster-bare[data-hover] .roster-row { background: var(--color-raised); }
+.roster-bare[data-hover] .roster-more { opacity: 1; }
+.roster-row .app-tag { font-size: 11px; line-height: 16px; }
