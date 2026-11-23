@@ -83,6 +83,11 @@ export function buildScene(analysis: Analysis, killmails: readonly Killmail[], o
   return { pilots, edges, pointSpans, visibleAt: makePresence(pilots, edges, order[0]) }
 }
 
+interface LayoutPositions {
+  byKey: ReadonlyMap<EntityKey, ReplayNode>
+  row: { slots: number; seats: ReadonlyMap<EntityKey, number> }
+}
+
 interface CombatLink extends SimulationLinkDatum<ReplayNode> {
   source: ReplayNode
   target: ReplayNode
@@ -148,7 +153,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     return true
   }
 
-  function engage(edges: readonly ReplayEdge[], now: number, selected: EntityKey | null, focusOnly: boolean) {
+  function engage(edges: readonly ReplayEdge[], now: number, selected: EntityKey | null, focusOnly: boolean, reheat = true) {
     const pairs = new Map<string, CombatLink>()
     const end = upperTimeIndex(edges, now)
     for (let index = upperTimeIndex(edges, now - 4000); index < end; index++) {
@@ -163,29 +168,46 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
       else pairs.set(key, { source, target, count: 1 })
     }
     links.links([...pairs.values()])
-    simulation.alpha(Math.max(simulation.alpha(), 0.2))
+    if (reheat) simulation.alpha(Math.max(simulation.alpha(), 0.2))
   }
 
   const rowWidth = Math.max(0, width - 12)
   const slotSize = 2 * Math.max(0, ...unassigned.map(({ radius }) => radius)) + 10
   const defaultSlots = Math.max(1, Math.floor(rowWidth / slotSize))
-  const seats = new Map<ReplayNode, number>()
-  let slots = defaultSlots
+  const row = { seats: new Map<EntityKey, number>(), slots: defaultSlots }
+
+  function inheritPositions(previous: LayoutPositions) {
+    let ordinal = 1 + Math.max(-1, ...Array.from(previous.byKey.values(), (node) => node.ordinal))
+    for (const node of nodes) {
+      const prior = previous.byKey.get(node.entity.key)
+      node.ordinal = prior?.ordinal ?? ordinal++
+      if (prior && (prior.entity.side === -1) === (node.entity.side === -1)) {
+        node.x = prior.x
+        node.y = prior.y
+      }
+    }
+    row.slots = previous.row.slots
+    for (const [key, seat] of previous.row.seats) {
+      if (byKey.get(key)?.entity.side === -1) row.seats.set(key, seat)
+    }
+    simulation.alpha(0)
+  }
 
   function placeUnassigned(visible: ReadonlySet<EntityKey>) {
-    const row = unassigned.filter(({ node }) => visible.has(node.entity.key))
-    for (const node of seats.keys()) if (!visible.has(node.entity.key)) seats.delete(node)
-    if (!row.length) {
-      slots = defaultSlots
+    const seated = unassigned.filter(({ node }) => visible.has(node.entity.key))
+    const { seats } = row
+    for (const key of seats.keys()) if (!visible.has(key)) seats.delete(key)
+    if (!seated.length) {
+      row.slots = defaultSlots
       return
     }
     // Each occupied center becomes the middle of three finer slots, so it does not move.
-    while (row.length > slots) {
-      slots *= 3
-      for (const [node, slot] of seats) seats.set(node, 3 * slot + 1)
+    while (seated.length > row.slots) {
+      row.slots *= 3
+      for (const [key, slot] of seats) seats.set(key, 3 * slot + 1)
     }
-
-    const newcomers = row.filter(({ node }) => !seats.has(node))
+    const slots = row.slots
+    const newcomers = seated.filter(({ node }) => !seats.has(node.entity.key))
     if (newcomers.length) {
       const taken = new Set(seats.values())
       const center = (slots - 1) / 2
@@ -194,19 +216,19 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
         .sort((a, b) => Math.abs(a - center) - Math.abs(b - center))
         .slice(0, newcomers.length)
         .sort((a, b) => a - b)
-      newcomers.forEach(({ node }, index) => seats.set(node, free[index]!))
+      newcomers.forEach(({ node }, index) => seats.set(node.entity.key, free[index]!))
     }
 
     const step = rowWidth / slots
     const scale = Math.min(1, step / slotSize)
-    for (const { node, radius } of row) {
+    for (const { node, radius } of seated) {
       node.radius = Math.max(0, (radius + 2) * scale - 2)
-      node.x = (width - rowWidth) / 2 + (seats.get(node)! + 0.5) * step
+      node.x = (width - rowWidth) / 2 + (seats.get(node.entity.key)! + 0.5) * step
       node.y = height - 25
     }
   }
 
-  return { nodes, byKey, tick, setVisible, engage, placeUnassigned, isMoving: () => activeNodes.length > 0 && simulation.alpha() > 0.004 }
+  return { nodes, byKey, row, width, height, ours: order[0], tick, setVisible, engage, placeUnassigned, inheritPositions, isMoving: () => activeNodes.length > 0 && simulation.alpha() > 0.004 }
 }
 
 export type ReplayLayout = ReturnType<typeof makeLayout>

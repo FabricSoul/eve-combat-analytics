@@ -1,0 +1,101 @@
+// @vitest-environment jsdom
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Analysis, Entity, EntityKey, Interaction } from '@/core/contract'
+import { ReplayStage } from './ReplayStage'
+
+const order = [0, 1]
+const killmails = [] as const
+const time = 10_000
+const alpha: Entity = { key: 'char:1', side: 0, sideSource: 'br', name: 'Alpha', charId: 1, hasLog: true, shipTypes: [] }
+const beta: Entity = { ...alpha, key: 'char:2', side: 1, name: 'Beta', charId: 2, hasLog: false }
+const neutral: Entity = { ...beta, key: 'char:3', side: -1, name: 'Neutral', charId: 3 }
+const newcomer: Entity = { ...beta, key: 'char:4', name: 'Newcomer', charId: 4 }
+
+function observation(to: EntityKey): Interaction {
+  return {
+    t: time, from: alpha.key, to, kind: 'damage', amount: 100, weapon: null, quality: null,
+    repairType: null, ewar: null, sources: [], corroborated: false,
+  }
+}
+
+function analysis(pilots: Entity[] = [alpha, beta, neutral], interactions = pilots.map(({ key }) => observation(key))): Analysis {
+  return {
+    entities: Object.fromEntries(pilots.map((pilot) => [pilot.key, pilot])),
+    interactions, coverage: [], sideOverrides: [], ewarSpans: [], primaries: [], stats: [],
+    timeline: { start: time, damageBySide: {} },
+  }
+}
+
+let host: HTMLDivElement
+let root: Root
+let frames: Map<number, FrameRequestCallback>
+let nextFrame: number
+const select = vi.fn()
+
+async function refresh() {
+  await act(() => {
+    const scheduled = [...frames.values()]
+    frames.clear()
+    for (const callback of scheduled) callback(performance.now())
+  })
+}
+
+async function render(result: Analysis, t = time, selected: EntityKey | null = null) {
+  await act(() => root.render(
+    <ReplayStage analysis={result} killmails={killmails} order={order} t={t} playing={false}
+      selected={selected} focusOnly={false} select={select} />,
+  ))
+  await refresh()
+}
+
+function button(name: string) {
+  return host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!
+}
+
+const marker = (name: string) => button(name).parentElement!
+
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  frames = new Map()
+  nextFrame = 0
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames.set(++nextFrame, callback)
+    return nextFrame
+  })
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => { frames.delete(id) })
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(600)
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500)
+  const noOp = () => {}
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ({
+    setTransform: noOp, clearRect: noOp, setLineDash: noOp, beginPath: noOp,
+    stroke: noOp, fill: noOp, moveTo: noOp, lineTo: noOp, arc: noOp,
+  }) as unknown as CanvasRenderingContext2D)
+  host = document.createElement('div')
+  document.body.appendChild(host)
+  root = createRoot(host)
+  select.mockClear()
+})
+
+afterEach(async () => {
+  await act(() => root.unmount())
+  host.remove()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
+
+describe('replay analysis refresh', () => {
+  it('preserves ship positions by key when refreshed analysis adds and reorders entities', async () => {
+    await render(analysis())
+    const names = [alpha.name, beta.name, neutral.name]
+    const positions = names.map((name) => marker(name).style.transform)
+    expect(positions.every(Boolean)).toBe(true)
+
+    await render(analysis([newcomer, neutral, beta, alpha]))
+    expect(names.map((name) => marker(name).style.transform)).toEqual(positions)
+    expect(marker(newcomer.name).hasAttribute('data-present')).toBe(true)
+    expect(marker(newcomer.name).style.transform).toBeTruthy()
+  })
+})

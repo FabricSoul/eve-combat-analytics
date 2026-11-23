@@ -11,7 +11,7 @@ import { placePilotLabel } from './placement'
 import { deathAt } from './presence'
 import type { Rect } from './placement'
 import { buildScene, makeLayout } from './scene'
-import type { ReplayNode } from './scene'
+import type { ReplayLayout, ReplayNode } from './scene'
 import './replay.css'
 
 interface ReplayStageProps extends Omit<ReplayFrame, 'reducedMotion'> {
@@ -89,6 +89,7 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
   const bracket = useRef<HTMLDivElement>(null)
   const tooltip = useRef<HTMLDivElement>(null)
   const markers = useRef(new Map<EntityKey, HTMLDivElement>())
+  const previousLayout = useRef<ReplayLayout | null>(null)
   const invalidate = useRef<() => void>(() => {})
   const [size, setSize] = useState({ width: 0, height: 0, dpr: 1 })
   const { width, height, dpr } = size
@@ -128,6 +129,10 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
     const lineCanvas = under.current?.getContext('2d')
     const effectsCanvas = over.current?.getContext('2d')
     if (!element || !lineCanvas || !effectsCanvas) return
+    const previous = previousLayout.current
+    const continued = previous?.width === width && previous.height === height && previous.ours === layout.ours
+    if (continued && previous !== layout) layout.inheritPositions(previous)
+    previousLayout.current = layout
     lineCanvas.setTransform(dpr, 0, 0, dpr, 0, 0)
     effectsCanvas.setTransform(dpr, 0, 0, dpr, 0, 0)
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -169,10 +174,12 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
       const present = scene.visibleAt(t, selected)
       const membershipChanged = layout.setVisible(present)
       const layoutTime = playing ? Math.floor(t / 250) * 250 : t
+      const firstFrame = lastLayoutTime === null
       if (membershipChanged || layoutTime !== lastLayoutTime || selected !== lastLayoutSelection || focusOnly !== lastFocusOnly) {
-        layout.engage(scene.edges, t, selected, focusOnly)
-        // Settle the initial layout, then advance gently even across a large seek.
-        layout.tick(lastLayoutTime === null ? 145 : 1)
+        const inheritedFrame = firstFrame && continued
+        layout.engage(scene.edges, t, selected, focusOnly, !inheritedFrame || playing)
+        // A live refresh starts from the current coordinates. Only a new viewport settles in a batch.
+        if (!inheritedFrame) layout.tick(firstFrame ? 145 : 1)
         lastLayoutTime = layoutTime
         lastLayoutSelection = selected
         lastFocusOnly = focusOnly
@@ -197,15 +204,16 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
         const marker = markers.current.get(key)
         if (!marker) continue
         const position = positions.get(node)
-        if (marker.hasAttribute('data-present') !== Boolean(position)) {
+        const visibilityChanged = marker.hasAttribute('data-present') !== Boolean(position)
+        if (visibilityChanged) {
           marker.toggleAttribute('data-present', Boolean(position))
           marker.inert = !position
-          if (position) {
-            const image = marker.querySelector<HTMLImageElement>('img[data-src]:not([src])')
-            if (image?.dataset.src) image.src = image.dataset.src
-          }
         }
         if (!position) continue
+        if (firstFrame || visibilityChanged) {
+          const image = marker.querySelector<HTMLImageElement>('img[data-src]:not([src])')
+          if (image?.dataset.src) image.src = image.dataset.src
+        }
 
         const { x, y } = position
         const lastLoss = deathAt(node.deaths, t)
