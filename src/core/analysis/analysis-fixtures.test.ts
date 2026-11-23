@@ -2,6 +2,8 @@ import { realBattleState, realBattleStateWithBr } from '../../../fixtures/real/j
 import { expect, it } from 'vitest'
 import { battle, hit, log, other } from '../../../fixtures/states/analysis'
 import type { BattleState } from '../contract'
+import { itemTypeId } from '../data/item-types'
+import shipTypes from '../data/ship-types.json'
 import { analyze } from './analyze'
 
 function report(state: BattleState, input: string) {
@@ -56,6 +58,31 @@ it('corrects only Lucinda HIly in the owner-generated J125990 battle report', ()
   expect([...new Set(otherUploaders.filter(({ side }) => side >= 0).map(({ side }) => side))]).toEqual([1])
   console.info('J125990 log side corrections', result.sideOverrides)
 }, 60_000)
+
+it('keeps equipment out of entity ship types and does not resolve the rocket to a real pilot in J125990', () => {
+  const state = realBattleStateWithBr()
+  expect(state.names.Rocket?.charId).toBe(245637611)
+  const analysis = analyze(state)
+  const shipIds = new Set(shipTypes.map(({ id }) => id))
+  const equipment = [...new Set(Object.values(analysis.entities).flatMap(({ shipTypes }) => shipTypes))].filter((name) => {
+    const id = itemTypeId(name)
+    return id !== null && !shipIds.has(id)
+  })
+  expect(equipment).toEqual([])
+  expect(analysis.entities['char:245637611']).toBeUndefined()
+  expect(analysis.interactions).toEqual(expect.arrayContaining([
+    expect.objectContaining({ to: 'name:Rocket[NVACA](Caldari Navy Mjolnir Rocket)', weapon: 'Dread Guristas Large Graviton Smartbomb' }),
+  ]))
+}, 60_000)
+
+it('rechecks equipment hulls in stored parsed logs before assigning a character', () => {
+  const raw = 'Rocket[NVACA](Caldari Navy Mjolnir Rocket)'
+  const state = battle([log(1, 'Ace', 0, [hit(0, other('Rocket', 'Caldari Navy Mjolnir Rocket', raw), 90)])])
+  state.names = { ...state.names, Rocket: { charId: 245637611, side: 1 } }
+  const analysis = analyze(state)
+  expect(analysis.entities['char:245637611']).toBeUndefined()
+  expect(analysis.entities[`name:${raw}`]).toMatchObject({ charId: null, shipTypes: [] })
+})
 
 it.skipIf(!process.env.PERF)('analyzes 90,000 events in under 500 ms (PERF=1)', { retry: 3 }, () => {
   const state = battle([])

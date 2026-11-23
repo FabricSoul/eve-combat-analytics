@@ -1,8 +1,10 @@
 import type { Counterparty } from '../contract'
+import { isItemTypeName, itemTypeId } from '../data/item-types'
 import shipTypes from '../data/ship-types.json'
 
 const typeIds = new Map<string, number>()
 const englishTypes = new Set<string>()
+const shipTypeIds = new Set(shipTypes.map(({ id }) => id))
 for (const { id, en, zh } of shipTypes) {
   if (en) {
     englishTypes.add(en)
@@ -13,6 +15,13 @@ for (const { id, en, zh } of shipTypes) {
 
 export function isEnglishShipType(name: string): boolean {
   return englishTypes.has(name)
+}
+
+/** Item labels can describe objects hit by smartbombs, but never their pilots or hulls. */
+export function isEquipmentType(name: string): boolean {
+  if (typeIds.has(name)) return false
+  const id = itemTypeId(name)
+  return id === null ? isItemTypeName(name) : !shipTypeIds.has(id)
 }
 
 interface ShipPrefix {
@@ -156,11 +165,16 @@ export function counterparty(label: string, raw: string, drone?: string, npcName
     result.shipType = droneType ?? null
     result.shipTypeId = droneId
   }
-  if (npcName) return result
+  if (npcName) return isEquipmentType(npcName) ? { ...result, name: null } : result
   // A leading italic run is a pilot label in a real overview layout.
   // Italics after the hull are cosmetic and can contain bracket groups.
   const clean = label.replace(/^<i>([^<>]+)<\/i>/, '$1')
     .replace(/<i>[^]*?<\/i>/g, ' ').trim().replace(/(?:\s+-)+$/, '')
+  // A target such as Rocket[NVACA](Caldari Navy Mjolnir Rocket) is the projectile,
+  // not a character named after it. Check the whole type field before scanning prefixes.
+  const wrappedType = /\(([^()]+)\)$/.exec(clean)?.[1]
+  const bracketed = legacyShipFirst.exec(clean)
+  if (isEquipmentType(wrappedType ?? bracketed?.[1] ?? clean)) return result
   const ship = findShip(clean)
   if (ship) {
     return {
@@ -185,7 +199,6 @@ export function counterparty(label: string, raw: string, drone?: string, npcName
   const prefix = corpFirst.exec(clean)
   if (prefix?.[2]?.trim()) return { ...result, name: prefix[2].trim(), corpTicker: prefix[1] ?? null }
 
-  const bracketed = legacyShipFirst.exec(clean)
   const bracketName = (bracketed?.[2] ?? bracketed?.[3])?.trim()
   if (bracketed?.[1] && bracketName && !ticker.test(bracketName)) {
     return { ...result, name: bracketName, shipType: bracketed[1].trim().replace(/\*$/, '') }

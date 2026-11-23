@@ -366,11 +366,12 @@ export class BattleRoom extends ProductionRoom {
 
       const side = shot.page.getByRole('combobox', { name: '我方' })
       assert.equal(await side.getAttribute('aria-expanded'), 'false')
-      assert.match(await side.innerText(), /DeltaForce\.inc 等 43 人/)
+      // The rocket projectile is not a pilot in the J125990 roster.
+      assert.match(await side.innerText(), /DeltaForce\.inc 等 42 人/)
       await side.press('ArrowDown')
       const options = shot.page.getByRole('listbox', { name: '我方' })
       const opponent = options.getByRole('option', { name: 'No Vacancies. 等 63 人', exact: true })
-      const ally = options.getByRole('option', { name: 'DeltaForce.inc 等 43 人', exact: true })
+      const ally = options.getByRole('option', { name: 'DeltaForce.inc 等 42 人', exact: true })
       await opponent.waitFor()
       assert.equal(await ally.getAttribute('aria-selected'), 'true')
       const dotColor = (option) => option.locator('.app-side-picker-dot').evaluate((dot) => getComputedStyle(dot).backgroundColor)

@@ -106,6 +106,49 @@ describe('dictionary-backed overview labels', () => {
   })
 })
 
+it('keeps real English and Chinese smartbomb rocket hits as unnamed projectile targets', () => {
+  const texts = realLogTexts()
+  const cases = [
+    { file: '20250622_122835_2117427381.txt', weapon: 'Dread Guristas Large Graviton Smartbomb' },
+    { file: '20250622_123828_2115160605.txt', weapon: 'Imperial Navy Large EMP Smartbomb' },
+  ]
+  for (const { file, weapon } of cases) {
+    const { text } = texts.find((log) => log.file === file)!
+    const line = text.split(/\r\n|\n|\r/).findIndex((raw) => raw.includes('Caldari Navy Mjolnir Rocket')
+      && raw.includes('[NVACA]') && raw.includes(weapon)) + 1
+    expect(line).toBeGreaterThan(0)
+    const event = parseGamelog(text).events.find((entry) => entry.line === line)
+    expect(event).toMatchObject({
+      kind: 'damage', dir: 'out', amount: 90, weapon,
+      other: { raw: expect.stringContaining('[NVACA]'), name: null, shipType: null, shipTypeId: null },
+    })
+  }
+}, 60_000)
+
+it('keeps the real rocket weapon separate from the pilot flying the Cenotaph', () => {
+  const { text } = realLogTexts().find(({ file }) => file === '20250622_144910_94105136.txt')!
+  const rocketLine = text.split(/\r\n|\n|\r/).findIndex((line) => line.includes('Tallanvor[NVACA](Cenotaph)')
+    && line.includes(' - Caldari Navy Mjolnir Rocket - Hits')) + 1
+  expect(rocketLine).toBeGreaterThan(0)
+  const event = parseGamelog(text).events.find(({ line }) => line === rocketLine)
+  expect(event).toMatchObject({
+    kind: 'damage', dir: 'in', weapon: 'Caldari Navy Mjolnir Rocket',
+    other: { name: 'Tallanvor', shipType: 'Cenotaph', shipTypeId: 85086 },
+  })
+}, 60_000)
+
+it('rejects known equipment as a hull in legacy overview syntax without hiding real pilots named Rocket', () => {
+  const header = readFileSync(en, 'utf8').split('\n').slice(0, 4).join('\n')
+  const result = parseGamelog(header + '\n' + [
+    '[ 2025.06.22 15:38:01 ] (combat) 44 from Dread Guristas Large Graviton Smartbomb <Rocket> - Hits',
+    '[ 2025.06.22 15:38:02 ] (combat) 44 from Rocket [NVACA] (Cenotaph) - Hits',
+  ].join('\n'))
+  expect(result.events.map(({ other }) => other)).toMatchObject([
+    { name: null, shipType: null, shipTypeId: null },
+    { name: 'Rocket', shipType: 'Cenotaph', shipTypeId: 85086 },
+  ])
+})
+
 function escapeRegex(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

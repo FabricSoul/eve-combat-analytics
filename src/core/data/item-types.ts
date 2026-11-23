@@ -44,3 +44,9 @@ export function itemTypeId(name: string): number | null {
   if (!key || ambiguous.has(key)) return null
   return typeIds.get(key) ?? null
 }
+
+/** True for an exact catalog label, including names shared by multiple IDs. */
+export function isItemTypeName(name: string): boolean {
+  const key = normalize(name)
+  return typeIds.has(key) || ambiguous.has(key)
+}

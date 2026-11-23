@@ -1,4 +1,5 @@
 import type { BattleState, Counterparty, Entity, EntityKey, LogEvent, UploadedLog } from '../contract'
+import { isEquipmentType } from '../log/counterparty'
 import { addShip, charKey } from './entities'
 import { assignedSide, type SideAssignments } from './sides'
 
@@ -91,6 +92,17 @@ export function indexIdentities(
   }
   const namedSightings = new Map<string, Character | null>()
   const byName = new Map<string, Character | null>()
+  const equipmentLabels = new Map<string, boolean>()
+
+  function equipment(label: string | null): boolean {
+    if (!label) return false
+    let known = equipmentLabels.get(label)
+    if (known === undefined) {
+      known = isEquipmentType(label)
+      equipmentLabels.set(label, known)
+    }
+    return known
+  }
 
   function record(typeId: number, character: Character, t: number, logId: string | null) {
     addSighting(ships, typeId, UNKNOWN_SIDE, character, t, logId)
@@ -147,7 +159,12 @@ export function indexIdentities(
   }
 
   function resolve(label: Counterparty, side: number, t: number, observer: UploadedLog): EntityKey {
-    const { name, raw, shipType, shipTypeId } = label
+    const { raw, shipTypeId } = label
+    // Older uploads stored item labels in the legacy hull field. Recheck them
+    // before looking up the name, so re-analysis does not assign their damage to a pilot.
+    const item = shipTypeId === null && equipment(label.shipType ?? label.name)
+    const name = item ? null : label.name
+    const shipType = item ? null : label.shipType
     const shipOnly = name === null && shipTypeId != null
     const character = name !== null
       ? named(name)
