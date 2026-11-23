@@ -55,6 +55,20 @@ describe('KillsList', () => {
     expect(host.querySelectorAll('button.kills-row')[3]!.getAttribute('aria-current')).toBe('true')
   })
 
+  it('marks only the clicked kill current when a pilot died twice (R2a-7)', () => {
+    const { summary } = mount()
+    const shown = summary.meta.killmails.filter(({ victim }) => !podTypes.has(victim.shipTypeId ?? -1))
+    const counts = new Map<number, number[]>()
+    shown.forEach(({ victim }, index) => { if (victim.charId != null) counts.set(victim.charId, [...(counts.get(victim.charId) ?? []), index]) })
+    const [first, second] = Array.from(counts.values()).find((rows) => rows.length >= 2)!
+    const rows = () => Array.from(host.querySelectorAll<HTMLButtonElement>('button.kills-row'))
+    const current = () => rows().flatMap((row, index) => row.getAttribute('aria-current') === 'true' ? [index] : [])
+    act(() => rows()[first!]!.click())
+    expect(current()).toEqual([first])
+    act(() => rows()[second!]!.click())
+    expect(current()).toEqual([second])
+  })
+
   it('keeps the victim selected when the same row is clicked again', () => {
     mount()
     const row = () => host.querySelectorAll<HTMLButtonElement>('button.kills-row')[0]!

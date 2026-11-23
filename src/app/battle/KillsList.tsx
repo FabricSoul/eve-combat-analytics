@@ -27,6 +27,13 @@ export function KillsList(_props: KillsListProps) {
     return key && analysis?.entities[key] ? key : null
   }
 
+  // Only the kill the cursor is on is current: the selected victim's latest loss at or before the cursor.
+  const currentKillId = (() => {
+    if (view.selected === null) return null
+    const own = kills.filter((kill) => victimKey(kill) === view.selected && kill.t <= view.t)
+    return own.at(-1)?.id ?? null
+  })()
+
   function open(kill: Killmail) {
     view.seek(kill.t)
     const key = victimKey(kill)
@@ -43,7 +50,7 @@ export function KillsList(_props: KillsListProps) {
         const side = key ? analysis!.entities[key]!.side : -1
         const name = (kill.victim.charId != null && names[kill.victim.charId]?.name) || (key && analysis!.entities[key]!.name) || '—'
         const ship = (kill.victim.shipTypeId != null && names[kill.victim.shipTypeId]?.name) || '—'
-        const selected = key !== null && view.selected === key
+        const selected = kill.id === currentKillId
         return (
           <button type="button" key={kill.id} className={selected ? 'kills-row kills-row--sel' : 'kills-row'}
             aria-current={selected || undefined} onClick={() => open(kill)}>
