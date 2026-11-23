@@ -8,3 +8,6 @@ permission to publish them as test data. `logs/*.txt.gz` are the files exactly a
   uploader's character id and side. Sides are inferred from the uploaders' alliances (this fight has no BR teams).
 
 Tests read these offline; nothing here requires network access.
+- `br-6b03a9aff85099ccb2b7e763.composition.json` — the real BR the owner generated for this fight
+  (br.evetools.org/br/6b03a9aff85099ccb2b7e763). Its teams put Lucinda HIly's alliance on the wrong side; her log
+  shows otherwise. `realBattleStateWithBr()` loads it.

@@ -2,6 +2,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { gunzipSync } from 'node:zlib'
 import { parseGamelog } from '../../../src/core/log/parse'
+import { normalizeBrComposition } from '../../../src/core/br/normalize'
 import type { BattleMeta, BattleState, Killmail, KillmailParticipant, NameIndex, ParsedLog, TeamMember, UploadedLog } from '../../../src/core/contract'
 
 const root = new URL('./', import.meta.url)
@@ -73,4 +74,17 @@ export function realBattleState(): BattleState {
     }
   })
   return { meta, logs, fits: [], names: esi.nameIndex, sideOverrides: [] }
+}
+
+/**
+ * The same fight with the real BR the owner generated (br.evetools.org/br/6b03a9aff85099ccb2b7e763, from
+ * zkillboard.com/kill/128067622): BR teams instead of the inferred sides. Note: the BR puts L A Z E R H A W K S
+ * (Lucinda HIly's alliance) on team 0 although her log shows her repairing team 1 — a real case for log-evidence
+ * side correction.
+ */
+export function realBattleStateWithBr(): BattleState {
+  const base = realBattleState()
+  const raw = JSON.parse(readFileSync(new URL('br-6b03a9aff85099ccb2b7e763.composition.json', root), 'utf8'))
+  const meta = normalizeBrComposition(raw, base.meta.names, 0)
+  return { ...base, meta: { ...meta, windows: base.meta.windows } }
 }
