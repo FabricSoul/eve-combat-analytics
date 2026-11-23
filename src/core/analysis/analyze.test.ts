@@ -7,7 +7,9 @@ import {
   event,
   exchange,
   hit,
+  kill,
   log,
+  pilot,
   pilotComparison,
   primaryGaps,
   primaryThreshold,
@@ -115,11 +117,13 @@ describe('analyze', () => {
     const analysis = analyze(pilotComparison())
     expect(analysis.stats.find(({ key }) => key === 'char:1')).toEqual({
       key: 'char:1', activeRatio: 4 / 43, damageOut: 190, damageIn: 100, repairOut: 75, repairIn: 30, neutOut: 8,
-      neutIn: 9, primaryShare: 180 / 190, switchDelayMedian: null, switchAfterKillMedian: null, repReactionMedian: 16, firstShotDelay: 0,
+      neutIn: 9, primaryShare: 180 / 190, switchDelayMedian: null, switchAfterKillMedian: 14,
+      repReactionMedian: 16, firstShotDelay: 0,
       hitQuality: { Hits: 2, Smashes: 1, none: 1 }, misses: 1, pointSeconds: 29, killmailDamage: 540, killmailCount: 2,
     })
     expect(analysis.stats.find(({ key }) => key === 'char:2')).toMatchObject({
-      activeRatio: 2 / 20, firstShotDelay: 1, primaryShare: 1, switchDelayMedian: 0, repReactionMedian: null,
+      activeRatio: 2 / 20, firstShotDelay: 1, primaryShare: 1, switchDelayMedian: 0,
+      switchAfterKillMedian: 14, repReactionMedian: null,
     })
     expect(analysis.stats.find(({ key }) => key === 'char:5')).toEqual({
       key: 'char:5', activeRatio: 0, damageOut: 0, damageIn: 0, repairOut: 0, repairIn: 0, neutOut: 0, neutIn: 0,
@@ -129,6 +133,18 @@ describe('analyze', () => {
     expect(analysis.coverage).toEqual([{ side: 0, known: 3, withLog: 2 }, { side: 1, known: 2, withLog: 1 }])
     expect(analysis.interactions.find(({ kind }) => kind === 'repair')?.repairType).toBe('armor')
     expect(analysis.interactions.find(({ kind }) => kind === 'nos')?.amount).toBe(50)
+  })
+
+  it('uses signed first-hit delays and skips switches when the previous primary had no killmail', () => {
+    const fire = () => [hit(0, 'Rook', 100), hit(5, 'Bishop', 100), hit(25, 'Knight', 100), hit(45, 'Rook', 100)]
+    const state = battle([log(1, 'Ace', 0, fire()), log(2, 'Wing', 0, fire())], [
+      kill(1, 6, pilot(3, 200, 1000), []),
+      kill(2, 27, pilot(6, 200, 1000), []),
+    ])
+    expect(analyze(state).stats.find(({ key }) => key === 'char:1')?.switchAfterKillMedian).toBe(8.5)
+
+    state.meta.killmails.pop()
+    expect(analyze(state).stats.find(({ key }) => key === 'char:1')?.switchAfterKillMedian).toBe(-1)
   })
 
   it('counts the only engaged second when engagement has no duration and ignores hostile repair for reaction times', () => {

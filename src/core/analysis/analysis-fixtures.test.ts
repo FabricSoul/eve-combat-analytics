@@ -6,7 +6,7 @@ import { analyze } from './analyze'
 
 function report(state: BattleState, input: string) {
   const start = performance.now()
-  const { interactions, stats } = analyze(state)
+  const { entities, interactions, stats } = analyze(state)
   const analysisMs = Math.round(performance.now() - start)
   let events = 0
   let unresolved = 0
@@ -18,16 +18,18 @@ function report(state: BattleState, input: string) {
   }
   const logistics = stats.filter(({ repairOut }) => repairOut > 0)
   const withReaction = logistics.filter(({ repReactionMedian }) => repReactionMedian !== null).length
+  const loggedPilots = stats.filter(({ key }) => entities[key]?.hasLog)
+  const withSwitchAfterKill = loggedPilots.filter(({ switchAfterKillMedian }) => switchAfterKillMedian !== null).length
   const unresolvedShare = unresolved / events
   console.info('Real PvP analysis', {
     input, events, unresolved, unresolvedShare, interactions: interactions.length, corroborated,
-    logistics: logistics.length, withReaction, analysisMs,
+    logistics: logistics.length, withReaction, loggedPilots: loggedPilots.length, withSwitchAfterKill, analysisMs,
   })
   expect(unresolvedShare).toBeGreaterThanOrEqual(0)
   expect(unresolvedShare).toBeLessThanOrEqual(1)
   expect(corroborated).toBeGreaterThanOrEqual(0)
   expect(withReaction).toBeLessThanOrEqual(logistics.length)
-  return { unresolvedShare, corroborated, withReaction, logistics: logistics.length }
+  return { unresolvedShare, corroborated, withReaction, logistics: logistics.length, loggedPilots: loggedPilots.length, withSwitchAfterKill }
 }
 
 it('identity coverage on the real J125990 fight (fixtures/real/j125990-20250622)', () => {
@@ -36,6 +38,8 @@ it('identity coverage on the real J125990 fight (fixtures/real/j125990-20250622)
   expect(r.unresolvedShare).toBeLessThan(0.07)
   expect(r.corroborated).toBeGreaterThanOrEqual(6_500)
   expect(r.withReaction).toBe(r.logistics)
+  expect(r.loggedPilots).toBe(17)
+  expect(r.withSwitchAfterKill).toBeGreaterThanOrEqual(12)
 }, 60_000)
 
 it('analyzes 90,000 events in under 500 ms', () => {

@@ -10,6 +10,7 @@ interface PilotAccumulator {
   activeSeconds: number
   primaryDamage: number
   switches: number[]
+  switchesAfterKill: number[]
   reactions: number[]
 }
 
@@ -59,6 +60,7 @@ function attributePrimaryHits(
   for (const [index, { span, hits, first, afterLast }] of ranges.entries()) {
     const shooters = new Set<EntityKey>()
     const leader = hits[first]!.from
+    const previousKill = ranges[index - 1]?.span.killedAt
     const uncountedStart = countedThrough.get(span.target) ?? 0
     for (let i = first; i < afterLast; i++) {
       const { t, from, amount } = hits[i]!
@@ -68,7 +70,10 @@ function attributePrimaryHits(
         // The same target's qualifying runs can overlap. Count each hit
         // once in the share, while preserving both spans' own totals.
         if (i >= uncountedStart) pilot.primaryDamage += amount
-        if (index > 0 && from !== leader && !shooters.has(from)) pilot.switches.push((t - span.start) / 1000)
+        if (!shooters.has(from)) {
+          if (index > 0 && from !== leader) pilot.switches.push((t - span.start) / 1000)
+          if (previousKill != null) pilot.switchesAfterKill.push((t - previousKill) / 1000)
+        }
       }
       shooters.add(from)
     }
@@ -102,7 +107,7 @@ export function collectStats(
       neutIn: 0,
       primaryShare: 0,
       switchDelayMedian: null,
-    switchAfterKillMedian: null,
+      switchAfterKillMedian: null,
       repReactionMedian: null,
       firstShotDelay: null,
       hitQuality: {},
@@ -122,6 +127,7 @@ export function collectStats(
         activeSeconds: 0,
         primaryDamage: 0,
         switches: [],
+        switchesAfterKill: [],
         reactions: [],
       })
     }
@@ -203,6 +209,7 @@ export function collectStats(
     if (pilot.stats.damageOut > 0) pilot.stats.primaryShare = primaryDamage / pilot.stats.damageOut
     pilot.stats.repReactionMedian = median(reactions)
     pilot.stats.switchDelayMedian = median(switches)
+    pilot.stats.switchAfterKillMedian = median(pilot.switchesAfterKill)
   }
 
   return stats

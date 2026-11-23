@@ -143,6 +143,7 @@ export const pilotComparison = () => battle([
 ], [
   kill(1, 25, pilot(4, 200, 1000), [pilot(1, 100, 1001, 500), pilot(1, 100, 1000, 40)]),
   kill(2, 50, pilot(1, 100, 1000), [pilot(5, 100, 1001, 70)]),
+  kill(3, 6, pilot(3, 200, 1000), []),
 ])
 
 export function primaryThreshold(damage: number, secondShooter: boolean): BattleState {
