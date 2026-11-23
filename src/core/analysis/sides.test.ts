@@ -68,6 +68,33 @@ it('applies manual groups from uploads and name entries and treats a latest remo
   expect(result.coverage[1]).toMatchObject({ known: 2, withLog: 1 })
 })
 
+it('includes a side created by a manual override in assignments, coverage, and damage buckets', () => {
+  const state = battle([
+    log(1, 'Ace', 0, [hit(0, 'Rook', 5), hit(1, 'Rook', 7)]),
+    log(2, 'Wing', 0, reps(20, 'Ace', 2)),
+    log(5, 'Medic', 0, [
+      ...Array.from({ length: 50 }, (_, i) => hit(2 + i, 'Rook', 3)),
+      hit(52, other(null, 'Cruiser', 'Cruiser', 1001), 3),
+    ]),
+  ])
+  state.sideOverrides = [manual('char:1', 2, 1)]
+  const result = analyze(state)
+  expect(result.entities).toMatchObject({
+    'char:1': { side: 2, sideSource: 'manual' },
+    'char:2': { side: 2, sideSource: 'log' },
+    'char:5': { side: 0, sideSource: 'esi' },
+    'ship:1001:-1': { side: -1, sideSource: 'unknown' },
+  })
+  expect(result.coverage).toHaveLength(3)
+  expect(result.coverage[2]).toEqual({ side: 2, known: 2, withLog: 2 })
+  expect(result.timeline.damageBySide[2]).toEqual([5, 7, ...Array(51).fill(0)])
+
+  state.sideOverrides.push(manual('char:1', -1, 2))
+  const removed = analyze(state)
+  expect(removed.coverage).toHaveLength(2)
+  expect(removed.timeline.damageBySide).not.toHaveProperty('2')
+})
+
 it.each([
   [19, 0, false],
   [20, 0, true],

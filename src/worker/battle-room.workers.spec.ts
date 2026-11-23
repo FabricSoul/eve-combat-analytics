@@ -585,7 +585,7 @@ it.each([
   { subject: 'char:9007199254740992', side: 0 },
   { subject: 100, side: 0 },
   { subject: 'char:100', side: -2 },
-  { subject: 'char:100', side: teams.length },
+  { subject: 'char:100', side: teams.length + 1 },
   { subject: 'char:100', side: 0.5 },
   { subject: 'char:100', side: '0' },
   null,
@@ -595,6 +595,36 @@ it.each([
   expect(response.status).toBe(400)
   expect(await response.json()).toMatchObject({ error: 'bad_request' })
   expect((await state(id)).sideOverrides).toEqual([])
+})
+
+it('creates only the next side through index 7 and shrinks the limit when upper overrides are removed', async () => {
+  const id = await prepare(988)
+  const stub = env.BATTLE.getByName(id)
+  const firstNewSide = teams.length
+  const uploadResponse = await upload(id, 'valid log')
+  expect(uploadResponse.status).toBe(200)
+  await uploadResponse.json()
+  const created = await editSide(id, 'char:100', firstNewSide)
+  await evictDurableObject(stub)
+  expect((await state(id)).sideOverrides).toEqual([created])
+  expect(await runDurableObjectAlarm(stub)).toBe(true)
+  const { value } = await decodeAnalysis(await rawAnalysis(id))
+  expect(value.entities['char:100']).toMatchObject({ side: firstNewSide, sideSource: 'manual' })
+  expect(value.coverage[firstNewSide]).toEqual({ side: firstNewSide, known: 1, withLog: 1 })
+  expect(value.timeline.damageBySide[firstNewSide]?.reduce((sum, damage) => sum + damage, 0)).toBe(300)
+
+  for (let side = firstNewSide + 1; side <= 7; side++) await editSide(id, `char:${100 + side}`, side)
+  const capped = await putSide(id, { subject: 'char:108', side: 8 })
+  expect(capped.status).toBe(400)
+  expect(await capped.json()).toMatchObject({ error: 'bad_request' })
+
+  await editSide(id, 'char:107', -1)
+  await editSide(id, 'char:106', -1)
+  const gap = await putSide(id, { subject: 'char:107', side: 7 })
+  expect(gap.status).toBe(400)
+  expect(await gap.json()).toMatchObject({ error: 'bad_request' })
+  await editSide(id, 'char:106', 6)
+  await editSide(id, 'char:107', 7)
 })
 
 it('F6b rejects malformed JSON', async () => {

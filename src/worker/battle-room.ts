@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import { analyze } from '../core/analysis/analyze'
+import { MAX_BATTLE_SIDES } from '../core/analysis/sides'
 import { sideOf } from '../core/br/normalize'
 import { GamelogFormatError } from '../core/contract'
 import type {
@@ -358,9 +359,10 @@ export class BattleRoom extends DurableObject<Env> {
 
   private async setSide(data: unknown): Promise<Response> {
     const { meta } = await this.battle()
+    const nextSide = this.store.sideOverrides().reduce((next, { side }) => Math.max(next, side + 1), meta.teams.length)
     if (!data || typeof data !== 'object' || !('subject' in data) || !isSideSubject(data.subject)
       || !('side' in data) || typeof data.side !== 'number' || !Number.isInteger(data.side)
-      || data.side < -1 || data.side >= meta.teams.length) {
+      || data.side < -1 || data.side > nextSide || data.side >= MAX_BATTLE_SIDES) {
       throw new ApiFailure('bad_request', 'Expected an alliance, corporation or character subject and a valid side index')
     }
 

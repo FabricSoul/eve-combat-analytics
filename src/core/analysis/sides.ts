@@ -2,6 +2,8 @@ import { sideOf } from '../br/normalize'
 import type { BattleState, Entity, EntityKey, Interaction, SideOverride, SideSubject } from '../contract'
 import { charKey } from './entities'
 
+export const MAX_BATTLE_SIDES = 8
+
 type SideAssignment = Pick<Entity, 'side' | 'sideSource'>
 
 interface Affiliation {
@@ -31,7 +33,7 @@ function newest(a: ManualChoice | undefined, b: ManualChoice | undefined): Manua
   return a.index > b.index ? a : b
 }
 
-export function indexSideAssignments(state: BattleState): SideAssignments {
+export function indexSideAssignments(state: BattleState): { assignments: SideAssignments; sideCount: number } {
   const historical = new Map<number, SideRecord>()
   const killmails = [...state.meta.killmails].sort((a, b) => a.t - b.t || a.id - b.id)
   for (const { victim, attackers } of killmails) {
@@ -60,8 +62,11 @@ export function indexSideAssignments(state: BattleState): SideAssignments {
     if (override.source !== 'manual') continue
     manual.set(override.subject, newest(manual.get(override.subject), { override, index })!)
   }
-  for (const [subject, { override }] of manual) {
-    if (override.side < 0 || override.side >= state.meta.teams.length) manual.delete(subject)
+  let sideCount = state.meta.teams.length
+  const sideLimit = Math.max(sideCount, MAX_BATTLE_SIDES)
+  for (const [subject, { override: { side } }] of manual) {
+    if (!Number.isInteger(side) || side < 0 || side >= sideLimit) manual.delete(subject)
+    else sideCount = Math.max(sideCount, side + 1)
   }
 
   const sides: SideAssignments = new Map()
@@ -77,7 +82,7 @@ export function indexSideAssignments(state: BattleState): SideAssignments {
     else if (fallback && fallback.side >= 0) sides.set(id, { side: fallback.side, sideSource: 'esi' })
     else sides.set(id, { side: -1, sideSource: 'unknown' })
   }
-  return sides
+  return { assignments: sides, sideCount }
 }
 
 interface SideEvidence {
@@ -94,9 +99,8 @@ function evidenceSide(counts: number[], minimum: number): number {
 }
 
 export function deriveSideOverrides(
-  state: BattleState, interactions: Interaction[], entities: Map<EntityKey, Entity>, sides: SideAssignments,
+  state: BattleState, interactions: Interaction[], entities: Map<EntityKey, Entity>, sides: SideAssignments, teamCount: number,
 ): SideOverride[] {
-  const teamCount = state.meta.teams.length
   if (teamCount < 2) return []
 
   const evidence = new Map<EntityKey, SideEvidence>()

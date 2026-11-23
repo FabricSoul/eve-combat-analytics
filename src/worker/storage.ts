@@ -203,7 +203,7 @@ export class BattleStorage {
     return { meta, logs, fits, names, sideOverrides }
   }
 
-  private sideOverrides(): SideOverride[] {
+  sideOverrides(): SideOverride[] {
     if (!this.hasTable('side_overrides')) return []
     return this.sql.exec<{ subject: SideSubject; side: number; setAt: number }>(
       'SELECT subject, side, setAt FROM side_overrides ORDER BY id',
