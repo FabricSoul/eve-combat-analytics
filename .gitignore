@@ -6,3 +6,7 @@ dist
 .DS_Store
 coverage
 fixtures/local/
+/build/
+/public/fit-data/
+/public/fit-runtime/
+__pycache__/

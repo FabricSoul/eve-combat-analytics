@@ -5,12 +5,15 @@
   "license": "GPL-3.0-or-later",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && pnpm fit:assets && vite build",
     "test": "vitest run",
-    "check": "./check-all.sh"
+    "check": "./check-all.sh",
+    "fit:assets": "uv run --python 3.13 --with sqlalchemy==2.0.51 --with logbook==1.9.2 --with pyyaml --with cryptography python etl/10_build_db.py && node etl/45_vendor_pyodide.mjs && node etl/40_bundle_py.mjs"
   },
   "packageManager": "pnpm@12.9.0",
   "dependencies": {
+    "comlink": "^4.4.2",
+    "pyodide": "0.29.3",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
@@ -24,6 +27,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "jsdom": "^31.0.1",
+    "playwright-core": "^1.65.1",
     "tailwindcss": "^4.3.5",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",

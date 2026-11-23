@@ -5,6 +5,8 @@ cd "$(dirname "$0")"
 echo "▸ TypeScript"      && npx tsc --noEmit
 echo "▸ Unit tests"      && npx vitest run
 echo "▸ Workers tests"   && npx vitest run --config vitest.workers.config.ts
+echo "▸ Fit assets"       && pnpm fit:assets
+echo "▸ Fit parity"       && node etl/parity/browser.mjs
 echo "▸ Production build" && npx vite build >/dev/null
 echo
 echo "All gates passed ✅"
