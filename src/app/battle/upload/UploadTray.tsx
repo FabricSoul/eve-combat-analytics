@@ -70,6 +70,7 @@ export function UploadTray({ items, onRemove, logCorrected = () => false }: Uplo
                   <span className="upload-size app-number">{kb(item.size)}</span>
                 </div>
                 <div className="upload-detail">
+                  {item.demo && <><Tag>示例</Tag>{' '}</>}
                   {item.log && <Portrait charId={item.log.charId} size={16} />}
                   {item.log && <b>{item.log.charName}</b>}
                   {item.log && ' · '}
