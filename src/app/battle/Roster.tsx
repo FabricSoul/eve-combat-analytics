@@ -15,7 +15,7 @@ import './roster/roster.css'
 
 export interface RosterProps {}
 
-interface OpenMenu { row: RosterRow & { charId: number }; x: number; y: number }
+interface OpenMenu { row: RosterRow & { charId: number }; x: number; y: number; anchorTop: number; invoker: HTMLElement | null }
 
 export function Roster(_props: RosterProps) {
   const { summary, analysis } = useBattleContext()
@@ -55,7 +55,11 @@ export function Roster(_props: RosterProps) {
     if (row.charId === null) return
     event.preventDefault()
     const box = event.currentTarget.getBoundingClientRect()
-    setMenu({ row: row as OpenMenu['row'], x: anchor ? box.left : event.clientX, y: anchor ? box.bottom : event.clientY })
+    const invoker = anchor ? event.currentTarget as HTMLElement : event.currentTarget.querySelector<HTMLElement>('.roster-main')
+    setMenu({
+      row: row as OpenMenu['row'], x: anchor ? box.left : event.clientX, y: anchor ? box.bottom : event.clientY,
+      anchorTop: anchor ? box.top : event.clientY, invoker,
+    })
   }
 
   return (
@@ -95,7 +99,7 @@ export function Roster(_props: RosterProps) {
       })}
       {mover.error && <div className="roster-error" role="alert">{mover.error}</div>}
       {menu && (
-        <SideMenu x={menu.x} y={menu.y} sections={sectionsFor(menu.row)} order={order} onClose={closeMenu}
+        <SideMenu x={menu.x} y={menu.y} anchorTop={menu.anchorTop} returnFocus={menu.invoker} sections={sectionsFor(menu.row)} order={order} onClose={closeMenu}
           onMove={(subject: SideSubject, side: number) => void mover.move(subject, side)} />
       )}
     </div>

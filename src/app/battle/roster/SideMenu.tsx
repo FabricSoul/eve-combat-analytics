@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { SideSubject } from '@/core/contract'
 import { sideColor } from '../../lib/sides'
 import { sideName } from './model'
@@ -11,9 +11,13 @@ export interface SideMenuSection {
 }
 
 export interface SideMenuProps {
-  /** Where the menu opens, viewport pixels. */
+  /** Where the menu opens, viewport pixels: x and the bottom edge of what opened it. */
   x: number
   y: number
+  /** Top edge of what opened it: the menu opens above it when there is no room below. Defaults to y. */
+  anchorTop?: number
+  /** Where focus goes when the menu closes; defaults to whatever had focus when it opened. */
+  returnFocus?: HTMLElement | null
   sections: readonly SideMenuSection[]
   /** sideOrder(): every side a subject can move to. */
   order: readonly number[]
@@ -24,8 +28,27 @@ export interface SideMenuProps {
 }
 
 /** Row menu: the keyboard and right-click way to do what dragging does. */
-export function SideMenu({ x, y, sections, order, newSide, onMove, onClose }: SideMenuProps) {
+const edge = 8
+
+export function SideMenu({ x, y, anchorTop = y, returnFocus, sections, order, newSide, onMove, onClose }: SideMenuProps) {
   const root = useRef<HTMLDivElement>(null)
+  const [invoker] = useState(() => returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null))
+  const [place, setPlace] = useState({ left: x, top: y, maxHeight: window.innerHeight - 2 * edge })
+
+  // Size and flip by measured bounds: below the anchor if it fits, else above, else as high as the viewport allows.
+  useLayoutEffect(() => {
+    const menu = root.current
+    if (!menu) return
+    const maxHeight = Math.max(80, window.innerHeight - 2 * edge)
+    const height = Math.min(menu.scrollHeight, maxHeight)
+    const width = menu.offsetWidth || 232
+    const top = height <= window.innerHeight - edge - y ? y
+      : height <= anchorTop - edge ? anchorTop - height
+        : Math.max(edge, window.innerHeight - edge - height)
+    setPlace({ left: Math.max(edge, Math.min(x, window.innerWidth - width - edge)), top, maxHeight })
+  }, [x, y, anchorTop, sections.length])
+
+  useEffect(() => () => { if (invoker?.isConnected) invoker.focus() }, [invoker])
 
   useEffect(() => {
     const items = () => [...root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []]
@@ -44,6 +67,9 @@ export function SideMenu({ x, y, sections, order, newSide, onMove, onClose }: Si
       event.preventDefault()
       event.stopPropagation()
       onClose()
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault()
+      items[event.key === 'Home' ? 0 : items.length - 1]?.focus()
     } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       const step = event.key === 'ArrowDown' ? 1 : -1
@@ -51,10 +77,9 @@ export function SideMenu({ x, y, sections, order, newSide, onMove, onClose }: Si
     } else if (event.key === 'Tab') onClose()
   }
 
-  const left = Math.max(0, Math.min(x, window.innerWidth - 248))
-  const top = Math.max(0, Math.min(y, window.innerHeight - 40))
   return (
-    <div ref={root} className="side-menu" role="menu" aria-label="移到…" style={{ left, top }} onKeyDown={keys}>
+    <div ref={root} className="side-menu" role="menu" aria-label="移到…" onKeyDown={keys}
+      style={{ left: place.left, top: place.top, maxHeight: place.maxHeight, overflowY: 'auto' }}>
       {sections.map(({ heading, subject, current }) => (
         <div key={subject} role="group" aria-label={heading}>
           <div className="side-menu-head">{heading}</div>
