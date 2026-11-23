@@ -238,6 +238,12 @@ export type NameIndex = Record<string, { charId: number; side: number; corpId?: 
 /** What a side assignment applies to: a whole alliance or corp (as in BR teams) or one character. */
 export type SideSubject = TeamMember | `char:${number}`
 
+export interface SideEdit {
+  subject: SideSubject
+  /** -1 removes the override. 'new' atomically allocates the next side index. */
+  side: number | 'new'
+}
+
 /**
  * A side assignment that overrides the BR teams (user decision 2026-11-22: manual side editing like br.evetools,
  * plus automatic correction from log evidence). Precedence for a character, highest first: manual char >
@@ -245,7 +251,7 @@ export type SideSubject = TeamMember | `char:${number}`
  */
 export interface SideOverride {
   subject: SideSubject
-  /** Index into BattleMeta.teams. */
+  /** BR or override-only side index. An edit response may use -1 for removal. */
   side: number
   /** Only `manual` overrides are stored; `log` ones are derived by analyze() and appear in Analysis.sideOverrides. */
   source: 'manual' | 'log'
@@ -291,7 +297,8 @@ export interface ApiError {
  * GET  /api/battles/:brId/logs/:logId                       → UploadedLog    (immutable: cache forever; for "show source line")
  * POST /api/battles/:brId/logs      body: raw Gamelog text  → UploadedLogSummary
  * PUT  /api/battles/:brId/fits/:charId body: EFT text (≤ 64 KiB) → FitEntry
- * PUT  /api/battles/:brId/sides     body { subject, side }  → SideOverride (side -1 removes the subject's override)
+ * PUT  /api/battles/:brId/sides     body SideEdit            → SideOverride (numeric side in the response)
+ * 'new' allocates the next side up to index 7, or returns 400 bad_request when there is no room.
  * GET  /api/battles/:brId/ws        (WebSocket upgrade)     → ServerMessage stream
  * GET  /api/killmails/:id/:hash/fit                         → KillmailFit  (ESI killmail turned into EFT; cache forever)
  *
