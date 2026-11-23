@@ -47,8 +47,6 @@ export function HomePage(_props: HomePageProps) {
 
   return (
     <div className="home">
-      <h1 className="home-title">贴 BR 链接，大家把日志拖进来</h1>
-      <p className="home-lead">看每个人在什么时候、对谁、做了什么。不打分，只把数据摆出来对比。</p>
       <form className="home-form" onSubmit={(event) => void open(event)} noValidate>
         <input className="home-input" value={value} aria-label="BR 链接" placeholder="https://br.evetools.org/br/…"
           aria-invalid={error ? true : undefined} aria-describedby={error ? 'home-error' : 'home-hint'} spellCheck={false}
