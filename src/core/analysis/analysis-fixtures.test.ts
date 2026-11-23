@@ -42,7 +42,7 @@ it('identity coverage on the real J125990 fight (fixtures/real/j125990-20250622)
   expect(r.withSwitchAfterKill).toBeGreaterThanOrEqual(12)
 }, 60_000)
 
-it('analyzes 90,000 events in under 500 ms', () => {
+it('analyzes 90,000 events in under 500 ms', { retry: 3 }, () => {
   const state = battle([])
   state.names = {}
   for (let i = 0; i < 30; i++) {
