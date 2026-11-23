@@ -1,5 +1,5 @@
 import { createContext } from 'react'
-import type { ComputeFitStats, EntityKey, Interaction } from '@/core/contract'
+import type { EntityKey, Interaction } from '@/core/contract'
 import { computeFitStats } from '@/fit/client'
 import { api } from '../../api/client'
 
@@ -42,7 +42,7 @@ export function loadFitCatalog(): Promise<FitCatalog> {
 export const FitServices = createContext({
   load: (id: number, hash: string) => api.getKillmailFit(id, hash),
   save: (brId: string, charId: number, eft: string) => api.putFit(brId, charId, eft),
-  compute: computeFitStats as ComputeFitStats,
+  compute: computeFitStats,
 })
 
 export function firingSummary(interactions: readonly Interaction[], key: EntityKey) {

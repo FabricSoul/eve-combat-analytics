@@ -6,6 +6,9 @@ from collections import Counter
 import headless
 
 
+MODULE_CATEGORIES = ('Module', 'Subsystem', 'Structure Module')
+
+
 class BadEft(ValueError):
     pass
 
@@ -14,14 +17,23 @@ def initialize(db_path):
     headless.bootstrap(db_path)
 
 
-def load_drone_names(names_json):
+def load_item_kinds(names_json):
     from service.port.shared import fetchItem
 
     results = []
     for name in json.loads(names_json):
         item = fetchItem(name, eagerCat=True)
-        if item is not None and item.isDrone:
-            results.append(name)
+        if item is None:
+            continue
+        if item.category.name in MODULE_CATEGORIES:
+            kind = 'module'
+        elif item.category.name == 'Charge':
+            kind = 'charge'
+        elif item.isDrone:
+            kind = 'drone'
+        else:
+            kind = 'other'
+        results.append((name, kind))
     return json.dumps(results)
 
 
@@ -38,7 +50,7 @@ def fit_from_eft(parsed, drone_stacks):
     for entry in parsed['modules']:
         name = entry['name']
         module = fetchItem(name, eagerCat=True)
-        if module is None or module.category.name not in ('Module', 'Subsystem', 'Structure Module'):
+        if module is None or module.category.name not in MODULE_CATEGORIES:
             raise BadEft(f"Unknown fitting module: {name}")
         charge = None
         if 'charge' in entry:

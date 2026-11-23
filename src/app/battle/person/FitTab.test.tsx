@@ -7,6 +7,7 @@ import { BattleProvider } from '../../state/battle-store'
 import { useView, ViewProvider } from '../../state/view-store'
 import { loadUiFixture } from '../../test/ui-fixture'
 import { FitTab } from '../FitTab'
+import { computeFitStats } from '@/fit/client'
 
 vi.mock('@/fit/client', () => ({ computeFitStats: vi.fn().mockResolvedValue({
   shipTypeName: 'Leshak', dps: { total: 834, turret: 834, missile: 0, drone: 0 },
@@ -34,9 +35,9 @@ function Harness() {
   return <FitTab />
 }
 
-async function renderFit() {
+async function renderFit(data = fixture) {
   await act(async () => root.render(
-    <BattleProvider static={fixture}><ViewProvider syncUrl={false}><Harness /></ViewProvider></BattleProvider>,
+    <BattleProvider static={data}><ViewProvider syncUrl={false}><Harness /></ViewProvider></BattleProvider>,
   ))
 }
 
@@ -98,4 +99,27 @@ it('warns for an explicitly named Abyssal module in pasted EFT', async () => {
   expect(host.textContent).toContain(warning)
   expect([...host.querySelectorAll('.u7-fit-hint')].find((el) => el.textContent.includes(warning))?.textContent)
     .toContain('Abyssal Entropic Radiation Sink')
+})
+
+it('renders skipped pasted item names alongside computed theory and the mutation warning', async () => {
+  const eft = `[Leshak, Paste]
+Damage Control II [1]
+Unknown Module
+
+[1] Damage Control II
+  Gravid Damage Control Mutaplasmid
+  structureEmDamageResonance 0.62`
+  const computed = {
+    shipTypeName: 'Leshak', dps: { total: 422, turret: 422, missile: 0, drone: 0 },
+    volley: 1715, remoteRepair: { armor: 85 }, ehp: 0, maxVelocity: 0, ranges: {},
+    skippedLines: ['Unknown Module'],
+  }
+  vi.mocked(computeFitStats).mockResolvedValueOnce(computed)
+  await renderFit({ ...fixture, summary: { ...fixture.summary, fits: [{ charId: pilot.charId!, eft, setAt: 1 }] } })
+  expect(host.textContent).toContain('有 1 行无法识别，已跳过：Unknown Module')
+  expect(host.textContent).toContain('422')
+  expect(host.textContent).toContain('1,715')
+  expect(host.textContent).not.toContain('无法计算理论值')
+  const hint = [...host.querySelectorAll('.u7-fit-hint')].find((el) => el.textContent.includes(warning))
+  expect(hint?.textContent).toContain('Damage Control II')
 })

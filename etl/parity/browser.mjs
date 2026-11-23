@@ -98,7 +98,35 @@ try {
     const coldMs = performance.now() - start
     return { coldMs, result: [firstResult, ...await Promise.all(warm.map(window.computeFitStats))] }
   }, eft)
-  assert.equal(await page.evaluate(() => window.eftErrorCode('[Oracle, Bad charge]\nMega Pulse Laser II, Nothing')), 'bad_eft')
+  assert.equal(await page.evaluate(() => window.eftErrorCode('[Unknown Hull, Bad fit]')), 'bad_eft')
+  const leshak = `[Leshak, Partial fit]
+Damage Control II
+Entropic Radiation Sink II
+
+500MN Cold-Gas Enduring Microwarpdrive
+Warp Scrambler II
+
+Veles Supratidal Entropic Disintegrator, Baryon Exotic Plasma L
+Large Remote Armor Repairer II`
+  const baseline = await page.evaluate((input) => window.computeFitStats(input), leshak)
+  const unknownModule = leshak.replace('Damage Control II', 'Damage Control II\nAbyssal Damage Control')
+  const { skippedLines: skippedModule, ...knownStats } = await page.evaluate((input) => window.computeFitStats(input), unknownModule)
+  assert.deepEqual(skippedModule, ['Abyssal Damage Control'])
+  assert.deepEqual(knownStats, baseline)
+  const partial = leshak.replace('Damage Control II', 'Damage Control II [1]\nAbyssal Damage Control') + `
+
+[1] Damage Control II
+  Gravid Damage Control Mutaplasmid
+  structureEmDamageResonance 0.62
+
+Unknown Drone x1`
+  const { skippedLines, ...partialStats } = await page.evaluate((input) => window.computeFitStats(input), partial)
+  assert.deepEqual(skippedLines, ['Abyssal Damage Control', 'Unknown Drone'])
+  assert.deepEqual(partialStats, baseline, 'Unknown lines and mutation details do not change base-fit stats')
+  const unknownCharge = await page.evaluate(() =>
+    window.computeFitStats('[Oracle, Unknown charge]\nMega Pulse Laser II, Nothing'))
+  assert.deepEqual(unknownCharge.skippedLines, ['Nothing'])
+  assert.equal(unknownCharge.dps.total, 0)
   assert.deepEqual(await page.evaluate((input) => window.computeFitStats(input), eft[0]), result[0])
   assert.deepEqual(external, [], 'Chromium attempted an off-origin request')
   assert.equal(requests.filter((path) => path.endsWith('/pyodide.mjs')).length, 1)

@@ -13,11 +13,13 @@ export interface EftModule {
   name: string
   charge?: string
   offline: boolean
+  mutated?: true
 }
 
 export interface EftStack {
   name: string
   count: number
+  mutated?: true
 }
 
 export interface ParsedEft {
@@ -33,6 +35,8 @@ const emptySlot = /^\[Empty (?:low|med|mid|high|rig|subsystem|service) slot\]$/i
 const itemName = /^[^,\[\]/]+$/u
 const quantity = /^(.*?)\s+x(\d+)$/i
 const offlineSuffix = /\s*\/offline$/i
+const mutationSuffix = /\s*\[\d+\]$/
+const mutationHeader = /^\[\d+\]\s*\S/
 
 export function parseEft(text: string): ParsedEft {
   const lines = text.trim().split(/\r\n?|\n/)
@@ -44,14 +48,28 @@ export function parseEft(text: string): ParsedEft {
   const modules: EftModule[] = []
   const stacks: EftStack[][] = []
   let stackSection: EftStack[] | undefined
+  let inMutationDetails = false
   for (const [index, raw] of lines.entries()) {
     if (index === 0) continue
-    const line = raw.trim()
-    if (!line || emptySlot.test(line)) {
+    const trimmed = raw.trim()
+    if (!trimmed) {
+      stackSection = undefined
+      inMutationDetails = false
+      continue
+    }
+    if (mutationHeader.test(trimmed)) {
+      // pyfa exports the base name, mutaplasmid and rolled attributes in a separate block.
+      stackSection = undefined
+      inMutationDetails = true
+    }
+    if (inMutationDetails) continue
+    if (emptySlot.test(trimmed)) {
       stackSection = undefined
       continue
     }
 
+    const mutated = mutationSuffix.test(trimmed) ? { mutated: true as const } : {}
+    const line = trimmed.replace(mutationSuffix, '').trimEnd()
     const invalid = () => new EftFormatError(`Invalid EFT item on line ${index + 1}`)
     const stack = quantity.exec(line)
     if (stack) {
@@ -62,7 +80,7 @@ export function parseEft(text: string): ParsedEft {
         stackSection = []
         stacks.push(stackSection)
       }
-      stackSection.push({ name: stackName, count })
+      stackSection.push({ name: stackName, count, ...mutated })
       continue
     }
 
@@ -71,7 +89,7 @@ export function parseEft(text: string): ParsedEft {
     const [moduleName, charge, extra] = line.replace(offlineSuffix, '').split(',').map((part) => part.trim())
     if (!moduleName || !itemName.test(moduleName) ||
         (charge !== undefined && !itemName.test(charge)) || extra !== undefined) throw invalid()
-    modules.push({ name: moduleName, ...(charge === undefined ? {} : { charge }), offline })
+    modules.push({ name: moduleName, ...(charge === undefined ? {} : { charge }), offline, ...mutated })
   }
   return { ship, name, modules, stacks }
 }
@@ -81,4 +99,24 @@ export function selectDroneStacks(stacks: ParsedEft['stacks'], isDrone: (name: s
   const candidates = stacks.map((section) => section.filter(({ name }) => isDrone(name)))
   const bays = candidates.filter((section, index) => section.length === stacks[index]?.length)
   return (bays.length ? bays : candidates).flat()
+}
+
+export type EftItemKind = 'module' | 'charge' | 'drone' | 'other'
+
+/** Keep recognized fitting rows and keep one skipped name per omitted line. */
+export function resolveEftItems({ modules, stacks, ...fit }: ParsedEft, kinds: ReadonlyMap<string, EftItemKind>) {
+  const skippedLines: string[] = []
+  const fittedModules = modules.filter(({ name, charge }) => {
+    if (kinds.get(name) !== 'module') skippedLines.push(name)
+    else if (charge !== undefined && kinds.get(charge) !== 'charge') skippedLines.push(charge)
+    else return true
+    return false
+  })
+  const knownStacks = stacks.map((section) => section.filter(({ name }) => {
+    if (kinds.has(name)) return true
+    skippedLines.push(name)
+    return false
+  })).filter((section) => section.length > 0)
+  const drones = selectDroneStacks(knownStacks, (name) => kinds.get(name) === 'drone')
+  return { parsed: { ...fit, modules: fittedModules }, drones, skippedLines }
 }

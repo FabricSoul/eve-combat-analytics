@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { EftFormatError, parseEft, selectDroneStacks } from './eft'
+import { EftFormatError, parseEft, resolveEftItems, selectDroneStacks } from './eft'
 
 const fixture = (name: string) =>
   readFileSync(new URL(`../../etl/parity/${name}.eft`, import.meta.url), 'utf8')
@@ -62,4 +62,52 @@ Nanite Repair Paste x100`)
     expect(() => parseEft(input)).toThrow(EftFormatError)
     expect(() => parseEft(input)).toThrow(expect.objectContaining({ code: 'bad_eft' }))
   })
+})
+
+it('resolves fitting names and reports each unknown item line without dropping recognized items', () => {
+  const fit = parseEft(`[Tristan, Scout]
+Small Armor Repairer II
+Abyssal Damage Control
+Abyssal Damage Control
+Light Electron Blaster II, Unknown Charge
+
+Hobgoblin II x5
+Unknown Drone x1
+
+Warrior II x2
+Nanite Repair Paste x100`)
+  const kinds = new Map([
+    ['Small Armor Repairer II', 'module'],
+    ['Light Electron Blaster II', 'module'],
+    ['Hobgoblin II', 'drone'],
+    ['Warrior II', 'drone'],
+    ['Nanite Repair Paste', 'other'],
+  ] as const)
+  const { parsed, drones, skippedLines } = resolveEftItems(fit, kinds)
+  expect(parsed.modules).toEqual([{ name: 'Small Armor Repairer II', offline: false }])
+  expect(drones).toEqual([{ name: 'Hobgoblin II', count: 5 }])
+  expect(skippedLines).toEqual(['Abyssal Damage Control', 'Abyssal Damage Control', 'Unknown Charge', 'Unknown Drone'])
+})
+
+it('keeps base names and mutation flags for pyfa references while ignoring mutation details', () => {
+  const fit = parseEft(`[Tristan, Scout]
+Damage Control II [1]
+Light Electron Blaster II, Void S /offline [2]
+
+Hobgoblin II x5 [3]
+
+[1] Damage Control II
+  Gravid Damage Control Mutaplasmid
+  structureEmDamageResonance 0.62
+[2] Light Electron Blaster II
+  Gravid Small Blaster Mutaplasmid
+  damageMultiplier 2.0, speed 2750
+[3] Hobgoblin II
+  Gravid Light Drone Mutaplasmid
+  thermalDamage 10.1`)
+  expect(fit.modules).toEqual([
+    { name: 'Damage Control II', offline: false, mutated: true },
+    { name: 'Light Electron Blaster II', charge: 'Void S', offline: true, mutated: true },
+  ])
+  expect(fit.stacks).toEqual([[{ name: 'Hobgoblin II', count: 5, mutated: true }]])
 })

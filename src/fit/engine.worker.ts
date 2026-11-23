@@ -3,7 +3,7 @@ import { expose } from 'comlink'
 import type * as Pyodide from 'pyodide'
 import { dependencies } from '../../package.json'
 import type { FitWorkerApi, FitWorkerResult } from './client'
-import { selectDroneStacks } from './eft'
+import { resolveEftItems, type EftItemKind } from './eft'
 import packages from './runtime-packages.json'
 
 interface EngineManifest {
@@ -74,7 +74,7 @@ fit_stats.initialize('/eve.db')
 let startup: ReturnType<typeof initialize> | undefined
 const getRuntime = () => (startup ??= initialize())
 
-function callPython<T>(runtime: Pyodide.PyodideInterface, operation: 'load_drone_names' | 'compute', payload: unknown): T {
+function callPython<T>(runtime: Pyodide.PyodideInterface, operation: 'load_item_kinds' | 'compute', payload: unknown): T {
   runtime.globals.set('_fit_payload', JSON.stringify(payload))
   try {
     return JSON.parse(runtime.runPython(`fit_stats.${operation}(_fit_payload)`))
@@ -89,10 +89,17 @@ expose({
   },
   async compute(fit) {
     const runtime = await getRuntime()
-    const { stacks, ...parsed } = fit
-    const names = [...new Set(stacks.flat().map(({ name }) => name))]
-    const droneNames = new Set(names.length ? callPython<string[]>(runtime, 'load_drone_names', names) : [])
-    const drones = selectDroneStacks(stacks, (name) => droneNames.has(name))
-    return callPython<FitWorkerResult>(runtime, 'compute', [parsed, drones])
+    const names = new Set(fit.stacks.flat().map(({ name }) => name))
+    for (const { name, charge } of fit.modules) {
+      names.add(name)
+      if (charge !== undefined) names.add(charge)
+    }
+    const kinds = new Map(names.size
+      ? callPython<[string, EftItemKind][]>(runtime, 'load_item_kinds', [...names])
+      : [])
+    const { parsed, drones, skippedLines } = resolveEftItems(fit, kinds)
+    const result = callPython<FitWorkerResult>(runtime, 'compute', [parsed, drones])
+    if (result.ok && skippedLines.length) result.stats.skippedLines = skippedLines
+    return result
   },
 } satisfies FitWorkerApi)

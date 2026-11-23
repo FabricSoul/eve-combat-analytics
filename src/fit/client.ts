@@ -1,11 +1,15 @@
 // Adapted from pyfa-phone's Comlink engine client (GPL-3.0-or-later).
 import { wrap } from 'comlink'
-import type { ComputeFitStats, FitStats } from '../core/contract'
+import type { FitStats } from '../core/contract'
 import { EftFormatError, parseEft, type ParsedEft } from './eft'
 
 export { EftFormatError } from './eft'
 
-export type FitWorkerResult = { ok: true; stats: FitStats } | { ok: false; message: string }
+export interface CalculatedFitStats extends FitStats {
+  skippedLines?: string[]
+}
+
+export type FitWorkerResult = { ok: true; stats: CalculatedFitStats } | { ok: false; message: string }
 
 export interface FitWorkerApi {
   ready(): Promise<void>
@@ -48,7 +52,7 @@ function createSession() {
 }
 
 /** Calculate pyfa's All V, uniform-damage baseline for a pasted EFT fit. */
-export const computeFitStats: ComputeFitStats = async (eft) => {
+export async function computeFitStats(eft: string): Promise<CalculatedFitStats> {
   const fit = parseEft(eft)
   const engine = session ??= createSession()
   await engine.ready

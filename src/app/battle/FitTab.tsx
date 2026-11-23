@@ -1,4 +1,5 @@
 import { useContext, useEffect, useMemo, useState } from 'react'
+import type { CalculatedFitStats } from '@/fit/client'
 import type { BattleSummary, Entity, FitEntry, FitStats, Interaction, KillmailFit, RepairType } from '@/core/contract'
 import { parseEft, type EftModule, type ParsedEft } from '@/fit/eft'
 import { fmtHms, fmtNum } from '../lib/format'
@@ -79,7 +80,7 @@ function PilotFit({ pilot, charId, summary, interactions }: {
   const sourceLoss = losses.find(({ id }) => id === sourceId)
   const imported = sourceId !== undefined
   const theoryEft = fit?.eft
-  const [calculation, setCalculation] = useState<{ eft: string; stats?: FitStats; failed?: boolean; retry: number }>()
+  const [calculation, setCalculation] = useState<{ eft: string; stats?: CalculatedFitStats; failed?: boolean; retry: number }>()
   const activeCalc = calculation?.eft === theoryEft && calculation?.retry === retry ? calculation : undefined
   const actual = useMemo(() => firingSummary(interactions, pilot.key), [interactions, pilot.key])
   const parsed = useMemo(() => {
@@ -142,9 +143,13 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     }
   }
 
-  const mutated = importDetails
-    ? importDetails.mutated ?? []
-    : parsed?.modules.map(({ name }) => name).filter((name) => /\bAbyssal\b|深渊/i.test(name)) ?? []
+  const skippedLines = theoryEft === text ? activeCalc?.stats?.skippedLines ?? [] : []
+  const mutated = importDetails ? importDetails.mutated ?? [] : [
+    ...(parsed?.modules ?? []),
+    ...(parsed?.stacks.flat() ?? []),
+  ].filter(({ name, mutated }) =>
+    (mutated || /\bAbyssal\b|深渊/i.test(name)) && !skippedLines.includes(name))
+    .map(({ name }) => name)
   const skippedCount = importDetails?.skippedTypeIds?.length ?? 0
   return <div className="u7-fit">
     <div className="u7-fit-actions">
@@ -183,6 +188,9 @@ function PilotFit({ pilot, charId, summary, interactions }: {
       </div>
     </form>}
     {skippedCount > 0 && <p className="u7-fit-hint" role="status">{fmtNum(skippedCount)} 个物品无法识别名称，已跳过。</p>}
+    {skippedLines.length > 0 && <p className="u7-fit-hint" role="status">
+      有 {fmtNum(skippedLines.length)} 行无法识别，已跳过：{skippedLines.join('、')}
+    </p>}
     {mutated.length > 0 && <p className="u7-fit-hint">{warning} {Array.from(new Set(mutated)).join("、")}</p>}
     {loadingItems && <p role="status" className="u7-fit-hint">正在加载配装物品…</p>}
     <div className="u7-fit-columns">
