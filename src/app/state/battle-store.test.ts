@@ -111,6 +111,21 @@ it('backs off repeated 503 analysis responses and clears the delay on success', 
   expect(callsTo(analysisPath)).toBe(6)
 })
 
+it('fetches a newly published version immediately during a pending retry', async () => {
+  const analysisPath = `${battlePath}/analysis`
+  fetcher.mockImplementation(async (url) => {
+    if (url === battlePath) return Response.json({ ...initialSummary, analysisVersion: 0 })
+    if (callsTo(analysisPath) === 1) return Response.json({ error: 'br_unavailable', message: 'pending' }, { status: 503 })
+    return Response.json(initialAnalysis, { headers: { ETag: '"v1"' } })
+  })
+  await mount()
+  await act(async () => sockets[0]!.message({ type: 'analysis_ready', version: 1 }))
+  expect(callsTo(analysisPath)).toBe(2)
+  expect(battle.analysis).toEqual(initialAnalysis)
+  await tick(2_000)
+  expect(callsTo(analysisPath)).toBe(2)
+})
+
 it('polls the summary every 15 seconds after three failed reconnects and stops when live returns', async () => {
   const pollSummary = { ...initialSummary, analysisVersion: 2 }
   const newAnalysis = { ...initialAnalysis, timeline: { start: 1, damageBySide: {} } }

@@ -79,7 +79,11 @@ export function useBattle(brId: string | null): BattleView {
     }
 
     function requestAnalysis(version: number) {
-      wantedVersion = Math.max(wantedVersion, version)
+      if (version > wantedVersion) {
+        wantedVersion = version
+        clearTimeout(retryAnalysis)
+        retryAnalysis = undefined
+      }
       if (retryAnalysis === undefined) void refreshAnalysis()
     }
 
@@ -107,7 +111,7 @@ export function useBattle(brId: string | null): BattleView {
         if (analysisVersion >= requestedVersion) {
           analysisDelay = analysisRetryStart
           if (current.error && current.summary) update({ error: null })
-        } else {
+        } else if (requestedVersion === wantedVersion) {
           deferAnalysis()
         }
       } catch (error) {
@@ -115,7 +119,7 @@ export function useBattle(brId: string | null): BattleView {
         const failure = asFailure(error)
         // A new room can have a snapshot before the first analysis alarm fires.
         if (failure.status !== 503 && current.summary) update({ error: failure })
-        if (failure.code !== 'br_not_found') {
+        if (failure.code !== 'br_not_found' && requestedVersion === wantedVersion) {
           deferAnalysis()
         }
       } finally {
