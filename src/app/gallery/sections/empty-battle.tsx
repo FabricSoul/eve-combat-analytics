@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
 import { EmptyBattle } from '../../battle/EmptyBattle'
 import { BattleProvider } from '../../state/battle-store'
-import { loadUiFixture } from '../../test/ui-fixture'
+import { useGalleryFixture } from '../fixture-assets'
 
 function EmptyBattleSection(): ReactNode {
-  const fixture = loadUiFixture()
+  const fixture = useGalleryFixture().loadUiFixture()
   return (
     <div style={{ position: 'relative', height: 520, border: '1px solid var(--color-hair)', overflow: 'hidden' }}>
       <BattleProvider static={{ ...fixture, summary: { ...fixture.summary, logs: [] } }}>

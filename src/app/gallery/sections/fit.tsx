@@ -6,13 +6,12 @@ import { useView, ViewProvider } from '../../state/view-store'
 import { Button } from '../../ui/Button'
 import type { GallerySection } from '../GalleryPage'
 import fixture from './u7-fit-data.json'
-import { loadUiFixture } from '../../test/ui-fixture'
-
-const pilotData = loadUiFixture({ fullPilotEvents: true })
+import { useGalleryFixture } from '../fixture-assets'
 
 const demoName = 'Blanchard2213'
 
 function FitPreview({ saved, name = demoName }: { saved: boolean; name?: string }) {
+  const pilotData = useGalleryFixture().loadUiFixture({ fullPilotEvents: true })
   const { summary, analysis } = pilotData
   const { select, selected } = useView()
   const pilot = Object.values(analysis?.entities ?? {}).find((entity) => entity.name === name)

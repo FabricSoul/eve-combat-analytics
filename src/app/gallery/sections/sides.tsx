@@ -3,12 +3,11 @@ import { withExtraSides } from '../../battle/roster/example'
 import { defaultOursSide } from '../../lib/sides'
 import { BattleProvider } from '../../state/battle-store'
 import { ViewProvider } from '../../state/view-store'
-import { loadUiFixture } from '../../test/ui-fixture'
-
-const fixture = loadUiFixture()
-const ours = defaultOursSide(fixture.summary)
+import { useGalleryFixture } from '../fixture-assets'
 
 function SidesSection() {
+  const fixture = useGalleryFixture().loadUiFixture()
+  const ours = defaultOursSide(fixture.summary)
   const extra = withExtraSides(fixture)
   const sideOverrides = Object.values(extra.analysis.entities).flatMap(({ charId, side }) =>
     charId !== null && side >= fixture.summary.meta.teams.length

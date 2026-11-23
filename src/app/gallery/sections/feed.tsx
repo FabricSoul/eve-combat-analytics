@@ -2,12 +2,7 @@ import { useEffect, type ReactNode } from 'react'
 import { EventFeed } from '../../battle/EventFeed'
 import { defaultOursSide } from '../../lib/sides'
 import { ViewProvider, useView, type FeedMode } from '../../state/view-store'
-import { loadUiFixture, uiReplayStart } from '../../test/ui-fixture'
-
-const fixture = loadUiFixture()
-const ours = defaultOursSide(fixture.summary)
-// The boards' window: the 10 s ending with second 92 of the fight (15:43:02 on J125990), as c6-merged draws it.
-const at = uiReplayStart + 92_999
+import { useGalleryFixture } from '../fixture-assets'
 
 function Mode({ mode }: { mode: FeedMode }) {
   const { setFeedMode } = useView()
@@ -16,6 +11,10 @@ function Mode({ mode }: { mode: FeedMode }) {
 }
 
 function Box({ label, width, mode, compact }: { label: ReactNode; width: number; mode: FeedMode; compact?: boolean }) {
+  const { loadUiFixture, replayStart } = useGalleryFixture()
+  const ours = defaultOursSide(loadUiFixture().summary)
+  // The board shows the 10 seconds ending at 15:43:02 in J125990.
+  const at = replayStart + 92_999
   return (
     <div>
       <p className="app-token-usage">{label}</p>

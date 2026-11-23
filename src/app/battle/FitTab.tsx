@@ -6,7 +6,7 @@ import { useBattleContext } from '../state/battle-store'
 import { useView } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { TypeIcon } from '../ui/TypeIcon'
-import { FitServices, firingSummary, itemId, moduleSlot } from './person/fit-data'
+import { FitServices, firingSummary, loadFitCatalog, type FitCatalog } from './person/fit-data'
 import './person/person.css'
 
 export interface FitTabProps {}
@@ -86,6 +86,19 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     if (!text.trim() || tooLarge) return undefined
     try { return parseEft(text) } catch { return undefined }
   }, [text, tooLarge])
+  const [catalog, setCatalog] = useState<FitCatalog | null>()
+  const needsCatalog = Boolean(parsed?.modules.length || parsed?.stacks.length || actual.weapons.length)
+  const loadingItems = needsCatalog && catalog === undefined
+
+  useEffect(() => {
+    if (!loadingItems) return
+    let active = true
+    void loadFitCatalog().then(
+      (items) => { if (active) setCatalog(items) },
+      () => { if (active) setCatalog(null) },
+    )
+    return () => { active = false }
+  }, [loadingItems])
 
   useEffect(() => {
     if (!theoryEft) return
@@ -171,28 +184,29 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     </form>}
     {skippedCount > 0 && <p className="u7-fit-hint" role="status">{fmtNum(skippedCount)} 个物品无法识别名称，已跳过。</p>}
     {mutated.length > 0 && <p className="u7-fit-hint">{warning} {Array.from(new Set(mutated)).join("、")}</p>}
+    {loadingItems && <p role="status" className="u7-fit-hint">正在加载配装物品…</p>}
     <div className="u7-fit-columns">
       {parsed && <section className="u7-person-card u7-fit-racks">
         <h3>{parsed.ship}</h3>
         {imported && <p className="u7-secondary">来自击毁报告 {sourceLoss
           ? <time className="app-number">{fmtHms(sourceLoss.t)}</time>
           : <span className="app-number">{fmtNum(sourceId)}</span>}</p>}
-        <FitItems fit={parsed} />
+        {!loadingItems && <FitItems fit={parsed} catalog={catalog} />}
       </section>}
       <section className="u7-person-card">
         <h3>输出（伤害 / 秒）</h3>
         {theoryEft && !activeCalc && <p role="status">正在计算理论值… pyfa 首次加载约 3–5 秒。</p>}
         {activeCalc?.failed && <p>无法计算理论值。 <Button onClick={() => setRetry(retry + 1)}>重试</Button></p>}
-        <FitNumbers stats={activeCalc?.stats} actual={actual} hasLog={pilot.hasLog} />
+        <FitNumbers stats={activeCalc?.stats} actual={actual} hasLog={pilot.hasLog} catalog={catalog} />
       </section>
     </div>
   </div>
 }
 
-function FitItems({ fit }: { fit: ParsedEft }) {
+function FitItems({ fit, catalog }: { fit: ParsedEft; catalog?: FitCatalog | null }) {
   const racks = new Map<string, EftModule[]>()
   for (const module of fit.modules) {
-    const slot = moduleSlot(module.name)
+    const slot = catalog?.moduleSlot(module.name) ?? '其他模块'
     const items = racks.get(slot) ?? []
     items.push(module)
     racks.set(slot, items)
@@ -201,22 +215,22 @@ function FitItems({ fit }: { fit: ParsedEft }) {
     {[...racks].map(([slot, items]) => <div key={slot}>
       <h4>{slot}</h4>
       <ul className="u7-fit-items">{items.map(({ name, charge, offline }, index) => <li key={index}>
-        <TypeIcon typeId={itemId(name)} size={18} /><span title={name}>{name}
+        <TypeIcon typeId={catalog?.itemId(name) ?? null} size={18} /><span title={name}>{name}
           {charge && <small> · {charge}</small>}{offline && <small> · 离线</small>}</span>
       </li>)}</ul>
     </div>)}
     {fit.stacks.length > 0 && <div>
       <h4>无人机 / 备用物品</h4>
       <ul className="u7-fit-items">{fit.stacks.flat().map(({ name, count }, index) => <li key={index}>
-        <TypeIcon typeId={itemId(name)} size={18} /><span title={name}>{name}</span>
+        <TypeIcon typeId={catalog?.itemId(name) ?? null} size={18} /><span title={name}>{name}</span>
         <span className="app-number">×{fmtNum(count)}</span>
       </li>)}</ul>
     </div>}
   </div>
 }
 
-function FitNumbers({ stats, actual, hasLog }: {
-  stats?: FitStats; actual: ReturnType<typeof firingSummary>; hasLog: boolean
+function FitNumbers({ stats, actual, hasLog, catalog }: {
+  stats?: FitStats; actual: ReturnType<typeof firingSummary>; hasLog: boolean; catalog?: FitCatalog | null
 }) {
   const comparisons = [
     { label: '理论（pyfa）', value: stats?.dps.total ?? null, theory: true },
@@ -242,7 +256,7 @@ function FitNumbers({ stats, actual, hasLog }: {
     {actual.weapons.length > 0 && <>
       <h4>实际输出按武器</h4>
       <ul className="u7-fit-items">{actual.weapons.map(([weapon, damage]) => <li key={weapon}>
-        <TypeIcon typeId={itemId(weapon)} size={18} /><span title={weapon}>{weapon}</span>
+        <TypeIcon typeId={catalog?.itemId(weapon) ?? null} size={18} /><span title={weapon}>{weapon}</span>
         <span className="app-number">{num(damage)}</span>
       </li>)}</ul>
     </>}

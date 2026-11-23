@@ -1,23 +1,15 @@
 import { useMemo, useState } from 'react'
-import type { Analysis } from '@/core/contract'
+import type { Analysis, BattleSummary } from '@/core/contract'
 import { ReplayCanvas } from '@/app/battle/ReplayCanvas'
 import { fmtHms } from '@/app/lib/format'
 import { defaultOursSide } from '@/app/lib/sides'
-import { BattleProvider } from '@/app/state/battle-store'
+import { BattleProvider, type BattleData } from '@/app/state/battle-store'
 import { usePlayback, useView, ViewProvider } from '@/app/state/view-store'
-import { loadUiFixture, uiReplayStart } from '@/app/test/ui-fixture'
 import { Button } from '@/app/ui/Button'
 import type { GallerySection } from '../GalleryPage'
+import { useGalleryFixture } from '../fixture-assets'
 
-const fixture = loadUiFixture()
-const { analysis, summary } = fixture
-const start = uiReplayStart
-// The board opens at 92 s and animates its opening tracers. Pause partway through them here.
-const boardTime = start + 92_420
-const end = analysis.interactions.at(-1)?.t ?? start
-const oursSide = defaultOursSide(summary)
-
-function extraSides(sideCount: number): Analysis {
+function extraSides(analysis: Analysis, oursSide: number, sideCount: number): Analysis {
   // Gallery example only: split real opponent entities into extra sides.
   // The pilots, combat timings and amounts still come from the real fixture.
   if (sideCount === 2) return analysis
@@ -40,25 +32,30 @@ function extraSides(sideCount: number): Analysis {
   return { ...analysis, entities, coverage }
 }
 
-const samples = [
-  { label: '交火', t: boardTime, offset: 0 },
-  { label: '伤害', t: analysis.interactions.find(({ t, kind }) => t >= boardTime && kind === 'damage')?.t, offset: 460 },
-  { label: '维修', t: analysis.interactions.find(({ t, kind }) => t >= boardTime && kind === 'repair')?.t, offset: 460 },
-  { label: '点人 / 扰频', t: analysis.ewarSpans.find(({ ewar }) => ewar === 'warp_disrupt' || ewar === 'warp_scramble')?.start, offset: 100 },
-  { label: '能量中和', t: analysis.interactions.find(({ kind }) => kind === 'neut')?.t, offset: 460 },
-  { label: '击毁', t: summary.meta.killmails.find(({ t, victim }) => (
-    t >= start && t <= end && victim.charId !== null && analysis.interactions.some(({ from, to }) => (
-      from === `char:${victim.charId}` || to === `char:${victim.charId}`
-    ))
-  ))?.t, offset: 100 },
-]
+function interactionSamples(summary: BattleSummary, analysis: Analysis, start: number, end: number, boardTime: number) {
+  return [
+    { label: '交火', t: boardTime, offset: 0 },
+    { label: '伤害', t: analysis.interactions.find(({ t, kind }) => t >= boardTime && kind === 'damage')?.t, offset: 460 },
+    { label: '维修', t: analysis.interactions.find(({ t, kind }) => t >= boardTime && kind === 'repair')?.t, offset: 460 },
+    { label: '点人 / 扰频', t: analysis.ewarSpans.find(({ ewar }) => ewar === 'warp_disrupt' || ewar === 'warp_scramble')?.start, offset: 100 },
+    { label: '能量中和', t: analysis.interactions.find(({ kind }) => kind === 'neut')?.t, offset: 460 },
+    { label: '击毁', t: summary.meta.killmails.find(({ t, victim }) => (
+      t >= start && t <= end && victim.charId !== null && analysis.interactions.some(({ from, to }) => (
+        from === `char:${victim.charId}` || to === `char:${victim.charId}`
+      ))
+    ))?.t, offset: 100 },
+  ]
+}
 
-function ReplaySamples() {
+function ReplaySamples({ fixture, samples, oursSide }: {
+  fixture: BattleData; samples: ReturnType<typeof interactionSamples>; oursSide: number
+}) {
+  const { summary, analysis } = fixture
   const [sideCount, setSideCount] = useState(2)
   const [compact, setCompact] = useState(false)
   const { play, pause, seek, setSpeed, speed, selected, focusOnly, setFocusOnly } = useView()
   const { t, playing } = usePlayback('coarse')
-  const data = useMemo(() => ({ summary, analysis: extraSides(sideCount) }), [sideCount])
+  const data = useMemo(() => ({ summary, analysis: extraSides(analysis, oursSide, sideCount) }), [summary, analysis, oursSide, sideCount])
   return (
     <>
       <div className="replay-gallery-controls">
@@ -89,9 +86,17 @@ function ReplaySamples() {
 }
 
 function ReplayGallery() {
+  const { loadUiFixture, replayStart: start } = useGalleryFixture()
+  const fixture = loadUiFixture()
+  const { summary, analysis } = fixture
+  // The board opens at 92 s. Pause partway through its opening tracers.
+  const boardTime = start + 92_420
+  const end = analysis.interactions.at(-1)?.t ?? start
+  const oursSide = defaultOursSide(summary)
+  const samples = interactionSamples(summary, analysis, start, end, boardTime)
   return (
     <ViewProvider initialTime={boardTime} endTime={end} defaultSide={oursSide} syncUrl={false}>
-      <ReplaySamples />
+      <ReplaySamples fixture={fixture} samples={samples} oursSide={oursSide} />
     </ViewProvider>
   )
 }

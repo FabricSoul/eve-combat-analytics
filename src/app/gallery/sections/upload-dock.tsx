@@ -3,15 +3,15 @@
 // show the design and is marked 示例: progress values, "same as" matches and failures are simulated. The time-mismatch
 // row mirrors the c3-spec board (a 2026-11-21 log of the author); the other failure names are invented.
 import { useReducer } from 'react'
+import type { BattleSummary } from '@/core/contract'
 import { UploadTray } from '../../battle/upload/UploadTray'
 import { queueReducer, type UploadItem } from '../../battle/upload/queue'
-import { loadUiFixture } from '../../test/ui-fixture'
+import { useGalleryFixture } from '../fixture-assets'
 import sizes from './upload-log-sizes.json'
 
 const realSize = (name: string) => (sizes as Record<string, number>)[name] ?? 0
 
-function demoItems(): UploadItem[] {
-  const logs = loadUiFixture().summary.logs
+function demoItems(logs: BattleSummary['logs']): UploadItem[] {
   const done = logs[0]!
   const demo = (id: number, name: string, size: number, patch: Partial<UploadItem>): UploadItem =>
     ({ id, name, size, status: 'queued', progress: 0, demo: true, ...patch })
@@ -33,8 +33,8 @@ function demoItems(): UploadItem[] {
 }
 
 function UploadDockSection() {
-  const [queue, dispatch] = useReducer(queueReducer, undefined, () => ({ items: demoItems(), nextId: 11 }))
-  const { analysis } = loadUiFixture()
+  const { analysis, summary } = useGalleryFixture().loadUiFixture()
+  const [queue, dispatch] = useReducer(queueReducer, summary.logs, (logs) => ({ items: demoItems(logs), nextId: 11 }))
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-6)', alignItems: 'flex-start' }}>
       <UploadTray items={queue.items} onRemove={(id) => dispatch({ type: 'remove', id })}

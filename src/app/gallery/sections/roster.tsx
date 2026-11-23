@@ -5,11 +5,7 @@ import { onlyPilot, rosterSamples, withExtraSides } from '../../battle/roster/ex
 import { defaultOursSide } from '../../lib/sides'
 import { BattleProvider } from '../../state/battle-store'
 import { ViewProvider, useView } from '../../state/view-store'
-import { loadUiFixture } from '../../test/ui-fixture'
-
-const fixture = loadUiFixture()
-const ours = defaultOursSide(fixture.summary)
-const samples = rosterSamples(fixture, ours)
+import { useGalleryFixture } from '../fixture-assets'
 
 function Select({ keyOf }: { keyOf: EntityKey }) {
   const { select } = useView()
@@ -29,6 +25,8 @@ function Box({ label, children, hover }: { label: string; children: ReactNode; h
 function State({ label, keyOf, patch, selected, manual, hover, at }: {
   label: string; keyOf: EntityKey; patch?: Parameters<typeof onlyPilot>[2]; selected?: boolean; manual?: boolean; hover?: boolean; at?: number
 }) {
+  const fixture = useGalleryFixture().loadUiFixture()
+  const ours = defaultOursSide(fixture.summary)
   const data = onlyPilot(fixture, keyOf, patch)
   const charId = data.analysis.entities[keyOf]?.charId
   const summary = manual && charId != null
@@ -47,7 +45,9 @@ function State({ label, keyOf, patch, selected, manual, hover, at }: {
 }
 
 function RosterSection() {
-  const { logged, unlogged, dead, corrected, deadAt } = samples
+  const fixture = useGalleryFixture().loadUiFixture()
+  const ours = defaultOursSide(fixture.summary)
+  const { logged, unlogged, dead, corrected, deadAt } = rosterSamples(fixture, ours)
   const three = withExtraSides(fixture)
   return (
     <div style={{ display: 'grid', gap: 'var(--space-4)' }}>

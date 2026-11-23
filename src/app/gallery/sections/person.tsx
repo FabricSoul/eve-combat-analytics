@@ -5,11 +5,10 @@ import { useView } from '../../state/view-store'
 import { Button } from '../../ui/Button'
 import './u7-gallery.css'
 import type { GallerySection } from '../GalleryPage'
-import { loadUiFixture } from '../../test/ui-fixture'
-
-const data = loadUiFixture({ fullPilotEvents: true })
+import { useGalleryFixture } from '../fixture-assets'
 
 function PersonGallery() {
+  const data = useGalleryFixture().loadUiFixture({ fullPilotEvents: true })
   const { select, selected } = useView()
   const pilot = Object.values(data.analysis.entities).find(({ name }) => name === 'MoQingXL moqing')
   useEffect(() => { if (pilot) select(pilot.key) }, [pilot])

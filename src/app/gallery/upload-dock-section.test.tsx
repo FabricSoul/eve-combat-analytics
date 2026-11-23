@@ -5,7 +5,8 @@ import { gunzipSync } from 'node:zlib'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { loadUiFixture } from '../test/ui-fixture'
+import { loadUiFixture, uiReplayStart } from '../test/ui-fixture'
+import { GalleryFixtureContext } from './fixture-assets'
 import section from './sections/upload-dock'
 
 let root: Root | undefined
@@ -18,7 +19,11 @@ function mount() {
   document.body.appendChild(host)
   root = createRoot(host)
   const Component = section.Component
-  act(() => root!.render(<Component />))
+  act(() => root!.render(
+    <GalleryFixtureContext.Provider value={{ replayStart: uiReplayStart, loadUiFixture }}>
+      <Component />
+    </GalleryFixtureContext.Provider>,
+  ))
 }
 
 describe('upload gallery section (R2a-14)', () => {

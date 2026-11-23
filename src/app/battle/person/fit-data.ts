@@ -1,19 +1,43 @@
 import { createContext } from 'react'
 import type { ComputeFitStats, EntityKey, Interaction } from '@/core/contract'
 import { computeFitStats } from '@/fit/client'
-import itemTypes from '@/core/data/killmail-types.json'
 import { api } from '../../api/client'
-import rackData from './fit-items.json'
 
-const localizedItems: Readonly<Record<number, string>> = rackData.localized
+export interface FitCatalog {
+  itemId(name: string): number | null
+  moduleSlot(name: string): string
+}
 
-const typeIds = new Map(
-  Object.entries({ ...itemTypes.items, ...itemTypes.charges })
-    .map(([id, name]) => [name, Number(id)] as const)
-    .reverse()
-    .concat(Object.entries(localizedItems).reverse().map(([id, name]) => [name, Number(id)] as const)),
-)
-export const itemId = (name: string) => typeIds.get(name) ?? null
+const slotLabels = new Map([
+  [11, '低槽'], [13, '中槽'], [12, '高槽'], [2663, '改装件'], [3772, '子系统'], [6306, '服务槽'],
+])
+let catalog: Promise<FitCatalog> | undefined
+
+export function loadFitCatalog(): Promise<FitCatalog> {
+  return catalog ??= Promise.all([
+    import('@/core/data/killmail-types.json'),
+    import('./fit-items.json'),
+  ]).then(([{ default: itemTypes }, { default: racks }]) => {
+    const localizedItems: Readonly<Record<number, string>> = racks.localized
+    const slotById: Readonly<Record<number, number>> = racks.slots
+    const typeIds = new Map(
+      Object.entries({ ...itemTypes.items, ...itemTypes.charges })
+        .map(([id, name]) => [name, Number(id)] as const)
+        .reverse()
+        .concat(Object.entries(localizedItems).reverse().map(([id, name]) => [name, Number(id)] as const)),
+    )
+    return {
+      itemId: (name: string) => typeIds.get(name) ?? null,
+      moduleSlot: (name: string) => {
+        const id = typeIds.get(name)
+        return (id === undefined ? undefined : slotLabels.get(slotById[id] ?? 0)) ?? '其他模块'
+      },
+    }
+  }).catch((error: unknown) => {
+    catalog = undefined
+    throw error
+  })
+}
 
 export const FitServices = createContext({
   load: (id: number, hash: string) => api.getKillmailFit(id, hash),
@@ -49,14 +73,4 @@ export function firingSummary(interactions: readonly Interaction[], key: EntityK
     peak = Math.max(peak, window / 10)
   }
   return { mean: damage / (firingWindows.size * 10), peak, weapons: [...weapons].sort((a, b) => b[1] - a[1]) }
-}
-
-const slotLabels = new Map([
-  [11, '低槽'], [13, '中槽'], [12, '高槽'], [2663, '改装件'], [3772, '子系统'], [6306, '服务槽'],
-])
-const slotById: Readonly<Record<number, number>> = rackData.slots
-
-export function moduleSlot(name: string): string {
-  const id = itemId(name)
-  return (id === null ? undefined : slotLabels.get(slotById[id] ?? 0)) ?? '其他模块'
 }
