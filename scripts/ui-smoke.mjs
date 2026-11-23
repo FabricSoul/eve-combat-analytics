@@ -153,6 +153,27 @@ export class BattleRoom extends ProductionRoom {
   assert.deepEqual([...a.errors, ...b.errors], [])
   console.log('Live side change: context A showed the manual override without reload')
 
+  // Three and four sides on real data: two organizations moved to new sides through the production API, as 新建一方 does.
+  for (const [subject, side] of [['ally:99013753', 2], ['corp:98775057', 3]]) {
+    const made = await fetch(`${origin}/api/battles/${brId}/sides`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ subject, side: 'new' }),
+    })
+    assert.equal(made.status, 200, await made.clone().text())
+    assert.equal((await made.json()).side, side)
+  }
+  await a.page.getByRole('button', { name: 'C 方伤害' }).waitFor()
+  await a.page.getByRole('button', { name: 'D 方伤害' }).waitFor()
+  const fourSides = await (await fetch(`${origin}/api/battles/${brId}/analysis`)).json()
+  assert.deepEqual(Object.keys(fourSides.timeline.damageBySide).sort(), ['0', '1', '2', '3'])
+  for (const [subject] of [['ally:99013753'], ['corp:98775057']]) {
+    await fetch(`${origin}/api/battles/${brId}/sides`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ subject, side: -1 }),
+    })
+  }
+  await a.page.getByRole('button', { name: 'C 方伤害' }).waitFor({ state: 'detached' })
+  assert.deepEqual([...a.errors, ...b.errors], [])
+  console.log('Four sides: two new sides from the API reached context A live, with per-side damage, then were removed')
+
   const tablet = await open(900, 800, 'dark')
   const rail = tablet.page.getByRole('navigation', { name: '飞行员名单' })
   const railBox = await rail.boundingBox()
