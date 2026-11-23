@@ -1,3 +1,4 @@
+import { indexSideAssignments } from '@/core/analysis/sides'
 import type { BattleSummary } from '@/core/contract'
 
 export interface PilotAffiliation {
@@ -5,17 +6,19 @@ export interface PilotAffiliation {
   allyId: number | null
 }
 
-/** A pilot's corporation and alliance: battle-time killmail rows first, then the ESI name index. */
+const indexes = new WeakMap<BattleSummary, ReturnType<typeof indexSideAssignments>>()
+
+export function sideIndexOf(summary: BattleSummary) {
+  let index = indexes.get(summary)
+  if (!index) {
+    index = indexSideAssignments(summary)
+    indexes.set(summary, index)
+  }
+  return index
+}
+
+/** The historical or fallback affiliation used by the analysis engine. */
 export function affiliationOf(summary: BattleSummary, charId: number): PilotAffiliation | null {
-  for (const killmail of summary.meta.killmails) {
-    for (const participant of [killmail.victim, ...killmail.attackers]) {
-      if (participant.charId === charId && participant.corpId !== null) {
-        return { corpId: participant.corpId, allyId: participant.allyId }
-      }
-    }
-  }
-  for (const value of Object.values(summary.names)) {
-    if (value && value.charId === charId && value.corpId !== undefined) return { corpId: value.corpId, allyId: value.allyId ?? null }
-  }
-  return null
+  const affiliation = sideIndexOf(summary).affiliations.get(charId)
+  return affiliation?.corpId == null ? null : { corpId: affiliation.corpId, allyId: affiliation.allyId ?? null }
 }

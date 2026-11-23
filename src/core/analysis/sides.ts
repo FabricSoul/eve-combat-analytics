@@ -6,14 +6,14 @@ export const MAX_BATTLE_SIDES = 8
 
 type SideAssignment = Pick<Entity, 'side' | 'sideSource'>
 
-interface Affiliation {
+export interface PilotAffiliation {
   corpId?: number | null
   allyId?: number | null
 }
 
 interface SideRecord {
   side: number
-  affiliation?: Affiliation
+  affiliation?: PilotAffiliation
 }
 
 export type SideAssignments = Map<number, SideAssignment>
@@ -33,7 +33,11 @@ function newest(a: ManualChoice | undefined, b: ManualChoice | undefined): Manua
   return a.index > b.index ? a : b
 }
 
-export function indexSideAssignments(state: BattleState): { assignments: SideAssignments; sideCount: number } {
+type SideAssignmentInput = Pick<BattleState, 'meta' | 'names' | 'sideOverrides'> & {
+  logs: readonly Pick<BattleState['logs'][number], 'id' | 'charId' | 'side' | 'uploadedAt' | 'corpId' | 'allyId'>[]
+}
+
+export function indexSideAssignments(state: SideAssignmentInput) {
   const historical = new Map<number, SideRecord>()
   const killmails = [...state.meta.killmails].sort((a, b) => a.t - b.t || a.id - b.id)
   for (const { victim, attackers } of killmails) {
@@ -62,27 +66,40 @@ export function indexSideAssignments(state: BattleState): { assignments: SideAss
     if (override.source !== 'manual') continue
     manual.set(override.subject, newest(manual.get(override.subject), { override, index })!)
   }
+  const manualOverrides = new Map<number, SideOverride>()
   let sideCount = state.meta.teams.length
+  const activeSides = new Set(state.meta.teams.map((_, side) => side))
   const sideLimit = Math.max(sideCount, MAX_BATTLE_SIDES)
-  for (const [subject, { override: { side } }] of manual) {
+  for (const [subject, { override }] of manual) {
+    const { side } = override
     if (!Number.isInteger(side) || side < 0 || side >= sideLimit) manual.delete(subject)
-    else sideCount = Math.max(sideCount, side + 1)
+    else {
+      if (subject.startsWith('char:')) manualOverrides.set(Number(subject.slice(5)), override)
+      activeSides.add(side)
+      sideCount = Math.max(sideCount, side + 1)
+    }
   }
 
-  const sides: SideAssignments = new Map()
+  const assignments: SideAssignments = new Map()
+  const affiliations = new Map<number, PilotAffiliation>()
   for (const id of new Set([...historical.keys(), ...fallbacks.keys()])) {
     const history = historical.get(id)
     const fallback = fallbacks.get(id)
-    const { corpId, allyId } = history?.affiliation ?? fallback?.affiliation ?? {}
+    const affiliation = history?.affiliation ?? fallback?.affiliation
+    if (affiliation) affiliations.set(id, affiliation)
+    const { corpId, allyId } = affiliation ?? {}
     const fromCorp = corpId == null ? undefined : manual.get(`corp:${corpId}`)
     const fromAlliance = allyId == null ? undefined : manual.get(`ally:${allyId}`)
     const override = manual.get(charKey(id)) ?? newest(fromCorp, fromAlliance)
-    if (override) sides.set(id, { side: override.override.side, sideSource: 'manual' })
-    else if (history && history.side >= 0) sides.set(id, { side: history.side, sideSource: 'br' })
-    else if (fallback && fallback.side >= 0) sides.set(id, { side: fallback.side, sideSource: 'esi' })
-    else sides.set(id, { side: -1, sideSource: 'unknown' })
+    if (override) {
+      manualOverrides.set(id, override.override)
+      assignments.set(id, { side: override.override.side, sideSource: 'manual' })
+    }
+    else if (history && history.side >= 0) assignments.set(id, { side: history.side, sideSource: 'br' })
+    else if (fallback && fallback.side >= 0) assignments.set(id, { side: fallback.side, sideSource: 'esi' })
+    else assignments.set(id, { side: -1, sideSource: 'unknown' })
   }
-  return { assignments: sides, sideCount }
+  return { assignments, sideCount, activeSides, affiliations, manualOverrides, manualSubjects: [...manual.keys()] }
 }
 
 interface SideEvidence {

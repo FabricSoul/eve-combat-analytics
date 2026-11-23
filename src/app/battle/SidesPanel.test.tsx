@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, createElement } from 'react'
+import { act, createElement, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BattleSummary } from '@/core/contract'
 import { api } from '../api/client'
@@ -60,13 +60,14 @@ describe('SidesPanel', () => {
     const pilot = column('0').querySelector<HTMLElement>('.sides-pilot[data-subject="char:2"]')!
     fire(pilot, 'dragstart')
     await act(async () => { column('new').dispatchEvent(new Event('drop', { bubbles: true, cancelable: true })) })
-    expect(putSide).toHaveBeenCalledWith('tiny', 'char:2', 2)
+    expect(putSide).toHaveBeenCalledWith('tiny', 'char:2', 'new')
   })
 
-  it('ignores a drop on the column the subject is already in', async () => {
+  it('ignores a drop on the column an individual is already in', async () => {
     mounted = mountApp(createElement(SidesPanel))
-    fire(group('1', 'corp:10'), 'dragstart')
-    await act(async () => { column('1').dispatchEvent(new Event('drop', { bubbles: true, cancelable: true })) })
+    act(() => group('0', 'corp:10').querySelector<HTMLButtonElement>('.sides-name button')!.click())
+    fire(group('0', 'char:2'), 'dragstart')
+    await act(async () => { column('0').dispatchEvent(new Event('drop', { bubbles: true, cancelable: true })) })
     expect(putSide).not.toHaveBeenCalled()
   })
 
@@ -83,13 +84,97 @@ describe('SidesPanel', () => {
     expect(putSide).toHaveBeenCalledWith('tiny', 'corp:10', 1)
   })
 
+  it('uses the committed side targets while analysis is stale and disables creation at eight sides', async () => {
+    const summary: BattleSummary = {
+      ...tinySummary, sideOverrides: [{ subject: 'char:6', side: 2, source: 'manual', setAt: 2 }],
+    }
+    mounted = mountApp(createElement(SidesPanel), { summary, analysis: tinyAnalysis })
+    expect(column('2')).not.toBeNull()
+    expect(column('2').textContent).toContain('Pilot6')
+    fire(group('0', 'corp:10'), 'dragstart')
+    await act(async () => { column('new').dispatchEvent(new Event('drop', { bubbles: true, cancelable: true })) })
+    expect(putSide).toHaveBeenCalledWith('tiny', 'corp:10', 'new')
+
+    putSide.mockClear()
+    const stale = { ...tinyAnalysis, coverage: [...tinyAnalysis.coverage, { side: 2, known: 1, withLog: 0 }] }
+    mounted.rerender(createElement(SidesPanel), { summary: tinySummary, analysis: stale })
+    expect(column('2')).toBeNull()
+    const atLimit: BattleSummary = {
+      ...tinySummary, sideOverrides: [{ subject: 'char:6', side: 7, source: 'manual', setAt: 3 }],
+    }
+    mounted.rerender(createElement(SidesPanel), { summary: atLimit, analysis: tinyAnalysis })
+    expect(column('new').getAttribute('aria-disabled')).toBe('true')
+    fire(group('0', 'corp:10'), 'dragstart')
+    fire(column('new'), 'dragover')
+    expect(column('new').hasAttribute('data-drop')).toBe(false)
+    await act(async () => { column('new').dispatchEvent(new Event('drop', { bubbles: true, cancelable: true })) })
+    expect(putSide).not.toHaveBeenCalled()
+    act(() => group('0', 'corp:10').querySelector<HTMLButtonElement>('.sides-more')!.click())
+    expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('移到新建的一方')
+  })
+
+  it('offers the nested corporation and labels cross-side organization moves with their full scope', async () => {
+    mounted = mountApp(createElement(SidesPanel))
+    const alliance = group('0', 'ally:20')
+    expect(alliance.textContent).toContain('全联盟 · 2 人')
+    act(() => alliance.querySelector<HTMLButtonElement>('.sides-name button')!.click())
+    const corp = group('0', 'corp:11')
+    expect(corp.textContent).toContain('全军团 · 2 人')
+    expect(corp.querySelector('img')?.getAttribute('src')).toContain('/corporations/11/logo')
+    fire(corp, 'dragstart')
+    await act(async () => { column('1').dispatchEvent(new Event('drop', { bubbles: true, cancelable: true })) })
+    expect(putSide).toHaveBeenCalledWith('tiny', 'corp:11', 1)
+  })
+
+  it('keeps 未分边 read-only for drops and provides a keyboard-focusable per-subject removal', async () => {
+    const summary: BattleSummary = {
+      ...tinySummary, sideOverrides: [{ subject: 'corp:10', side: 0, source: 'manual', setAt: 2 }],
+    }
+    mounted = mountApp(createElement(SidesPanel), { summary, analysis: tinyAnalysis })
+    fire(group('0', 'corp:10'), 'dragstart')
+    fire(column('-1'), 'dragover')
+    expect(column('-1').hasAttribute('data-drop')).toBe(false)
+    await act(async () => { column('-1').dispatchEvent(new Event('drop', { bubbles: true, cancelable: true })) })
+    expect(putSide).not.toHaveBeenCalled()
+
+    const remove = group('0', 'corp:10').querySelector<HTMLButtonElement>('button[aria-label="Alpha Corp：移除手动排边"]')!
+    expect(remove.tabIndex).toBe(0)
+    remove.focus()
+    expect(document.activeElement).toBe(remove)
+    await act(async () => remove.click())
+    expect(putSide).toHaveBeenCalledWith('tiny', 'corp:10', -1)
+  })
+
+  it('focuses the dialog when opened and restores focus to its opener when closed', () => {
+    function Harness() {
+      const [open, setOpen] = useState(false)
+      return <>
+        <button onClick={() => setOpen(true)}>打开排边</button>
+        {open && <SidesPanel onClose={() => setOpen(false)} />}
+      </>
+    }
+    mounted = mountApp(createElement(Harness))
+    const opener = mounted.container.querySelector('button')!
+    opener.focus()
+    act(() => opener.click())
+    expect(document.activeElement).toBe(mounted.container.querySelector('[role="dialog"]'))
+    const done = [...mounted.container.querySelectorAll('button')].find((button) => button.textContent === '完成')!
+    act(() => done.click())
+    expect(document.activeElement).toBe(opener)
+  })
+
   it('offers the keyboard alternative in a ⋯ menu', async () => {
     mounted = mountApp(createElement(SidesPanel))
     act(() => group('0', 'corp:10').querySelector<HTMLButtonElement>('.sides-more')!.click())
     const items = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-    expect(items.map((i) => i.textContent)).toEqual(['移到敌方', '移到新建的一方'])
-    await act(async () => items[0]!.click())
+    expect(items.map((i) => i.textContent)).toEqual(['移到我方', '移到敌方', '移到新建的一方'])
+    await act(async () => items[1]!.click())
     expect(putSide).toHaveBeenCalledWith('tiny', 'corp:10', 1)
+
+    act(() => group('0', 'corp:10').querySelector<HTMLButtonElement>('.sides-more')!.click())
+    const create = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].at(-1)!
+    await act(async () => create.click())
+    expect(putSide).toHaveBeenLastCalledWith('tiny', 'corp:10', 'new')
   })
 
   it('恢复 BR 的划分 removes every manual override', async () => {

@@ -627,6 +627,22 @@ it('creates only the next side through index 7 and shrinks the limit when upper 
   await editSide(id, 'char:107', 7)
 })
 
+it('atomically creates distinct sides for simultaneous new-side edits, then rejects creation at capacity', async () => {
+  const id = await prepare(989)
+  const firstNew = teams.length
+  const add = (charId: number) => putSide(id, { subject: `char:${charId}`, side: 'new' })
+  const results = await Promise.all([add(100), add(101)])
+  expect(results.map(({ status }) => status)).toEqual([200, 200])
+  const replies = await Promise.all(results.map((response) => response.json<SideOverride>()))
+  expect(replies.map(({ side }) => side).sort((a, b) => a - b)).toEqual([firstNew, firstNew + 1])
+  expect((await state(id)).sideOverrides).toEqual(expect.arrayContaining(replies))
+
+  for (let side = firstNew + 2; side <= 7; side++) await editSide(id, `char:${100 + side}`, side)
+  const response = await add(109)
+  expect(response.status).toBe(400)
+  expect(await response.json()).toMatchObject({ error: 'bad_request' })
+})
+
 it('F6b rejects malformed JSON', async () => {
   const id = await prepare(982)
   const response = await worker.default.fetch(`${battle(id)}/sides`, { method: 'PUT', body: '{' })

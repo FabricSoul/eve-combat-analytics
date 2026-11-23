@@ -10,6 +10,11 @@ const ours = defaultOursSide(fixture.summary)
 
 function SidesSection() {
   const extra = withExtraSides(fixture)
+  const sideOverrides = Object.values(extra.analysis.entities).flatMap(({ charId, side }) =>
+    charId !== null && side >= fixture.summary.meta.teams.length
+      ? [{ subject: `char:${charId}` as const, side, source: 'manual' as const, setAt: fixture.summary.meta.fetchedAt }]
+      : [])
+  extra.summary = { ...extra.summary, sideOverrides }
   return (
     <div style={{ display: 'grid', gap: 'var(--space-6)' }}>
       <div>

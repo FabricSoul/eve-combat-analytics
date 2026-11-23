@@ -1,6 +1,6 @@
 import type {
   Analysis, ApiError, ApiErrorCode, BattleSummary, FitEntry, KillmailFit,
-  SideOverride, SideSubject, UploadedLog, UploadedLogSummary,
+  SideEdit, SideOverride, SideSubject, UploadedLog, UploadedLogSummary,
 } from '@/core/contract'
 
 export class ApiFailure extends Error {
@@ -122,7 +122,7 @@ export const api = {
     return request(`${battleApiPath(brId)}/fits/${charId}`, { method: 'PUT', headers: textHeaders, body: eft })
   },
 
-  putSide(brId: string, subject: SideSubject, side: number): Promise<SideOverride> {
+  putSide(brId: string, subject: SideSubject, side: SideEdit['side']): Promise<SideOverride> {
     return request(`${battleApiPath(brId)}/sides`, json('PUT', { subject, side }))
   },
 

@@ -361,8 +361,12 @@ export class BattleRoom extends DurableObject<Env> {
     const { meta } = await this.battle()
     const nextSide = this.store.sideOverrides().reduce((next, { side }) => Math.max(next, side + 1), meta.teams.length)
     if (!data || typeof data !== 'object' || !('subject' in data) || !isSideSubject(data.subject)
-      || !('side' in data) || typeof data.side !== 'number' || !Number.isInteger(data.side)
-      || data.side < -1 || data.side > nextSide || data.side >= MAX_BATTLE_SIDES) {
+      || !('side' in data) || (data.side !== 'new' && (typeof data.side !== 'number' || !Number.isInteger(data.side)))) {
+      throw new ApiFailure('bad_request', 'Expected an alliance, corporation or character subject and a valid side index')
+    }
+    // setSide runs in the same serialized queue as every other side edit.
+    const side = data.side === 'new' ? nextSide : data.side
+    if (side < -1 || side > nextSide || side >= MAX_BATTLE_SIDES) {
       throw new ApiFailure('bad_request', 'Expected an alliance, corporation or character subject and a valid side index')
     }
 
@@ -370,7 +374,7 @@ export class BattleRoom extends DurableObject<Env> {
     if (!this.store.canEditSide(setAt)) {
       throw new ApiFailure('bad_request', 'A battle can accept at most 30 side edits per minute', 429)
     }
-    const override: SideOverride = { subject: data.subject, side: data.side, source: 'manual', setAt }
+    const override: SideOverride = { subject: data.subject, side, source: 'manual', setAt }
     await this.scheduleAnalysis()
     const overrides = this.store.setSide(override)
     this.broadcast({ type: 'sides_set', overrides })

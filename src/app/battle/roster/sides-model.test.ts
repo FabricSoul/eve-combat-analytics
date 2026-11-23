@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { loadUiFixture } from '../../test/ui-fixture'
+import type { BattleSummary } from '@/core/contract'
+import { buildRoster } from './model'
 import { buildSideColumns, manualSubjects } from './sides-model'
+import { tinyAnalysis, tinySummary } from './testing'
 
 describe('buildSideColumns', () => {
   const { summary, analysis } = loadUiFixture()
@@ -35,4 +38,32 @@ describe('buildSideColumns', () => {
       ],
     })).toEqual(['corp:1'])
   })
+})
+
+it('uses the matching historical corporation and the newest organization override for the manual hover', () => {
+  const first = tinySummary.meta.killmails[0]!
+  const pilot = first.attackers.find(({ charId }) => charId === 3)!
+  const summary: BattleSummary = {
+    ...tinySummary,
+    meta: {
+      ...tinySummary.meta,
+      teams: [['corp:12'], []],
+      killmails: [first, { ...first, id: 2, t: 1, attackers: [{ ...pilot, corpId: 12 }] }],
+    },
+    sideOverrides: [
+      { subject: 'corp:11', side: 0, source: 'manual', setAt: Date.UTC(2026, 10, 23, 11, 1) },
+      { subject: 'corp:12', side: 0, source: 'manual', setAt: Date.UTC(2026, 10, 23, 12, 5) },
+      { subject: 'ally:20', side: 1, source: 'manual', setAt: Date.UTC(2026, 10, 23, 13, 10) },
+    ],
+  }
+  const analysis = {
+    ...tinyAnalysis, entities: {
+      ...tinyAnalysis.entities, 'char:3': { ...tinyAnalysis.entities['char:3']!, side: 1, sideSource: 'manual' as const },
+    },
+  }
+  const row = buildRoster(summary, analysis, 0).flatMap(({ rows }) => rows).find(({ charId }) => charId === 3)
+  expect(row?.tag).toEqual({ kind: 'manual', title: '手动 · 13:10 改' })
+  const panel = buildSideColumns(summary, analysis, 0)
+  const alliance = panel.columns.find(({ side }) => side === 1)?.groups.find(({ subject }) => subject === 'ally:20')
+  expect(alliance?.corporations?.find(({ subject }) => subject === 'corp:12')?.pilots.map(({ charId }) => charId)).toEqual([3])
 })

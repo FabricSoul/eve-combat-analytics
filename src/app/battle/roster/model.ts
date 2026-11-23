@@ -1,7 +1,7 @@
-import type { Analysis, BattleSummary, Entity, EntityKey, PilotStats, SideOverride } from '@/core/contract'
+import type { Analysis, BattleSummary, Entity, EntityKey, PilotStats } from '@/core/contract'
 import { fmtHms } from '../../lib/format'
 import { sideOrder } from '../../lib/sides'
-import { affiliationOf } from './affiliation'
+import { sideIndexOf } from './affiliation'
 import { shipNameById, shipTypeIdByName } from './ships'
 
 export interface RosterTag {
@@ -50,30 +50,13 @@ export function fullSideOrder(analysis: Analysis, oursSide: number): number[] {
   return [...order, ...[...extra].sort((a, b) => a - b)]
 }
 
-function overrideSubjects(summary: BattleSummary, charId: number): string[] {
-  const affiliation = affiliationOf(summary, charId)
-  return [
-    `char:${charId}`,
-    ...(affiliation ? [`corp:${affiliation.corpId}`] : []),
-    ...(affiliation?.allyId != null ? [`ally:${affiliation.allyId}`] : []),
-  ]
-}
-
-function findOverride(overrides: readonly SideOverride[], subjects: readonly string[]): SideOverride | undefined {
-  for (const subject of subjects) {
-    const found = [...overrides].reverse().find((override) => override.subject === subject)
-    if (found) return found
-  }
-  return undefined
-}
-
 function tagOf(entity: Entity, charId: number, summary: BattleSummary, analysis: Analysis): RosterTag | null {
   if (entity.sideSource === 'log') {
-    const override = findOverride(analysis.sideOverrides, overrideSubjects(summary, charId))
+    const override = analysis.sideOverrides.find(({ subject }) => subject === `char:${charId}`)
     return { kind: 'log', title: override?.reason ?? '据日志修正' }
   }
   if (entity.sideSource === 'manual') {
-    const override = findOverride(summary.sideOverrides, overrideSubjects(summary, charId))
+    const override = sideIndexOf(summary).manualOverrides.get(charId)
     return { kind: 'manual', title: override ? `手动 · ${fmtHms(override.setAt).slice(0, 5)} 改` : '手动' }
   }
   return null
