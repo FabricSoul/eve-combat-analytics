@@ -1,4 +1,4 @@
-"""Export English EFT names and charge classification from the pinned pyfa eve.db.
+"""Export English EFT names, charge classification, and substituted mutation IDs from the pinned pyfa eve.db.
 
 Usage: python3 etl/killmail_types.py build/eve.db src/core/data/killmail-types.json
 Source: CCP static game data packaged by pyfa (GPL-3.0-or-later).
@@ -47,7 +47,11 @@ def export(db: Path, out: Path) -> None:
             items[type_id] = base_name
 
     out.write_text(
-        json.dumps({"items": items, "charges": charges}, ensure_ascii=False, separators=(",", ":")) + "\n",
+        json.dumps(
+            {"items": items, "charges": charges, "mutated": sorted(replacements)},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ) + "\n",
         encoding="utf-8",
     )
 
