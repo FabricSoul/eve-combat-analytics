@@ -40,7 +40,7 @@ Use tabular, right-aligned figures in text color. Group thousands, round seconds
 | Surface | Layout |
 | --- | --- |
 | Home | 48 px product bar. Center one column up to 720 px with 24 px gutters, or 16 px on phone. Show the BR field and recent battles. |
-| Replay, at least 1100 px | 48 px bar, 280 px roster, flexible replay and 340 px event column. The feed uses up to 260 px. The timeline spans the full width and grows when extra lanes open. |
+| Replay, at least 1100 px | 48 px bar, 280 px roster, flexible replay and 340 px event column. The event feed fills the right column below its header. The timeline spans the full width and grows when extra lanes open. |
 | Replay, 760–1099 px | 56 px roster rail with ship icons and log dots. Show names on hover and keyboard focus. Stack the feed below the canvas and span the timeline across both columns. |
 | Replay, below 760 px | 44 px top bar with statistics in the menu and upload in reach. Put the replay above controls and a 64 px plot with damage curves and kill ticks. Put roster, events and compare in a bottom sheet with peek, half and full heights. |
 | Empty battle | Keep the battle shell. Replace the canvas with upload guidance and coverage. Use one column on phone. |
