@@ -1,0 +1,1770 @@
+{
+ "267": {
+  "name": "Scourge Torpedo",
+  "category": "inventory_type"
+ },
+ "448": {
+  "name": "Warp Scrambler II",
+  "category": "inventory_type"
+ },
+ "484": {
+  "name": "125mm Gatling AutoCannon I",
+  "category": "inventory_type"
+ },
+ "493": {
+  "name": "720mm Howitzer Artillery I",
+  "category": "inventory_type"
+ },
+ "527": {
+  "name": "Stasis Webifier II",
+  "category": "inventory_type"
+ },
+ "573": {
+  "name": "Neutron Blaster Cannon I",
+  "category": "inventory_type"
+ },
+ "585": {
+  "name": "Slasher",
+  "category": "inventory_type"
+ },
+ "609": {
+  "name": "Maulus",
+  "category": "inventory_type"
+ },
+ "628": {
+  "name": "Arbitrator",
+  "category": "inventory_type"
+ },
+ "631": {
+  "name": "Scythe",
+  "category": "inventory_type"
+ },
+ "670": {
+  "name": "Capsule",
+  "category": "inventory_type"
+ },
+ "1877": {
+  "name": "Rapid Light Missile Launcher II",
+  "category": "inventory_type"
+ },
+ "1969": {
+  "name": "Remote Sensor Dampener II",
+  "category": "inventory_type"
+ },
+ "2117": {
+  "name": "Burst Jammer II",
+  "category": "inventory_type"
+ },
+ "2161": {
+  "name": "Crucifier",
+  "category": "inventory_type"
+ },
+ "2205": {
+  "name": "Acolyte II",
+  "category": "inventory_type"
+ },
+ "2404": {
+  "name": "Light Missile Launcher II",
+  "category": "inventory_type"
+ },
+ "2410": {
+  "name": "Heavy Missile Launcher II",
+  "category": "inventory_type"
+ },
+ "2420": {
+  "name": "Torpedo Launcher II",
+  "category": "inventory_type"
+ },
+ "2456": {
+  "name": "Hobgoblin II",
+  "category": "inventory_type"
+ },
+ "2488": {
+  "name": "Warrior II",
+  "category": "inventory_type"
+ },
+ "2559": {
+  "name": "Ladar ECM II",
+  "category": "inventory_type"
+ },
+ "2575": {
+  "name": "Radar ECM II",
+  "category": "inventory_type"
+ },
+ "2613": {
+  "name": "Mjolnir Fury Light Missile",
+  "category": "inventory_type"
+ },
+ "2811": {
+  "name": "Inferno Rage Torpedo",
+  "category": "inventory_type"
+ },
+ "2873": {
+  "name": "125mm Gatling AutoCannon II",
+  "category": "inventory_type"
+ },
+ "2889": {
+  "name": "200mm AutoCannon II",
+  "category": "inventory_type"
+ },
+ "2897": {
+  "name": "220mm Vulcan AutoCannon II",
+  "category": "inventory_type"
+ },
+ "2905": {
+  "name": "250mm Light Artillery Cannon II",
+  "category": "inventory_type"
+ },
+ "2913": {
+  "name": "425mm AutoCannon II",
+  "category": "inventory_type"
+ },
+ "2921": {
+  "name": "650mm Artillery Cannon II",
+  "category": "inventory_type"
+ },
+ "2969": {
+  "name": "720mm Howitzer Artillery II",
+  "category": "inventory_type"
+ },
+ "3041": {
+  "name": "Small Focused Pulse Laser II",
+  "category": "inventory_type"
+ },
+ "3057": {
+  "name": "Mega Pulse Laser II",
+  "category": "inventory_type"
+ },
+ "3065": {
+  "name": "Tachyon Beam Laser II",
+  "category": "inventory_type"
+ },
+ "3074": {
+  "name": "150mm Railgun II",
+  "category": "inventory_type"
+ },
+ "3082": {
+  "name": "250mm Railgun II",
+  "category": "inventory_type"
+ },
+ "3146": {
+  "name": "Heavy Neutron Blaster II",
+  "category": "inventory_type"
+ },
+ "3178": {
+  "name": "Light Neutron Blaster II",
+  "category": "inventory_type"
+ },
+ "3244": {
+  "name": "Warp Disruptor II",
+  "category": "inventory_type"
+ },
+ "3520": {
+  "name": "Heavy Pulse Laser II",
+  "category": "inventory_type"
+ },
+ "3766": {
+  "name": "Vigil",
+  "category": "inventory_type"
+ },
+ "4025": {
+  "name": "X5 Enduring Stasis Webifier",
+  "category": "inventory_type"
+ },
+ "4027": {
+  "name": "Fleeting Compact Stasis Webifier",
+  "category": "inventory_type"
+ },
+ "4147": {
+  "name": "Dual Heavy Pulse Laser II",
+  "category": "inventory_type"
+ },
+ "4302": {
+  "name": "Oracle",
+  "category": "inventory_type"
+ },
+ "4308": {
+  "name": "Talos",
+  "category": "inventory_type"
+ },
+ "4471": {
+  "name": "Small Infectious Scoped Energy Neutralizer",
+  "category": "inventory_type"
+ },
+ "5137": {
+  "name": "Small Knave Scoped Energy Nosferatu",
+  "category": "inventory_type"
+ },
+ "5141": {
+  "name": "Small Ghoul Compact Energy Nosferatu",
+  "category": "inventory_type"
+ },
+ "5302": {
+  "name": "Phased Muon Scoped Sensor Dampener",
+  "category": "inventory_type"
+ },
+ "5321": {
+  "name": "C-IR Compact Guidance Disruptor",
+  "category": "inventory_type"
+ },
+ "5322": {
+  "name": "DDO Scoped Tracking Disruptor I",
+  "category": "inventory_type"
+ },
+ "5405": {
+  "name": "Initiated Compact Warp Disruptor",
+  "category": "inventory_type"
+ },
+ "5443": {
+  "name": "Faint Epsilon Scoped Warp Scrambler",
+  "category": "inventory_type"
+ },
+ "5445": {
+  "name": "Initiated Compact Warp Scrambler",
+  "category": "inventory_type"
+ },
+ "7367": {
+  "name": "250mm Prototype Gauss Gun",
+  "category": "inventory_type"
+ },
+ "9451": {
+  "name": "720mm 'Scout' Artillery I",
+  "category": "inventory_type"
+ },
+ "10631": {
+  "name": "Rocket Launcher II",
+  "category": "inventory_type"
+ },
+ "11029": {
+  "name": "Guristas Destructor",
+  "category": "inventory_type"
+ },
+ "11174": {
+  "name": "Keres",
+  "category": "inventory_type"
+ },
+ "11176": {
+  "name": "Crow",
+  "category": "inventory_type"
+ },
+ "11184": {
+  "name": "Crusader",
+  "category": "inventory_type"
+ },
+ "11186": {
+  "name": "Malediction",
+  "category": "inventory_type"
+ },
+ "11188": {
+  "name": "Anathema",
+  "category": "inventory_type"
+ },
+ "11196": {
+  "name": "Claw",
+  "category": "inventory_type"
+ },
+ "11198": {
+  "name": "Stiletto",
+  "category": "inventory_type"
+ },
+ "11200": {
+  "name": "Taranis",
+  "category": "inventory_type"
+ },
+ "11400": {
+  "name": "Jaguar",
+  "category": "inventory_type"
+ },
+ "11932": {
+  "name": "Guristas Eradicator",
+  "category": "inventory_type"
+ },
+ "11957": {
+  "name": "Falcon",
+  "category": "inventory_type"
+ },
+ "11961": {
+  "name": "Huginn",
+  "category": "inventory_type"
+ },
+ "11963": {
+  "name": "Rapier",
+  "category": "inventory_type"
+ },
+ "11965": {
+  "name": "Pilgrim",
+  "category": "inventory_type"
+ },
+ "11969": {
+  "name": "Arazu",
+  "category": "inventory_type"
+ },
+ "11971": {
+  "name": "Lachesis",
+  "category": "inventory_type"
+ },
+ "11978": {
+  "name": "Scimitar",
+  "category": "inventory_type"
+ },
+ "12013": {
+  "name": "Broadsword",
+  "category": "inventory_type"
+ },
+ "12023": {
+  "name": "Deimos",
+  "category": "inventory_type"
+ },
+ "12265": {
+  "name": "Medium Energy Neutralizer I",
+  "category": "inventory_type"
+ },
+ "12346": {
+  "name": "200mm Railgun II",
+  "category": "inventory_type"
+ },
+ "13001": {
+  "name": "Small Energy Nosferatu II",
+  "category": "inventory_type"
+ },
+ "13788": {
+  "name": "Domination Dual 650mm Repeating Cannon",
+  "category": "inventory_type"
+ },
+ "15891": {
+  "name": "Republic Fleet Warp Disruptor",
+  "category": "inventory_type"
+ },
+ "16227": {
+  "name": "Ferox",
+  "category": "inventory_type"
+ },
+ "16242": {
+  "name": "Thrasher",
+  "category": "inventory_type"
+ },
+ "16467": {
+  "name": "Medium Gremlin Compact Energy Neutralizer",
+  "category": "inventory_type"
+ },
+ "16469": {
+  "name": "Medium Infectious Scoped Energy Neutralizer",
+  "category": "inventory_type"
+ },
+ "16505": {
+  "name": "Medium Ghoul Compact Energy Nosferatu",
+  "category": "inventory_type"
+ },
+ "16519": {
+  "name": "'Arbalest' Cruise Launcher I",
+  "category": "inventory_type"
+ },
+ "16527": {
+  "name": "'Arbalest' Rocket Launcher I",
+  "category": "inventory_type"
+ },
+ "17559": {
+  "name": "Federation Navy Stasis Webifier",
+  "category": "inventory_type"
+ },
+ "17736": {
+  "name": "Nightmare",
+  "category": "inventory_type"
+ },
+ "19720": {
+  "name": "Revelation",
+  "category": "inventory_type"
+ },
+ "19724": {
+  "name": "Moros",
+  "category": "inventory_type"
+ },
+ "19726": {
+  "name": "Phoenix",
+  "category": "inventory_type"
+ },
+ "19739": {
+  "name": "Cruise Missile Launcher II",
+  "category": "inventory_type"
+ },
+ "19806": {
+  "name": "Target Painter II",
+  "category": "inventory_type"
+ },
+ "19814": {
+  "name": "Phased Scoped Target Painter",
+  "category": "inventory_type"
+ },
+ "21510": {
+  "name": "'Interruptive' Warp Disruptor",
+  "category": "inventory_type"
+ },
+ "21640": {
+  "name": "Valkyrie II",
+  "category": "inventory_type"
+ },
+ "22428": {
+  "name": "Redeemer",
+  "category": "inventory_type"
+ },
+ "22436": {
+  "name": "Widow",
+  "category": "inventory_type"
+ },
+ "22440": {
+  "name": "Panther",
+  "category": "inventory_type"
+ },
+ "22444": {
+  "name": "Sleipnir",
+  "category": "inventory_type"
+ },
+ "22446": {
+  "name": "Vulture",
+  "category": "inventory_type"
+ },
+ "22456": {
+  "name": "Sabre",
+  "category": "inventory_type"
+ },
+ "22460": {
+  "name": "Eris",
+  "category": "inventory_type"
+ },
+ "22464": {
+  "name": "Flycatcher",
+  "category": "inventory_type"
+ },
+ "22778": {
+  "name": "Warp Disrupt Probe",
+  "category": "inventory_type"
+ },
+ "23057": {
+  "name": "Dragonfly I",
+  "category": "inventory_type"
+ },
+ "23337": {
+  "name": "Guristas Eliminator",
+  "category": "inventory_type"
+ },
+ "23913": {
+  "name": "Nyx",
+  "category": "inventory_type"
+ },
+ "24507": {
+  "name": "Nova Fury Heavy Missile",
+  "category": "inventory_type"
+ },
+ "24509": {
+  "name": "Mjolnir Fury Heavy Missile",
+  "category": "inventory_type"
+ },
+ "24523": {
+  "name": "Mjolnir Rage Torpedo",
+  "category": "inventory_type"
+ },
+ "24531": {
+  "name": "Nova Fury Cruise Missile",
+  "category": "inventory_type"
+ },
+ "24533": {
+  "name": "Scourge Fury Cruise Missile",
+  "category": "inventory_type"
+ },
+ "24535": {
+  "name": "Mjolnir Fury Cruise Missile",
+  "category": "inventory_type"
+ },
+ "24696": {
+  "name": "Harbinger",
+  "category": "inventory_type"
+ },
+ "24702": {
+  "name": "Hurricane",
+  "category": "inventory_type"
+ },
+ "27321": {
+  "name": "Caldari Navy Mjolnir Rocket",
+  "category": "inventory_type"
+ },
+ "27339": {
+  "name": "Caldari Navy Mjolnir Torpedo",
+  "category": "inventory_type"
+ },
+ "27371": {
+  "name": "Caldari Navy Inferno Light Missile",
+  "category": "inventory_type"
+ },
+ "27377": {
+  "name": "Caldari Navy Mjolnir Cruise Missile",
+  "category": "inventory_type"
+ },
+ "27395": {
+  "name": "Caldari Navy Scourge Cruise Missile",
+  "category": "inventory_type"
+ },
+ "27423": {
+  "name": "Caldari Navy Inferno Cruise Missile",
+  "category": "inventory_type"
+ },
+ "27429": {
+  "name": "Caldari Navy Nova Cruise Missile",
+  "category": "inventory_type"
+ },
+ "29336": {
+  "name": "Scythe Fleet Issue",
+  "category": "inventory_type"
+ },
+ "31944": {
+  "name": "Republic Fleet Target Painter",
+  "category": "inventory_type"
+ },
+ "33153": {
+  "name": "Drake Navy Issue",
+  "category": "inventory_type"
+ },
+ "33157": {
+  "name": "Hurricane Fleet Issue",
+  "category": "inventory_type"
+ },
+ "33476": {
+  "name": "Mobile Cynosural Inhibitor",
+  "category": "inventory_type"
+ },
+ "33697": {
+  "name": "Prospect",
+  "category": "inventory_type"
+ },
+ "34282": {
+  "name": "Polarized Neutron Blaster Cannon",
+  "category": "inventory_type"
+ },
+ "34828": {
+  "name": "Jackdaw",
+  "category": "inventory_type"
+ },
+ "37292": {
+  "name": "Rapid Torpedo Launcher II",
+  "category": "inventory_type"
+ },
+ "37455": {
+  "name": "Griffin Navy Issue",
+  "category": "inventory_type"
+ },
+ "37480": {
+  "name": "Bifrost",
+  "category": "inventory_type"
+ },
+ "37482": {
+  "name": "Stork",
+  "category": "inventory_type"
+ },
+ "37483": {
+  "name": "Magus",
+  "category": "inventory_type"
+ },
+ "37611": {
+  "name": "M-36 Enduring Warp Disruption Field Generator",
+  "category": "inventory_type"
+ },
+ "40556": {
+  "name": "Templar II",
+  "category": "inventory_type"
+ },
+ "40557": {
+  "name": "Dragonfly II",
+  "category": "inventory_type"
+ },
+ "41057": {
+  "name": "Heavy Stasis Grappler II",
+  "category": "inventory_type"
+ },
+ "47732": {
+  "name": "Abyssal Warp Scrambler",
+  "category": "inventory_type"
+ },
+ "47736": {
+  "name": "Abyssal Warp Disruptor",
+  "category": "inventory_type"
+ },
+ "60244": {
+  "name": "CONCORD Rogue Analysis Beacon",
+  "category": "inventory_type"
+ },
+ "72811": {
+  "name": "Cyclone Fleet Issue",
+  "category": "inventory_type"
+ },
+ "72812": {
+  "name": "Ferox Navy Issue",
+  "category": "inventory_type"
+ },
+ "73790": {
+  "name": "Revelation Navy Issue",
+  "category": "inventory_type"
+ },
+ "73793": {
+  "name": "Phoenix Navy Issue",
+  "category": "inventory_type"
+ },
+ "73795": {
+  "name": "Cormorant Navy Issue",
+  "category": "inventory_type"
+ },
+ "85087": {
+  "name": "Tholos",
+  "category": "inventory_type"
+ },
+ "92822": {
+  "name": "Salvation",
+  "category": "inventory_type"
+ },
+ "95630": {
+  "name": "Naga Navy Issue",
+  "category": "inventory_type"
+ },
+ "1000066": {
+  "name": "Viziam",
+  "category": "corporation"
+ },
+ "1000127": {
+  "name": "Guristas",
+  "category": "corporation"
+ },
+ "1000167": {
+  "name": "State War Academy",
+  "category": "corporation"
+ },
+ "90269656": {
+  "name": "Hideo Mazatsuki",
+  "category": "character"
+ },
+ "90327315": {
+  "name": "Wez Regyri",
+  "category": "character"
+ },
+ "90647705": {
+  "name": "Neon Semah",
+  "category": "character"
+ },
+ "90709912": {
+  "name": "Ruscurl 411",
+  "category": "character"
+ },
+ "90737173": {
+  "name": "Straydog Yaken",
+  "category": "character"
+ },
+ "91106348": {
+  "name": "Cide Hel'nurath",
+  "category": "character"
+ },
+ "91300611": {
+  "name": "yekyll",
+  "category": "character"
+ },
+ "91694408": {
+  "name": "agent Evingod",
+  "category": "character"
+ },
+ "91744644": {
+  "name": "Catherine Kamensky",
+  "category": "character"
+ },
+ "91877667": {
+  "name": "Wasabi Hughes",
+  "category": "character"
+ },
+ "92061870": {
+  "name": "NightSky Icarus",
+  "category": "character"
+ },
+ "92144152": {
+  "name": "Crash Havoc",
+  "category": "character"
+ },
+ "92209753": {
+  "name": "Harmen Okaski",
+  "category": "character"
+ },
+ "92238138": {
+  "name": "Xes Isu",
+  "category": "character"
+ },
+ "92508384": {
+  "name": "Dex Reese",
+  "category": "character"
+ },
+ "92540091": {
+  "name": "Bor1s1ch",
+  "category": "character"
+ },
+ "92632206": {
+  "name": "Paradax Alpha",
+  "category": "character"
+ },
+ "92640681": {
+  "name": "Huxley Dinco",
+  "category": "character"
+ },
+ "92740528": {
+  "name": "Vitus Salatine",
+  "category": "character"
+ },
+ "93010169": {
+  "name": "Meyahel Yohira",
+  "category": "character"
+ },
+ "93335291": {
+  "name": "Chase Shepord",
+  "category": "character"
+ },
+ "93433303": {
+  "name": "Lisa Wayned",
+  "category": "character"
+ },
+ "93437940": {
+  "name": "Teddy West Side",
+  "category": "character"
+ },
+ "93667297": {
+  "name": "Minerva Semah",
+  "category": "character"
+ },
+ "93777665": {
+  "name": "taylor parker",
+  "category": "character"
+ },
+ "93925338": {
+  "name": "Parca WhoCares",
+  "category": "character"
+ },
+ "93926326": {
+  "name": "Varec Zeiss",
+  "category": "character"
+ },
+ "94022528": {
+  "name": "qki mnda",
+  "category": "character"
+ },
+ "94078364": {
+  "name": "Leehams DaBeast",
+  "category": "character"
+ },
+ "94197924": {
+  "name": "Boost You",
+  "category": "character"
+ },
+ "94559688": {
+  "name": "Sonsamuray Hita",
+  "category": "character"
+ },
+ "94567510": {
+  "name": "Gavin Genisis",
+  "category": "character"
+ },
+ "94591613": {
+  "name": "Ebon Hawk Enterprise",
+  "category": "character"
+ },
+ "94593765": {
+  "name": "Iuku Umasi",
+  "category": "character"
+ },
+ "94638250": {
+  "name": "Azier Okaski",
+  "category": "character"
+ },
+ "94651810": {
+  "name": "Gavin Kennard",
+  "category": "character"
+ },
+ "94871470": {
+  "name": "Thandor Koraka",
+  "category": "character"
+ },
+ "95419209": {
+  "name": "Sukome Enaka",
+  "category": "character"
+ },
+ "95434626": {
+  "name": "Kies",
+  "category": "character"
+ },
+ "95466591": {
+  "name": "Vyanor Aishai",
+  "category": "character"
+ },
+ "95472433": {
+  "name": "Reefer",
+  "category": "character"
+ },
+ "95604394": {
+  "name": "ACES FIRES",
+  "category": "character"
+ },
+ "95894360": {
+  "name": "Mingus Chang-Lee",
+  "category": "character"
+ },
+ "95954595": {
+  "name": "Evi's Honey",
+  "category": "character"
+ },
+ "96086194": {
+  "name": "Lyen",
+  "category": "character"
+ },
+ "96130245": {
+  "name": "Grace Genisis",
+  "category": "character"
+ },
+ "96204458": {
+  "name": "asgardians",
+  "category": "character"
+ },
+ "96689463": {
+  "name": "Biosun Alabel",
+  "category": "character"
+ },
+ "97264593": {
+  "name": "Odyssey 2049",
+  "category": "character"
+ },
+ "98044747": {
+  "name": "Bikini Bottom Surfer",
+  "category": "corporation"
+ },
+ "98108724": {
+  "name": "Born In Sodom",
+  "category": "corporation"
+ },
+ "98110767": {
+  "name": "Lisnave",
+  "category": "corporation"
+ },
+ "98177708": {
+  "name": "Space Wolves ind.",
+  "category": "corporation"
+ },
+ "98179882": {
+  "name": "Needs a Hug",
+  "category": "corporation"
+ },
+ "98181543": {
+  "name": "F0RCED ENTRY",
+  "category": "corporation"
+ },
+ "98190062": {
+  "name": "Peoples Liberation Army",
+  "category": "corporation"
+ },
+ "98210135": {
+  "name": "Infinite Point",
+  "category": "corporation"
+ },
+ "98224639": {
+  "name": "Dirt 'n' Glitter",
+  "category": "corporation"
+ },
+ "98249443": {
+  "name": "The Icarus Expedition",
+  "category": "corporation"
+ },
+ "98252033": {
+  "name": "Vision Inc",
+  "category": "corporation"
+ },
+ "98258093": {
+  "name": "Strategic Exploration and Development Corp",
+  "category": "corporation"
+ },
+ "98293349": {
+  "name": "Alpha Republic - Transcenders of Space and Time",
+  "category": "corporation"
+ },
+ "98311406": {
+  "name": "The Exchange Collective",
+  "category": "corporation"
+ },
+ "98335968": {
+  "name": "Alpha Trades",
+  "category": "corporation"
+ },
+ "98377551": {
+  "name": "Out of Focus",
+  "category": "corporation"
+ },
+ "98390683": {
+  "name": "Hogyoku",
+  "category": "corporation"
+ },
+ "98422578": {
+  "name": "Almost Dangerous",
+  "category": "corporation"
+ },
+ "98423954": {
+  "name": "Worthless Carebears",
+  "category": "corporation"
+ },
+ "98460531": {
+  "name": "Ironman Inc.",
+  "category": "corporation"
+ },
+ "98463684": {
+  "name": "Predominant Dynamics",
+  "category": "corporation"
+ },
+ "98487467": {
+  "name": "Khanid Propulsion Systems",
+  "category": "corporation"
+ },
+ "98489219": {
+  "name": "Combined Conglomerate Inc.",
+  "category": "corporation"
+ },
+ "98530454": {
+  "name": "Redux.",
+  "category": "corporation"
+ },
+ "98558506": {
+  "name": "A Blessed Bean",
+  "category": "corporation"
+ },
+ "98560158": {
+  "name": "Konrakas Forged",
+  "category": "corporation"
+ },
+ "98569755": {
+  "name": "Lucidus Ordo",
+  "category": "corporation"
+ },
+ "98580857": {
+  "name": "Whiskers of Doom.",
+  "category": "corporation"
+ },
+ "98593174": {
+  "name": "Pyke Syndicate",
+  "category": "corporation"
+ },
+ "98600992": {
+  "name": "Avanto",
+  "category": "corporation"
+ },
+ "98604007": {
+  "name": "Gregarious Games Mechanized Federation",
+  "category": "corporation"
+ },
+ "98635328": {
+  "name": "Lighthouse Society",
+  "category": "corporation"
+ },
+ "98654053": {
+  "name": "Feros Initiative",
+  "category": "corporation"
+ },
+ "98660859": {
+  "name": "SCI Zenith",
+  "category": "corporation"
+ },
+ "98665781": {
+  "name": "Space Limited",
+  "category": "corporation"
+ },
+ "98686050": {
+  "name": "Velesova Legie",
+  "category": "corporation"
+ },
+ "98710885": {
+  "name": "Aegis Ascending",
+  "category": "corporation"
+ },
+ "98720135": {
+  "name": "Galactic Space Miners",
+  "category": "corporation"
+ },
+ "98740310": {
+  "name": "Namir Industries",
+  "category": "corporation"
+ },
+ "98741581": {
+  "name": "Paisa International Inc.",
+  "category": "corporation"
+ },
+ "98754582": {
+  "name": "Baba Yagas",
+  "category": "corporation"
+ },
+ "98765453": {
+  "name": "Walrus Mafia",
+  "category": "corporation"
+ },
+ "98766022": {
+  "name": "Vyriy Corporation",
+  "category": "corporation"
+ },
+ "98767024": {
+  "name": "Allied Exploration Front",
+  "category": "corporation"
+ },
+ "98769199": {
+  "name": "Shiv Wreckoning",
+  "category": "corporation"
+ },
+ "98770788": {
+  "name": "R.A.A.",
+  "category": "corporation"
+ },
+ "98772712": {
+  "name": "Dirty Rotten Bandits",
+  "category": "corporation"
+ },
+ "98789569": {
+  "name": "Awkward People Society",
+  "category": "corporation"
+ },
+ "98795439": {
+  "name": "George Is Getting Upset",
+  "category": "corporation"
+ },
+ "98799892": {
+  "name": "False Gods",
+  "category": "corporation"
+ },
+ "98804375": {
+  "name": "Kachinas Return",
+  "category": "corporation"
+ },
+ "98811318": {
+  "name": "Slipstream Horizons",
+  "category": "corporation"
+ },
+ "98813284": {
+  "name": "Environmental Hazard.",
+  "category": "corporation"
+ },
+ "98822551": {
+  "name": "Forsaken GameCenter",
+  "category": "corporation"
+ },
+ "98830385": {
+  "name": "False Logistic Services",
+  "category": "corporation"
+ },
+ "98831204": {
+  "name": "Nine Lives Privateering Company",
+  "category": "corporation"
+ },
+ "98832358": {
+  "name": "Discovery Edge",
+  "category": "corporation"
+ },
+ "98835144": {
+  "name": "Stroopwafel Armada",
+  "category": "corporation"
+ },
+ "98842316": {
+  "name": "My Lonely Ogre Feelings",
+  "category": "corporation"
+ },
+ "98842338": {
+  "name": "Zero Recall",
+  "category": "corporation"
+ },
+ "98843363": {
+  "name": "Orti Foundation",
+  "category": "corporation"
+ },
+ "98847964": {
+  "name": "Interstellar Asset Recovery and Reallocation",
+  "category": "corporation"
+ },
+ "99004013": {
+  "name": "Odin's Call",
+  "category": "alliance"
+ },
+ "99004344": {
+  "name": "Hole Control",
+  "category": "alliance"
+ },
+ "99005678": {
+  "name": "Local Is Primary",
+  "category": "alliance"
+ },
+ "99006125": {
+  "name": "SLYCE Pirates",
+  "category": "alliance"
+ },
+ "99009268": {
+  "name": "Silent Company",
+  "category": "alliance"
+ },
+ "99009845": {
+  "name": "Sedition.",
+  "category": "alliance"
+ },
+ "99009902": {
+  "name": "Flying Dangerous",
+  "category": "alliance"
+ },
+ "99010468": {
+  "name": "Weapons Of Mass Production.",
+  "category": "alliance"
+ },
+ "99011507": {
+  "name": "Dark and Wayward Alliance",
+  "category": "alliance"
+ },
+ "99013563": {
+  "name": "Allied Exploration Front AXXF",
+  "category": "alliance"
+ },
+ "99013643": {
+  "name": "WE F0RM FDZ",
+  "category": "alliance"
+ },
+ "99015113": {
+  "name": "Apex Mercantile",
+  "category": "alliance"
+ },
+ "99015272": {
+  "name": "Escalate.",
+  "category": "alliance"
+ },
+ "99015341": {
+  "name": "Almost Dangerous.",
+  "category": "alliance"
+ },
+ "99015356": {
+  "name": "Khanid Aerospace",
+  "category": "alliance"
+ },
+ "105377163": {
+  "name": "Sinbad56",
+  "category": "character"
+ },
+ "113431757": {
+  "name": "Vlad Dragon",
+  "category": "character"
+ },
+ "128903005": {
+  "name": "Punks Notdead",
+  "category": "character"
+ },
+ "154955426": {
+  "name": "Scrondo",
+  "category": "character"
+ },
+ "198484746": {
+  "name": "Outcastus",
+  "category": "character"
+ },
+ "215663576": {
+  "name": "Entropizr",
+  "category": "character"
+ },
+ "225681157": {
+  "name": "DAV3Y JON3S",
+  "category": "character"
+ },
+ "244898283": {
+  "name": "OEG",
+  "category": "corporation"
+ },
+ "256131061": {
+  "name": "TFony",
+  "category": "character"
+ },
+ "281549515": {
+  "name": "Dietcoke650",
+  "category": "character"
+ },
+ "349468365": {
+  "name": "Ronin Interstellar Industries",
+  "category": "corporation"
+ },
+ "356140273": {
+  "name": "Qulium",
+  "category": "character"
+ },
+ "396211967": {
+  "name": "Arctic Light",
+  "category": "alliance"
+ },
+ "404878580": {
+  "name": "DaMainMan",
+  "category": "character"
+ },
+ "409209417": {
+  "name": "Gamlos",
+  "category": "character"
+ },
+ "488241163": {
+  "name": "Walkin' Dude",
+  "category": "character"
+ },
+ "495729389": {
+  "name": "Shadow Cartel",
+  "category": "alliance"
+ },
+ "554105610": {
+  "name": "Dreoxel",
+  "category": "character"
+ },
+ "569552679": {
+  "name": "Tamicho",
+  "category": "character"
+ },
+ "583000932": {
+  "name": "Jan H",
+  "category": "character"
+ },
+ "587355246": {
+  "name": "DAB",
+  "category": "corporation"
+ },
+ "592414307": {
+  "name": "tasnet",
+  "category": "character"
+ },
+ "612474730": {
+  "name": "taque",
+  "category": "character"
+ },
+ "620147916": {
+  "name": "OneLegHarry",
+  "category": "character"
+ },
+ "622681066": {
+  "name": "Zonama Sekot",
+  "category": "character"
+ },
+ "703462502": {
+  "name": "Potential Impact",
+  "category": "character"
+ },
+ "715529239": {
+  "name": "sevey",
+  "category": "character"
+ },
+ "729045663": {
+  "name": "Cognac",
+  "category": "character"
+ },
+ "771002394": {
+  "name": "Darksend",
+  "category": "character"
+ },
+ "818089493": {
+  "name": "Plundering Penguins",
+  "category": "corporation"
+ },
+ "837866205": {
+  "name": "gatorspace",
+  "category": "character"
+ },
+ "852152117": {
+  "name": "RiotRick",
+  "category": "character"
+ },
+ "900355578": {
+  "name": "PARA GL",
+  "category": "character"
+ },
+ "917701062": {
+  "name": "EVE University",
+  "category": "corporation"
+ },
+ "937872513": {
+  "name": "Ivy League",
+  "category": "alliance"
+ },
+ "977180097": {
+  "name": "TRUTHY",
+  "category": "character"
+ },
+ "978607809": {
+  "name": "Dr Dream",
+  "category": "character"
+ },
+ "1033994743": {
+  "name": "lolmyggen",
+  "category": "character"
+ },
+ "1041034789": {
+  "name": "Parov Stelar",
+  "category": "character"
+ },
+ "1042504553": {
+  "name": "Solyaris Chtonium",
+  "category": "alliance"
+ },
+ "1150006832": {
+  "name": "Nighthawk1714",
+  "category": "character"
+ },
+ "1152659731": {
+  "name": "Maxsumos",
+  "category": "character"
+ },
+ "1162796233": {
+  "name": "Legs Weaver",
+  "category": "character"
+ },
+ "1176385160": {
+  "name": "Mining Industry Exile Foundation",
+  "category": "corporation"
+ },
+ "1181591327": {
+  "name": "Vipy Styx",
+  "category": "character"
+ },
+ "1354830081": {
+  "name": "Goonswarm Federation",
+  "category": "alliance"
+ },
+ "1365824600": {
+  "name": "elrickslade",
+  "category": "character"
+ },
+ "1369229982": {
+  "name": "Deathcheater",
+  "category": "character"
+ },
+ "1395059590": {
+  "name": "Immortalis Inc.",
+  "category": "corporation"
+ },
+ "1466124838": {
+  "name": "Jhannis Glannath",
+  "category": "character"
+ },
+ "1522648797": {
+  "name": "kermit 3",
+  "category": "character"
+ },
+ "1534127548": {
+  "name": "FW Scuad",
+  "category": "corporation"
+ },
+ "1549080779": {
+  "name": "bigbird09",
+  "category": "character"
+ },
+ "1572675435": {
+  "name": "Valasha Elahad",
+  "category": "character"
+ },
+ "1573202061": {
+  "name": "Unstopable Deadman",
+  "category": "character"
+ },
+ "1693448508": {
+  "name": "PVDNS77",
+  "category": "character"
+ },
+ "1900696668": {
+  "name": "The Initiative.",
+  "category": "alliance"
+ },
+ "1947430799": {
+  "name": "Galen Zarek",
+  "category": "character"
+ },
+ "2016332634": {
+  "name": "Janmarri",
+  "category": "character"
+ },
+ "2066271782": {
+  "name": "starhunter11",
+  "category": "character"
+ },
+ "2112199392": {
+  "name": "N0 1n",
+  "category": "character"
+ },
+ "2112292159": {
+  "name": "Willhelm Selgas",
+  "category": "character"
+ },
+ "2112541141": {
+  "name": "Vekko Solo",
+  "category": "character"
+ },
+ "2112584354": {
+  "name": "Dyzio Grabka",
+  "category": "character"
+ },
+ "2112610551": {
+  "name": "Rekker Solo",
+  "category": "character"
+ },
+ "2112836388": {
+  "name": "agent Evinngod",
+  "category": "character"
+ },
+ "2113167159": {
+  "name": "hArD stRuKts",
+  "category": "character"
+ },
+ "2113179297": {
+  "name": "Zeikku Targaryen",
+  "category": "character"
+ },
+ "2113624587": {
+  "name": "NoVac Hakari",
+  "category": "character"
+ },
+ "2113640553": {
+  "name": "Kraken Vyriy",
+  "category": "character"
+ },
+ "2113643686": {
+  "name": "Biofoxikc Kishunuba",
+  "category": "character"
+ },
+ "2113745791": {
+  "name": "Acerex Russ",
+  "category": "character"
+ },
+ "2113845560": {
+  "name": "Dout4",
+  "category": "character"
+ },
+ "2113931063": {
+  "name": "Elara Nova",
+  "category": "character"
+ },
+ "2113941286": {
+  "name": "Isisss",
+  "category": "character"
+ },
+ "2113942035": {
+  "name": "agent dognive",
+  "category": "character"
+ },
+ "2114025476": {
+  "name": "agent No 1",
+  "category": "character"
+ },
+ "2114351995": {
+  "name": "Sovok Rin",
+  "category": "character"
+ },
+ "2114898200": {
+  "name": "Medusa Gargonna",
+  "category": "character"
+ },
+ "2115006172": {
+  "name": "SaintSulf Questionable",
+  "category": "character"
+ },
+ "2115238902": {
+  "name": "Anirone Caltra",
+  "category": "character"
+ },
+ "2115252652": {
+  "name": "Maxwell Reizmann",
+  "category": "character"
+ },
+ "2115254844": {
+  "name": "Lady Xangse Calodore",
+  "category": "character"
+ },
+ "2115255937": {
+  "name": "Furore Meraxes",
+  "category": "character"
+ },
+ "2115260968": {
+  "name": "Victoria Vancarter",
+  "category": "character"
+ },
+ "2115373505": {
+  "name": "Malaketh Arran",
+  "category": "character"
+ },
+ "2115677876": {
+  "name": "Char-nick",
+  "category": "character"
+ },
+ "2115802929": {
+  "name": "Aegis Predator",
+  "category": "character"
+ },
+ "2115821949": {
+  "name": "Carlos-SpicyWeener",
+  "category": "character"
+ },
+ "2115973633": {
+  "name": "Liliaria Taylor",
+  "category": "character"
+ },
+ "2115997626": {
+  "name": "Phyzor Smelkie",
+  "category": "character"
+ },
+ "2116078177": {
+  "name": "Ranot Khagah",
+  "category": "character"
+ },
+ "2116280426": {
+  "name": "Bisi Kring",
+  "category": "character"
+ },
+ "2116637817": {
+  "name": "Catbert Vaille",
+  "category": "character"
+ },
+ "2116970994": {
+  "name": "Hell Rova IV",
+  "category": "character"
+ },
+ "2117102770": {
+  "name": "Salthar",
+  "category": "character"
+ },
+ "2117126948": {
+  "name": "Primm",
+  "category": "character"
+ },
+ "2118214392": {
+  "name": "Lartabane Chelien",
+  "category": "character"
+ },
+ "2118233376": {
+  "name": "tiagodsvalente",
+  "category": "character"
+ },
+ "2118239483": {
+  "name": "Biosun2",
+  "category": "character"
+ },
+ "2118241904": {
+  "name": "Major cast",
+  "category": "character"
+ },
+ "2118675935": {
+  "name": "Mimatarte",
+  "category": "character"
+ },
+ "2118933709": {
+  "name": "LUPEETO",
+  "category": "character"
+ },
+ "2118967100": {
+  "name": "Tanis Winterstorm",
+  "category": "character"
+ },
+ "2119039431": {
+  "name": "Har Osta Skord",
+  "category": "character"
+ },
+ "2119145774": {
+  "name": "Ghazind",
+  "category": "character"
+ },
+ "2119533882": {
+  "name": "Pawilonek",
+  "category": "character"
+ },
+ "2119861807": {
+  "name": "Evelyn Marigold",
+  "category": "character"
+ },
+ "2119960467": {
+  "name": "Sypher Namir",
+  "category": "character"
+ },
+ "2120105115": {
+  "name": "Alita-Battle-Angel-99",
+  "category": "character"
+ },
+ "2120129170": {
+  "name": "Lord Zorya",
+  "category": "character"
+ },
+ "2120225224": {
+  "name": "ColossusX",
+  "category": "character"
+ },
+ "2120253140": {
+  "name": "Ark Hollow",
+  "category": "character"
+ },
+ "2120838413": {
+  "name": "MindOverAll",
+  "category": "character"
+ },
+ "2120855664": {
+  "name": "Haliax1",
+  "category": "character"
+ },
+ "2120955643": {
+  "name": "Proxy Cyno",
+  "category": "character"
+ },
+ "2121030118": {
+  "name": "B T",
+  "category": "character"
+ },
+ "2121044771": {
+  "name": "Inika Outamon",
+  "category": "character"
+ },
+ "2121085182": {
+  "name": "GreenGhosT",
+  "category": "character"
+ },
+ "2121108231": {
+  "name": "Sir Presto",
+  "category": "character"
+ },
+ "2121223338": {
+  "name": "Fremen Djo",
+  "category": "character"
+ },
+ "2121515922": {
+  "name": "Bean Rey",
+  "category": "character"
+ },
+ "2121580155": {
+  "name": "BoomBoom the Destroyer",
+  "category": "character"
+ },
+ "2121709708": {
+  "name": "Disembodied Soul",
+  "category": "character"
+ },
+ "2121746881": {
+  "name": "Mind Protector",
+  "category": "character"
+ },
+ "2121819425": {
+  "name": "Gaige Yumbreon",
+  "category": "character"
+ },
+ "2121993122": {
+  "name": "Chief Solo",
+  "category": "character"
+ },
+ "2122048702": {
+  "name": "Whitehorse Bel",
+  "category": "character"
+ },
+ "2122069136": {
+  "name": "Yh'Nyz",
+  "category": "character"
+ },
+ "2122226642": {
+  "name": "Perfectly Balanced",
+  "category": "character"
+ },
+ "2122227308": {
+  "name": "Chudila Normal",
+  "category": "character"
+ },
+ "2122390043": {
+  "name": "SulfSaint Questionable",
+  "category": "character"
+ },
+ "2122440872": {
+  "name": "Kara Ksess",
+  "category": "character"
+ },
+ "2122467549": {
+  "name": "Jeremy Simko",
+  "category": "character"
+ },
+ "2122528218": {
+  "name": "Xobaekk Aelthar Gao",
+  "category": "character"
+ },
+ "2122543446": {
+  "name": "Alina Starkovv",
+  "category": "character"
+ },
+ "2122829684": {
+  "name": "Mother Coyote",
+  "category": "character"
+ },
+ "2123016935": {
+  "name": "Spirit Vengeful",
+  "category": "character"
+ },
+ "2123131896": {
+  "name": "Dominicos Tinkos",
+  "category": "character"
+ },
+ "2123177082": {
+  "name": "Picolos",
+  "category": "character"
+ },
+ "2123190349": {
+  "name": "Darth Tink",
+  "category": "character"
+ },
+ "2123272069": {
+  "name": "Xenunim",
+  "category": "character"
+ },
+ "2123291913": {
+  "name": "Aeshmaa",
+  "category": "character"
+ },
+ "2123378614": {
+  "name": "Jessica The-Fox",
+  "category": "character"
+ },
+ "2123482102": {
+  "name": "Funky Dog Zoo",
+  "category": "character"
+ },
+ "2123859338": {
+  "name": "Amamoto Norio",
+  "category": "character"
+ },
+ "2123943569": {
+  "name": "Lego Frog Warrior",
+  "category": "character"
+ },
+ "2123947995": {
+  "name": "m0t0x",
+  "category": "character"
+ },
+ "2123968751": {
+  "name": "stormlyte",
+  "category": "character"
+ },
+ "2123976488": {
+  "name": "Jackel39",
+  "category": "character"
+ },
+ "2124035204": {
+  "name": "Azraeael",
+  "category": "character"
+ },
+ "2124057607": {
+  "name": "The Wasp Prophet",
+  "category": "character"
+ },
+ "2124134241": {
+  "name": "Server Status",
+  "category": "character"
+ },
+ "2124248184": {
+  "name": "cynax120",
+  "category": "character"
+ },
+ "2124361552": {
+  "name": "Gallo4",
+  "category": "character"
+ },
+ "2124494809": {
+  "name": "Glorh",
+  "category": "character"
+ },
+ "2124524849": {
+  "name": "Maara Orti",
+  "category": "character"
+ }
+}

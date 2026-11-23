@@ -1,7 +1,13 @@
-import { purgeCss } from 'vite-plugin-tailwind-purgecss';
-import { sveltekit } from '@sveltejs/kit/vite';
-import { defineConfig } from 'vite';
+/// <reference types="vitest/config" />
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+import { cloudflare } from '@cloudflare/vite-plugin'
+import { fileURLToPath, URL } from 'node:url'
 
-export default defineConfig({
-	plugins: [sveltekit(), purgeCss()]
-});
+export default defineConfig(({ mode }) => ({
+  plugins: [react(), tailwindcss(), ...(mode === 'test' ? [] : [cloudflare()])],
+  resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
+  worker: { format: 'es' },
+  test: { environment: 'node', include: ['src/**/*.test.{ts,tsx}'] },
+}))
