@@ -66,6 +66,24 @@ afterEach(async () => {
 })
 
 describe('timeline', () => {
+  it('uses the accent token for the playback cursor stroke', async () => {
+    await render()
+    const cursor = chart().querySelector('g[pointer-events="none"] > line[stroke-width="2"]')
+    expect(cursor?.getAttribute('stroke')).toBe('var(--color-accent)')
+  })
+
+  it('labels the next-event button outside compact mode and preserves its accessible name and icon', async () => {
+    await render()
+    expect(button('下一事件').textContent).toBe('下一事件')
+    expect(button('下一事件').querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+
+    await render(true)
+    const next = button('下一事件')
+    expect(next.textContent).toBe('')
+    expect(next.getAttribute('aria-label')).toBe('下一事件')
+    expect(next.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+  })
+
   it('sizes each enabled lane and disables icon mode when kills are off', async () => {
     await render()
     expect(height()).toBe(124)

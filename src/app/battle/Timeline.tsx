@@ -31,8 +31,8 @@ function LayerChip({ label, on, toggle, children, disabled }: {
   </button>
 }
 
-function Controls({ view, next, canPlay }: {
-  view: ReturnType<typeof useView> & ReturnType<typeof usePlayback>; next: number | undefined; canPlay: boolean
+function Controls({ view, next, canPlay, compact }: {
+  view: ReturnType<typeof useView> & ReturnType<typeof usePlayback>; next: number | undefined; canPlay: boolean; compact: boolean
 }) {
   const nextSpeed = { 1: 2, 2: 4, 4: 8, 8: 1 } as const
   return <div className="eca-timeline-controls" role="group" aria-label="回放控制">
@@ -47,6 +47,7 @@ function Controls({ view, next, canPlay }: {
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <path d="m5 5 12 7-12 7zM19 5v14" strokeLinejoin="round" />
       </svg>
+      {!compact && '下一事件'}
     </Button>
     <Button onClick={() => view.setSpeed(nextSpeed[view.speed])} title="回放倍速">{view.speed}×</Button>
     <time className="app-number eca-timeline-clock">{fmtHms(view.t)}</time>
@@ -122,7 +123,7 @@ function TimelineRoom({ compact, summary, analysis }: {
 
   return <div className="eca-timeline" data-compact={compact}>
     <div className="eca-timeline-bar">
-      <Controls view={view} next={nextEvent(data.eventTimes, view.t)} canPlay={data.eventTimes.length > 0} />
+      <Controls view={view} next={nextEvent(data.eventTimes, view.t)} canPlay={data.eventTimes.length > 0} compact={compact} />
       {!compact && <div className="eca-timeline-layers" role="group" aria-label="时间轴图层">
         {curves.map(({ side, layer, label, color }) => <LayerChip key={side} label={`${label}伤害`}
           on={layer ? layers.has(layer) : !hidden.has(side)} toggle={() => toggleSide(side, layer)}><Dot color={color} /></LayerChip>)}
@@ -148,7 +149,7 @@ function TimelineRoom({ compact, summary, analysis }: {
           {range && rangeEnd >= rangeStart && <rect x={x(rangeStart)} y="4" width={Math.max(1, x(rangeEnd) - x(rangeStart))}
             height={Math.max(1, bottom - 6)} fill="var(--color-sel)" stroke="var(--color-accent-line)" strokeDasharray="3 3" />}
           {readoutOnPlot && <line x1={x(readout)} x2={x(readout)} y1="2" y2={bottom} stroke="var(--color-text-3)" />}
-          {cursorOnPlot && <line x1={x(view.t)} x2={x(view.t)} y1="2" y2={bottom} stroke="var(--color-accent-line)" strokeWidth="2" />}
+          {cursorOnPlot && <line x1={x(view.t)} x2={x(view.t)} y1="2" y2={bottom} stroke="var(--color-accent)" strokeWidth="2" />}
         </g>
       </svg>
       {readoutOnPlot && <div id={tipId} className="eca-timeline-tip" role="tooltip" style={{ '--hover-x': `${x(readout)}px` } as CSSProperties}>
