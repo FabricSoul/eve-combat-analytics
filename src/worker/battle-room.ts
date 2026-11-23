@@ -366,7 +366,7 @@ export class BattleRoom extends DurableObject<Env> {
     }
     // setSide runs in the same serialized queue as every other side edit.
     const side = data.side === 'new' ? nextSide : data.side
-    if (side < -1 || side > nextSide || side >= MAX_BATTLE_SIDES) {
+    if (side < -1 || side > nextSide || side >= Math.max(MAX_BATTLE_SIDES, meta.teams.length)) {
       throw new ApiFailure('bad_request', 'Expected an alliance, corporation or character subject and a valid side index')
     }
 

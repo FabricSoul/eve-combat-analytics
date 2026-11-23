@@ -140,6 +140,10 @@ export class BattleRoom extends ProductionBattleRoom {
         if (id === '000000000000000000000502') {
           throw Object.assign(new Error('BR upstream unavailable'), { code: 'br_unavailable' })
         }
+        if (id.endsWith('909')) {
+          // Synthetic BR teams test editability above the normal creation cap.
+          return { ...meta, brId: id, teams: Array.from({ length: 9 }, () => []) }
+        }
         return id.endsWith('b16') ? largeMeta(id) : { ...meta, brId: id, teams }
       },
       async namesToCharacters(displayNames: string[]): Promise<Record<string, number | null>> {

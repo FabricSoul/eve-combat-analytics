@@ -627,6 +627,19 @@ it('creates only the next side through index 7 and shrinks the limit when upper 
   await editSide(id, 'char:107', 7)
 })
 
+it('accepts each existing BR side when the report already has more than eight teams', async () => {
+  const id = await prepare(0x909)
+  expect((await state(id)).meta.teams).toHaveLength(9)
+  await editSide(id, 'char:100', 8)
+  const created = await putSide(id, { subject: 'char:100', side: 'new' })
+  expect(created.status).toBe(400)
+  expect(await created.json()).toMatchObject({ error: 'bad_request' })
+  const pastCap = await putSide(id, { subject: 'char:100', side: 9 })
+  expect(pastCap.status).toBe(400)
+  expect(await pastCap.json()).toMatchObject({ error: 'bad_request' })
+  await editSide(id, 'char:100', -1)
+})
+
 it('atomically creates distinct sides for simultaneous new-side edits, then rejects creation at capacity', async () => {
   const id = await prepare(989)
   const firstNew = teams.length
