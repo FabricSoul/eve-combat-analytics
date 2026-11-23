@@ -276,6 +276,8 @@ export type ApiErrorCode =
   | 'bad_eft'
   | 'too_large'
   | 'bad_request'
+  /** ESI has no such killmail, or it could not be fetched. */
+  | 'killmail_unavailable'
 
 export interface ApiError {
   error: ApiErrorCode
@@ -291,6 +293,7 @@ export interface ApiError {
  * PUT  /api/battles/:brId/fits/:charId body: EFT text (≤ 64 KiB) → FitEntry
  * PUT  /api/battles/:brId/sides     body { subject, side }  → SideOverride (side -1 removes the subject's override)
  * GET  /api/battles/:brId/ws        (WebSocket upgrade)     → ServerMessage stream
+ * GET  /api/killmails/:id/:hash/fit                         → KillmailFit  (ESI killmail turned into EFT; cache forever)
  *
  * Log uploads are append-only. A character can have several files, and an exact file re-upload is a no-op.
  */
@@ -301,6 +304,22 @@ export interface UploadedLogSummary {
   side: number
   events: number
   uploadedAt: number
+  /** First and last event time in the uploaded log (ms epoch). Optional: summaries stored before 2026-11-23 lack them. */
+  first?: number
+  last?: number
+  language?: ClientLanguage
+}
+
+/**
+ * The fit a pilot died in, from the ESI killmail, as EFT text ready for PUT /fits/:charId (user decision 2026-11-23:
+ * "import from killmail" in the fit tab). Fitted modules, charges, drones and cargo-free; abyssal mutations are not in
+ * killmails, so those modules come out as their base type.
+ */
+export interface KillmailFit {
+  killmailId: number
+  charId: number | null
+  shipTypeId: number
+  eft: string
 }
 
 /**
@@ -442,6 +461,13 @@ export interface Analysis {
 
 /** Implemented in src/core/analysis/. Pure: same state in, same analysis out. */
 export type Analyze = (state: BattleState) => Analysis
+
+/**
+ * Per-pilot stats restricted to [from, to] (ms epoch, inclusive), computed from an already-downloaded Analysis and
+ * the battle's killmails. Runs in the browser for the timeline's Shift-drag range (no log download). With the full
+ * fight range it returns the same numbers as Analysis.stats.
+ */
+export type StatsForRange = (analysis: Analysis, killmails: Killmail[], from: number, to: number) => PilotStats[]
 
 // ───────────────────────────── Fit engine (pyfa) ─────────────────────────────
 

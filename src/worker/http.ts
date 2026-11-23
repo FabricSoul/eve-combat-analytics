@@ -4,6 +4,7 @@ const errorStatus: Record<ApiErrorCode, number> = {
   bad_br_url: 400,
   br_not_found: 404,
   br_unavailable: 502,
+  killmail_unavailable: 502,
   not_a_gamelog: 400,
   no_overlap: 422,
   unknown_character: 422,
