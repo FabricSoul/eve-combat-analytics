@@ -217,6 +217,9 @@ export interface UploadedLog {
   charName: string
   /** Index into BattleMeta.teams, or -1 when the affiliation matches no team. */
   side: number
+  /** Affiliation used for `side` (battle-time killmail row when the character is on one, else ESI). Lets manual corp/alliance side overrides reach uploaders who are on no killmail. */
+  corpId?: number
+  allyId?: number | null
   uploadedAt: number
   /** Only events inside one of the battle's windows. */
   parsed: ParsedLog
@@ -230,7 +233,7 @@ export interface FitEntry {
 }
 
 /** Counterparty display name → resolved character. Filled by the backend via ESI. */
-export type NameIndex = Record<string, { charId: number; side: number } | null>
+export type NameIndex = Record<string, { charId: number; side: number; corpId?: number; allyId?: number | null } | null>
 
 /** What a side assignment applies to: a whole alliance or corp (as in BR teams) or one character. */
 export type SideSubject = TeamMember | `char:${number}`
