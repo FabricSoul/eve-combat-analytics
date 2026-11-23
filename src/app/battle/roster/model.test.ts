@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Analysis, BattleSummary, Entity, PilotStats } from '@/core/contract'
+import { realBattleStateWithBr } from '../../../../fixtures/real/j125990-20250622/load'
+import { analyze } from '@/core/analysis/analyze'
 import { loadUiFixture } from '../../test/ui-fixture'
 import { affiliationOf } from './affiliation'
 import { buildRoster, sideName } from './model'
@@ -139,6 +141,49 @@ describe('buildRoster', () => {
   })
 })
 
+describe('death and ship follow time-ordered evidence', () => {
+  const part = (charId: number, shipTypeId: number) =>
+    ({ charId, corpId: 10, allyId: null, shipTypeId, weaponTypeId: null, damage: 1 })
+  const km = (id: number, t: number, victim: number, ship: number, attackers = [part(99, 1)]) => ({
+    id, hash: 'h', systemId: 1, t, value: 1, victim: part(victim, ship), attackers,
+  })
+  const state = (killmails: BattleSummary['meta']['killmails'], interactions: Analysis['interactions'] = []) => {
+    const summary: BattleSummary = { ...base, meta: { ...base.meta, killmails } }
+    const analysis = analysisOf([entity(4, 1, { shipTypes: ['Rifter'] })], { interactions })
+    return (at: number) => buildRoster(summary, analysis, 0, at).flatMap((g) => g.rows).find((r) => r.charId === 4)!
+  }
+  const hit = (t: number): Analysis['interactions'][number] => ({
+    t, from: 'char:4', to: 'char:99', kind: 'damage', amount: 1, weapon: null, quality: null, repairType: null, ewar: null,
+    sources: [], corroborated: false,
+  })
+
+  it('shows the ship they are in at t: the one they lost, or the one they fought in', () => {
+    const at = state([km(1, 1_000, 4, 587), km(2, 5_000, 99, 1, [part(4, 602)]), km(3, 9_000, 4, 602)])
+    expect([at(500).dead, at(500).shipTypeId]).toEqual([false, 587]) // before any evidence: the entity's own ship (Rifter)
+    expect([at(1_000).dead, at(1_000).shipTypeId]).toEqual([true, 587])
+    expect([at(5_000).dead, at(5_000).shipTypeId]).toEqual([false, 602]) // shot from a new ship: alive again
+    expect([at(9_000).dead, at(9_000).shipTypeId]).toEqual([true, 602])
+  })
+
+  it('a pod loss after the ship loss keeps them dead', () => {
+    const at = state([km(1, 1_000, 4, 587), km(2, 1_030, 4, 670)])
+    expect(at(1_020).dead).toBe(true)
+    expect([at(1_030).dead, at(1_030).shipTypeId, at(60_000).dead]).toEqual([true, 670, true])
+  })
+
+  it('clears the death when the logs show them acting well after it', () => {
+    const at = state([km(1, 1_000, 4, 587)], [hit(2_000), hit(20_000)])
+    expect(at(10_000).dead).toBe(true) // the line 1 s after the kill is the dying ship's last one
+    expect(at(20_000).dead).toBe(false)
+    expect(at(19_999).dead).toBe(true)
+  })
+
+  it('names the ship from the type id', () => {
+    const row = state([km(1, 1_000, 4, 587)])(1_000)
+    expect(row.ship).toBe('Rifter')
+  })
+})
+
 describe('buildRoster on J125990', () => {
   it('has our logged pilots first and every unassigned pilot in the last group', () => {
     const { summary, analysis } = loadUiFixture()
@@ -152,4 +197,15 @@ describe('buildRoster on J125990', () => {
     expect(groups.at(-1)?.rows.filter((r) => r.charId !== null)).toHaveLength(23)
     expect(groups.at(-1)?.rows.slice(0, 23).every((r) => r.charId !== null)).toBe(true)
   })
+})
+
+describe('re-shipped pilots on the full fight', () => {
+  it('a pilot who lost two different ships is dead in the second one from its kill on', () => {
+    const state = realBattleStateWithBr()
+    const analysis = analyze(state)
+    const summary: BattleSummary = { meta: state.meta, logs: [], fits: [], names: state.names, sideOverrides: [], analysisVersion: 1 }
+    const rowAt = (at: number) => buildRoster(summary, analysis, 0, at).flatMap((g) => g.rows).find((r) => r.charId === 2120747361)!
+    expect([rowAt(1750607306000).dead, rowAt(1750607307000).dead, rowAt(1750607307000).shipTypeId]).toEqual([false, true, 33472])
+    expect([rowAt(1750609997000).dead, rowAt(1750609997000).shipTypeId]).toEqual([true, 34496])
+  }, 120_000)
 })

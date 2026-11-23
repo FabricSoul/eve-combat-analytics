@@ -2,7 +2,7 @@ import type { Analysis, BattleSummary, Entity, EntityKey, PilotStats, SideOverri
 import { fmtHms } from '../../lib/format'
 import { sideOrder } from '../../lib/sides'
 import { affiliationOf } from './affiliation'
-import { shipTypeIdByName } from './ships'
+import { shipNameById, shipTypeIdByName } from './ships'
 
 export interface RosterTag {
   kind: 'log' | 'manual'
@@ -79,6 +79,61 @@ function tagOf(entity: Entity, charId: number, summary: BattleSummary, analysis:
   return null
 }
 
+interface Sighting { t: number; dead: boolean; shipTypeId: number | null }
+
+/** Killmail appearances per character, time-ordered; at a tie the survivor comes before the death. */
+const sightings = new WeakMap<BattleSummary, Map<number, Sighting[]>>()
+/** When each entity acted in the logs (the `from` side of an interaction), time-ordered. */
+const actedAt = new WeakMap<Analysis, Map<EntityKey, number[]>>()
+/** A death is only cleared by log activity this long after it: the dying ship's last lines share its second. */
+const reappearAfterMs = 5_000
+
+function sightingsOf(summary: BattleSummary, charId: number): Sighting[] {
+  let all = sightings.get(summary)
+  if (!all) {
+    all = new Map()
+    const add = (id: number | null, sighting: Sighting) => {
+      if (id !== null) all!.set(id, [...all!.get(id) ?? [], sighting])
+    }
+    for (const km of summary.meta.killmails) {
+      add(km.victim.charId, { t: km.t, dead: true, shipTypeId: km.victim.shipTypeId })
+      for (const a of km.attackers) add(a.charId, { t: km.t, dead: false, shipTypeId: a.shipTypeId })
+    }
+    for (const list of all.values()) list.sort((a, b) => a.t - b.t || Number(a.dead) - Number(b.dead))
+    sightings.set(summary, all)
+  }
+  return all.get(charId) ?? []
+}
+
+function actedTimes(analysis: Analysis, key: EntityKey): number[] {
+  let all = actedAt.get(analysis)
+  if (!all) {
+    all = new Map()
+    for (const i of analysis.interactions) {
+      const times = all.get(i.from)
+      if (times) times.push(i.t)
+      else all.set(i.from, [i.t])
+    }
+    actedAt.set(analysis, all)
+  }
+  return all.get(key) ?? []
+}
+
+/** Death and ship at `at` from time-ordered evidence: the latest killmail sighting rules, log activity after a death clears it. */
+function stateAt(summary: BattleSummary, analysis: Analysis, entity: Entity, charId: number, at: number) {
+  let last: Sighting | undefined
+  for (const sighting of sightingsOf(summary, charId)) {
+    if (sighting.t > at) break
+    last = sighting
+  }
+  let dead = last?.dead ?? false
+  if (last && dead) {
+    const after = last.t + reappearAfterMs
+    dead = !actedTimes(analysis, entity.key).some((t) => t > after && t <= at)
+  }
+  return { dead, shipTypeId: last?.shipTypeId ?? null }
+}
+
 /**
  * Roster groups: our side first (pilots with logs, then the rest), then each other side by population, then 未分边.
  * `at` limits who counts as dead to killmails up to that time; `stats` orders them (the Shift-drag range's, else the whole fight's). Inside a group: character rows first (ours: with logs first), then ship:/name: rows, each by damage output.
@@ -86,19 +141,22 @@ function tagOf(entity: Entity, charId: number, summary: BattleSummary, analysis:
 export function buildRoster(
   summary: BattleSummary, analysis: Analysis, oursSide: number, at = Infinity, stats: readonly PilotStats[] = analysis.stats,
 ): RosterGroup[] {
-  // Dead from the first killmail where they are the victim; `at` is the replay cursor (range end while a range is set).
-  const dead = new Set(summary.meta.killmails.flatMap(({ victim, t }) => victim.charId === null || t > at ? [] : [victim.charId]))
   const output = new Map(stats.map((stats) => [stats.key, [stats.damageOut, stats.killmailDamage] as const]))
   const bySide = new Map<number, RosterRow[]>()
 
   for (const entity of Object.values(analysis.entities)) {
-    const ship = entity.shipTypes[0] ?? null
     const { charId } = entity
+    const state = charId === null ? null : stateAt(summary, analysis, entity, charId, at)
     const keyType = /^ship:(\d+):/.exec(entity.key)?.[1]
+    const sighted = state?.shipTypeId ?? null
+    const seenName = sighted === null ? null : summary.meta.names[sighted]?.name ?? shipNameById(sighted)
+    // A ship type we cannot name is not shown: the entity's own ship stands in.
+    const seenType = seenName === null ? null : sighted
+    const ship = seenName ?? entity.shipTypes[0] ?? null
     const row: RosterRow = {
       key: entity.key, charId, name: entity.name, side: entity.side, hasLog: entity.hasLog,
-      dead: charId !== null && dead.has(charId), ship,
-      shipTypeId: keyType ? Number(keyType) : shipTypeIdByName(ship),
+      dead: state?.dead ?? false, ship,
+      shipTypeId: seenType ?? (keyType ? Number(keyType) : shipTypeIdByName(ship)),
       tag: charId === null ? null : tagOf(entity, charId, summary, analysis),
     }
     bySide.set(entity.side, [...bySide.get(entity.side) ?? [], row])
