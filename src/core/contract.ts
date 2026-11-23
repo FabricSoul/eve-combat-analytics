@@ -295,7 +295,7 @@ export interface ApiError {
  * GET  /api/battles/:brId                                   → BattleSummary  (no parsed events)
  * GET  /api/battles/:brId/analysis                          → Analysis  (server-computed; ETag "v<analysisVersion>", gzip)
  * GET  /api/battles/:brId/logs/:logId                       → UploadedLog    (immutable: cache forever; for "show source line")
- * POST /api/battles/:brId/logs      body: raw Gamelog text  → UploadedLogSummary
+ * POST /api/battles/:brId/logs      body: raw Gamelog text  → UploadResult  (duplicate: true when this exact file was already stored)
  * PUT  /api/battles/:brId/fits/:charId body: EFT text (≤ 64 KiB) → FitEntry
  * PUT  /api/battles/:brId/sides     body SideEdit            → SideOverride (numeric side in the response)
  * 'new' allocates the next side up to index 7, or returns 400 bad_request when there is no room.
@@ -315,6 +315,14 @@ export interface UploadedLogSummary {
   first?: number
   last?: number
   language?: ClientLanguage
+}
+
+/**
+ * Reply to POST /logs. `duplicate` is true when the same file (same log id) was already stored — by anyone, including a
+ * teammate uploading it at the same moment — so the client shows "duplicate, skipped" instead of "added".
+ */
+export interface UploadResult extends UploadedLogSummary {
+  duplicate?: true
 }
 
 /**
