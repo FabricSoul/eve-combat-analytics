@@ -5,8 +5,8 @@ import { gunzipSync } from 'node:zlib'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { loadUiFixture } from '../../test/ui-fixture'
-import section from './upload-dock'
+import { loadUiFixture } from '../test/ui-fixture'
+import section from './sections/upload-dock'
 
 let root: Root | undefined
 let host: HTMLElement
