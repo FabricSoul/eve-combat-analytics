@@ -1,29 +1,34 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, expect, it, vi } from 'vitest'
-import { statsForRange } from '@/core/analysis/range'
+import { afterEach, beforeEach, expect, it } from 'vitest'
 import { BattleProvider } from '../../state/battle-store'
 import { useView, ViewProvider } from '../../state/view-store'
 import { loadUiFixture } from '../../test/ui-fixture'
 import { CompareTable } from '../CompareTable'
 
-vi.mock('@/core/analysis/range', { spy: true })
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const fixture = loadUiFixture()
-const host = document.createElement('div')
-const root = createRoot(host)
+let host: HTMLDivElement
+let root: ReturnType<typeof createRoot>
+beforeEach(() => {
+  host = document.createElement('div')
+  document.body.appendChild(host)
+  root = createRoot(host)
+})
+afterEach(() => {
+  act(() => root.unmount())
+  host.remove()
+})
 
-afterEach(() => act(() => root.unmount()))
-
-it('groups and sorts columns, shows a median, and recomputes logged stats for a range', () => {
-  function Harness() {
-    const { setRange } = useView()
-    return <><button id="range" onClick={() => setRange([1000, 2000])}>Range</button><CompareTable /></>
-  }
+function render(children = <CompareTable />) {
   act(() => root.render(
-    <BattleProvider static={fixture}><ViewProvider syncUrl={false}><Harness /></ViewProvider></BattleProvider>,
+    <BattleProvider static={fixture}><ViewProvider syncUrl={false}>{children}</ViewProvider></BattleProvider>,
   ))
+}
+
+it('groups and sorts columns and shows a median', () => {
+  render()
   for (const label of ['输出', '节奏', '承伤', '后勤', '点控']) {
     expect([...host.querySelectorAll('[scope="colgroup"]')].map((el) => el.textContent)).toContain(label)
   }
@@ -34,8 +39,22 @@ it('groups and sorts columns, shows a median, and recomputes logged stats for a 
   act(() => header.querySelector('button')!.click())
   expect(header.getAttribute('aria-sort')).toBe('ascending')
   expect(host.querySelector('tbody tr')!.textContent).not.toBe(first)
+})
+
+it('shows full and selected-range damage from the real fixture', () => {
+  function Harness() {
+    const { setRange } = useView()
+    return <><button id="range" onClick={() => setRange([1750606900000, 1750606960000])}>Range</button><CompareTable /></>
+  }
+  render(<Harness />)
+  const cells = () => [...host.querySelectorAll('tbody tr')].find((row) => row.querySelector('th')?.textContent === 'Blanchard2213')!
+    .querySelectorAll('td')
+  // J125990, 15:41:40–15:42:40 UTC. Sum of outgoing and incoming damage in that inclusive minute.
+  expect(cells()[0]?.textContent).toBe('442,358')
+  expect(cells()[5]?.textContent).toBe('226,211')
   act(() => host.querySelector<HTMLButtonElement>('#range')!.click())
-  expect(statsForRange).toHaveBeenCalledWith(fixture.analysis, fixture.summary.meta.killmails, 1000, 2000)
+  expect(cells()[0]?.textContent).toBe('41,222')
+  expect(cells()[5]?.textContent).toBe('2,093')
 })
 
 it('uses a single roving tab stop per populated distribution metric', () => {
