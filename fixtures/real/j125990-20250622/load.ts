@@ -72,5 +72,5 @@ export function realBattleState(): BattleState {
       parsed: { ...parsed, events: parsed.events.filter((e) => e.t >= start && e.t <= end) },
     }
   })
-  return { meta, logs, fits: [], names: esi.nameIndex }
+  return { meta, logs, fits: [], names: esi.nameIndex, sideOverrides: [] }
 }

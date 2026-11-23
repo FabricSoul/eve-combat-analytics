@@ -57,12 +57,12 @@ describe('analyze', () => {
     ])
     expect(interactions[0]?.quality).toBe('Smashes')
     expect(entities).toEqual({
-      'char:1': { key: 'char:1', name: 'Ace', charId: 1, side: 0, shipTypes: ['Cruiser'], hasLog: true },
-      'char:3': { key: 'char:3', name: 'Rook', charId: 3, side: 1, shipTypes: ['Cruiser', 'Frigate'], hasLog: true },
-      'char:7': { key: 'char:7', name: 'Scout', charId: 7, side: 0, shipTypes: ['Frigate'], hasLog: false },
+      'char:1': { key: 'char:1', name: 'Ace', charId: 1, side: 0, shipTypes: ['Cruiser'], hasLog: true, sideSource: 'br' },
+      'char:3': { key: 'char:3', name: 'Rook', charId: 3, side: 1, shipTypes: ['Cruiser', 'Frigate'], hasLog: true, sideSource: 'br' },
+      'char:7': { key: 'char:7', name: 'Scout', charId: 7, side: 0, shipTypes: ['Frigate'], hasLog: false, sideSource: 'br' },
       'name:Automated Sentry': {
         key: 'name:Automated Sentry', name: 'Automated Sentry', charId: null, side: -1,
-        shipTypes: ['Sentry Gun'], hasLog: false,
+        shipTypes: ['Sentry Gun'], hasLog: false, sideSource: 'unknown',
       },
     })
     expect(coverage).toEqual([{ side: 0, known: 2, withLog: 1 }, { side: 1, known: 1, withLog: 1 }])

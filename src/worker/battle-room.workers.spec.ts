@@ -130,7 +130,7 @@ it('creates one room from a BR URL and persists creation across instance evictio
   await evictDurableObject(env.BATTLE.getByName(brId))
   expect(await state(brId)).toEqual({
     meta: { ...meta, teams },
-    logs: [], fits: [], names: {}, analysisVersion: 0,
+    logs: [], fits: [], names: {}, sideOverrides: [], analysisVersion: 0,
   })
 })
 

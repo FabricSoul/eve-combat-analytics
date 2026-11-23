@@ -92,6 +92,7 @@ export function battle(logs: UploadedLog[], killmails: Killmail[] = []): BattleS
     logs,
     fits: [],
     names,
+    sideOverrides: [],
   }
 }
 

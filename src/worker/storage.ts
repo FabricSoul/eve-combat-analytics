@@ -162,7 +162,7 @@ export class BattleStorage {
 
   summary(meta: BattleMeta): BattleSummary {
     const logs = this.logRows().map((row) => this.summarizeLog(row))
-    return { meta, logs, ...this.fitsAndNames(), analysisVersion: this.analysisStatus().version }
+    return { meta, logs, ...this.fitsAndNames(), sideOverrides: [], analysisVersion: this.analysisStatus().version }
   }
 
   async state(meta: BattleMeta): Promise<BattleState> {
@@ -171,7 +171,7 @@ export class BattleStorage {
     const logs: StoredLog[] = []
     // Read one JSON value at a time to cap transient decompression and parsing memory.
     for (const row of rows) logs.push(await this.getLog(row))
-    return { meta, logs, fits, names }
+    return { meta, logs, fits, names, sideOverrides: [] }
   }
 
   analysisStatus(): { revision: number; analyzedRevision: number; version: number } {

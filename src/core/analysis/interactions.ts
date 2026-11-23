@@ -164,7 +164,7 @@ export function collectInteractions(state: BattleState, entities: Map<EntityKey,
       splitListeners.add(charId)
       if (listener.side === -1) listener.side = side
     } else {
-      entities.set(key, { key, name: charName, charId, side, shipTypes: [], hasLog: true })
+      entities.set(key, { key, name: charName, charId, side, shipTypes: [], hasLog: true, sideSource: side >= 0 ? 'br' : 'unknown' })
     }
   }
 

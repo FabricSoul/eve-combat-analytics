@@ -40,6 +40,7 @@ export function indexKillmails(meta: BattleState['meta'], entities: Map<EntityKe
           charId,
           side: sideOf(participant, meta.teams),
           hasLog: false,
+          sideSource: 'br',
           shipTypes: [],
         }
         entry = { damage: 0, count: 0, lastMailId: -1, entity }

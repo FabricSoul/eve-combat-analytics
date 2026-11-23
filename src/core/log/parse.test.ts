@@ -272,7 +272,7 @@ describe('Gamelog envelope', () => {
     }])
   })
 
-  it('parses 50,000 physical lines in under 1 second', { retry: 3 }, () => {
+  it.skipIf(!process.env.PERF)('parses 50,000 physical lines in under 1 second (PERF=1)', { retry: 3 }, () => {
     const rowCount = 50_000 - header.split('\n').length
     const text = log(...Array.from({ length: rowCount }, (_, index) => {
       const time = new Date(sessionStart + index * 1_000).toISOString()

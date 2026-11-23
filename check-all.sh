@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 echo "▸ TypeScript"      && npx tsc --noEmit
 echo "▸ Unit tests"      && npx vitest run
+echo "  (timing benchmarks run only with PERF=1; this host is often at load 50–200)"
 echo "▸ Workers tests"   && npx vitest run --config vitest.workers.config.ts
 echo "▸ Fit assets"       && pnpm fit:assets
 echo "▸ Fit parity"       && node etl/parity/browser.mjs

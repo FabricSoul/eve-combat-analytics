@@ -174,6 +174,7 @@ export function indexIdentities(state: BattleState, logs: UploadedLog[], entitie
         side: character?.side ?? (shipOnly ? side : UNKNOWN_SIDE),
         shipTypes: [],
         hasLog: false,
+        sideSource: (character?.side ?? (shipOnly ? side : UNKNOWN_SIDE)) >= 0 ? 'br' : 'unknown',
       }
       entities.set(key, entity)
     }

@@ -232,12 +232,33 @@ export interface FitEntry {
 /** Counterparty display name → resolved character. Filled by the backend via ESI. */
 export type NameIndex = Record<string, { charId: number; side: number } | null>
 
+/** What a side assignment applies to: a whole alliance or corp (as in BR teams) or one character. */
+export type SideSubject = TeamMember | `char:${number}`
+
+/**
+ * A side assignment that overrides the BR teams (user decision 2026-11-22: manual side editing like br.evetools,
+ * plus automatic correction from log evidence). Precedence for a character, highest first: manual char >
+ * manual corp/alliance > log evidence > BR team / killmail affiliation > ESI affiliation.
+ */
+export interface SideOverride {
+  subject: SideSubject
+  /** Index into BattleMeta.teams. */
+  side: number
+  /** Only `manual` overrides are stored; `log` ones are derived by analyze() and appear in Analysis.sideOverrides. */
+  source: 'manual' | 'log'
+  /** For `log`: a short machine-readable reason, e.g. "repaired side 1: 412 events, damaged side 0: 1,205 events". */
+  reason?: string
+  setAt: number
+}
+
 export interface BattleState {
   meta: BattleMeta
   /** Several logs per character are allowed and merged. */
   logs: UploadedLog[]
   fits: FitEntry[]
   names: NameIndex
+  /** Manual side overrides, newest last; a later override for the same subject replaces the earlier. */
+  sideOverrides: SideOverride[]
 }
 
 // ───────────────────────────── HTTP + WebSocket API ─────────────────────────────
@@ -265,6 +286,7 @@ export interface ApiError {
  * GET  /api/battles/:brId/logs/:logId                       → UploadedLog    (immutable: cache forever; for "show source line")
  * POST /api/battles/:brId/logs      body: raw Gamelog text  → UploadedLogSummary
  * PUT  /api/battles/:brId/fits/:charId body: EFT text (≤ 64 KiB) → FitEntry
+ * PUT  /api/battles/:brId/sides     body { subject, side }  → SideOverride (side -1 removes the subject's override)
  * GET  /api/battles/:brId/ws        (WebSocket upgrade)     → ServerMessage stream
  *
  * Log uploads are append-only. A character can have several files, and an exact file re-upload is a no-op.
@@ -287,6 +309,7 @@ export interface BattleSummary {
   logs: UploadedLogSummary[]
   fits: FitEntry[]
   names: NameIndex
+  sideOverrides: SideOverride[]
   analysisVersion: number
 }
 
@@ -295,6 +318,7 @@ export type ServerMessage =
   | { type: 'snapshot'; state: BattleSummary }
   | { type: 'log_added'; log: UploadedLogSummary; names: NameIndex }
   | { type: 'fit_set'; fit: FitEntry }
+  | { type: 'sides_set'; overrides: SideOverride[] }
   /** A new analysis is ready; clients refetch GET /analysis. */
   | { type: 'analysis_ready'; version: number }
 
@@ -313,6 +337,8 @@ export interface Entity {
   charId: number | null
   /** -1 when unknown. */
   side: number
+  /** Where the side came from (see SideOverride precedence). */
+  sideSource: 'manual' | 'log' | 'br' | 'esi' | 'unknown'
   shipTypes: string[]
   hasLog: boolean
 }
@@ -395,6 +421,8 @@ export interface Coverage {
 
 export interface Analysis {
   entities: Record<EntityKey, Entity>
+  /** Log-evidence side corrections analyze() applied (manual ones are in BattleState.sideOverrides). */
+  sideOverrides: SideOverride[]
   /** Deduplicated, sorted by t. */
   interactions: Interaction[]
   ewarSpans: EwarSpan[]

@@ -45,5 +45,5 @@ export const analyze: Analyze = (state) => {
   const primaries = primariesBySide.flatMap((ranges) => ranges.map(({ span }) => span))
     .sort((a, b) => a.start - b.start || a.bySide - b.bySide)
   const entityRecord = Object.fromEntries([...entities].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0))
-  return { entities: entityRecord, interactions, ewarSpans, primaries, stats, coverage, timeline }
+  return { entities: entityRecord, sideOverrides: [], interactions, ewarSpans, primaries, stats, coverage, timeline }
 }
