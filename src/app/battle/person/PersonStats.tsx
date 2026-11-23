@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { Analysis, Entity, EntityKey, EwarSpan, Interaction } from '@/core/contract'
 import { fmtHms, fmtNum } from '../../lib/format'
+import { sideColor } from '../../lib/sides'
 import { TypeIcon } from '../../ui/TypeIcon'
 import {
   damageKinds, metricValue, metrics, missingReason, rowMedian, seconds, shipId, unknownDamageReason, type CompareRow,
@@ -42,9 +43,9 @@ function relationship(pilot: Entity, events: readonly Interaction[]) {
   return { repaired: top(repaired), attacked: top(attacked), attackers: top(attackers), repair, damage }
 }
 
-export function PersonStats({ analysis, pilot, rows, interactions, bounds, select }: {
+export function PersonStats({ analysis, pilot, rows, interactions, bounds, order, select }: {
   analysis: Analysis; pilot: Entity; rows: readonly CompareRow[]; interactions: readonly Interaction[];
-  bounds: readonly [number, number]; select(key: EntityKey): void
+  bounds: readonly [number, number]; order: readonly number[]; select(key: EntityKey): void
 }) {
   const origin = Math.floor(bounds[0] / bucketDuration) * bucketDuration
   const end = Math.floor(bounds[1] / bucketDuration) * bucketDuration
@@ -66,16 +67,16 @@ export function PersonStats({ analysis, pilot, rows, interactions, bounds, selec
     <section className="u7-person-card">
       <h3>按时间 · 每 10 秒</h3>
       <Series title="维修输出" values={details.repair} color="var(--color-repair)" start={origin} end={end} />
-      <Series title="承伤" values={details.damage} color="var(--color-side-1)" start={origin} end={end} />
+      <Series title="承伤" values={details.damage} color={sideColor(-1, order)} start={origin} end={end} />
       <div className="u7-series-times app-number">
         {[origin, origin + (end - origin) / 3, origin + (end - origin) * 2 / 3, end]
           .filter((time, index, ticks) => index === 0 || time > ticks[index - 1]!)
           .map((time) => <time key={time}>{fmtHms(time).slice(0, 5)}</time>)}
       </div>
     </section>
-    <TopList title="维修给了谁" rows={details.repaired} entities={analysis.entities} select={select} color="var(--color-repair)" />
-    <TopList title="伤害给了谁" rows={details.attacked} entities={analysis.entities} select={select} color="var(--color-side-0)" />
-    <TopList title="谁对他造成伤害" rows={details.attackers} entities={analysis.entities} select={select} color="var(--color-side-1)" />
+    <TopList title="维修给了谁" rows={details.repaired} entities={analysis.entities} select={select} order={order} />
+    <TopList title="伤害给了谁" rows={details.attacked} entities={analysis.entities} select={select} order={order} />
+    <TopList title="谁对他造成伤害" rows={details.attackers} entities={analysis.entities} select={select} order={order} />
     <section className="u7-person-card">
       <h3>承伤构成</h3>
       {!row?.damage && <p className="u7-secondary">这段时间没有可用的承伤记录。</p>}
@@ -136,8 +137,8 @@ function CompactEntity({ entity, fallback }: { entity?: Entity; fallback: Entity
   </span>
 }
 
-function TopList({ title, rows, entities, select, color }: {
-  title: string; rows: Related[]; entities: Analysis['entities']; select(key: EntityKey): void; color: string
+function TopList({ title, rows, entities, select, order }: {
+  title: string; rows: Related[]; entities: Analysis['entities']; select(key: EntityKey): void; order: readonly number[]
 }) {
   const max = Math.max(rows[0]?.[1].amount ?? 0, 1)
   return <section className="u7-person-card">
@@ -145,7 +146,7 @@ function TopList({ title, rows, entities, select, color }: {
     {!rows.length && <p className="u7-secondary">这段时间没有相关记录。</p>}
     {rows.map(([key, { amount, count }]) => <div className="u7-person-top" key={key}>
       <button type="button" onClick={() => select(key)}><CompactEntity entity={entities[key]} fallback={key} /></button>
-      <span className="u7-top-track"><i style={{ width: `${amount / max * 100}%`, background: color }} /></span>
+      <span className="u7-top-track"><i style={{ width: `${amount / max * 100}%`, background: sideColor(entities[key]?.side ?? -1, order) }} /></span>
       <span className="app-number">{num(amount)}</span><span className="app-number">{fmtNum(count)} 次</span>
     </div>)}
   </section>

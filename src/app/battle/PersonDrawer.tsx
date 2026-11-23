@@ -97,7 +97,7 @@ function PilotDrawer({ pilot, analysis }: { pilot: Entity; analysis: Analysis })
       </div>
     </header>
     <div role="tabpanel" id={`${id}-panel-${drawerTab}`} aria-labelledby={`${id}-tab-${drawerTab}`} className="u7-person-body">
-      {drawerTab === 'stats' && <PersonStats analysis={analysis} pilot={pilot} rows={rows} interactions={interactions} bounds={bounds} select={select} />}
+      {drawerTab === 'stats' && <PersonStats analysis={analysis} pilot={pilot} rows={rows} interactions={interactions} bounds={bounds} order={order} select={select} />}
       {drawerTab === 'fit' && <FitTab />}
       {drawerTab === 'events' && <div className="u7-person-stack">
         <PointLog points={pointSpans(analysis.ewarSpans, pilot.key, bounds)} entities={analysis.entities} />

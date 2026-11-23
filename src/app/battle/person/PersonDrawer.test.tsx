@@ -35,3 +35,32 @@ it('opens a selected pilot, toggles replay focus, expands, and closes on Escape'
     act(() => root.unmount())
   }
 })
+
+it('colors counterparty bars by viewing side and keeps aggregate incoming damage neutral', () => {
+  const fixture = loadUiFixture()
+  const pilot = Object.values(fixture.analysis.entities).find(({ name }) => name === 'MoQingXL moqing')!
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  function Harness() {
+    const { select, setOursSide } = useView()
+    useEffect(() => { select(pilot.key) }, [])
+    return <><button className="flip" onClick={() => setOursSide(0)}>Flip</button><PersonDrawer /></>
+  }
+  try {
+    act(() => root.render(
+      <BattleProvider static={fixture}><ViewProvider syncUrl={false} defaultSide={1}><Harness /></ViewProvider></BattleProvider>,
+    ))
+    const attackerList = [...host.querySelectorAll('section')].find((section) =>
+      section.querySelector('h3')?.textContent === '谁对他造成伤害（前 5）')!
+    const bar = (name: string) => [...attackerList.querySelectorAll('.u7-person-top')].find((row) =>
+      row.querySelector('button')?.textContent === name)!.querySelector('i')!.style.background
+    expect(bar('zethx')).toBe('var(--color-side-1)')
+    expect(bar('Blanchard2213')).toBe('var(--color-side-0)')
+    act(() => host.querySelector<HTMLButtonElement>('.flip')!.click())
+    expect(bar('zethx')).toBe('var(--color-side-0)')
+    expect(bar('Blanchard2213')).toBe('var(--color-side-1)')
+    expect(host.querySelectorAll('.u7-series polyline')[1]?.getAttribute('stroke')).toBe('var(--color-side-n)')
+  } finally {
+    act(() => root.unmount())
+  }
+})
