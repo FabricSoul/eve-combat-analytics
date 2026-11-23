@@ -1,0 +1,1207 @@
+<doc>
+  <h1 id="GoNNrAz0">EVE Combat Analytics · 界面设计</h1>
+  <p id="2TWtdEwH">舰队战复盘工具的界面设计定稿：从一个 BR 链接建战斗，大家往里上传 Gamelog，所有正在看的人实时看到新数据。本文件是界面实现的唯一依据；画板 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" /> 是参考，实现时不需要打开它也能做。</p>
+  <h2 id="FR32UyEg">意图</h2>
+  <p id="ne6jJ5px">舰队战打完，FC 和每个飞行员想知道：谁在什么时候打了谁、谁修了谁、主目标怎么切的、每个人和队友比起来怎么样。现在要么只有 BR（只有击毁），要么是朋友做的单人日志查看器（只看一个人）。这个工具把整场所有人的日志合在一起，按时间回放，并排对比。</p>
+  <p id="yCnksdLJ">核心原则（用户原话）：<b>“用数据说话，大家做对比”</b>。没有评分、没有排名、没有好坏颜色。每个指标都是给人并排看的数据。</p>
+  <h2 id="_giNQBlK">目标、非目标、反目标</h2>
+  <ul id="F-tFwLq8">
+    <li><b>目标</b>：贴一个 br.evetools.org 链接（或 related 链接）就能建战斗；拖日志进页面就上传；回放画布用舰船图标和模块图标按时间重演交互；对比表并排看每个人；所有人看到的数据实时同步；手机能看。</li>
+    <li><b>非目标（v1 不做）</b>：ESI SSO 登录；自动生成 BR（直接用已有 BR）；上传权限控制（有小号，锁不住，上传只追加不覆盖）；多语言界面（v1 界面文字中文，游戏数据保留原名）。</li>
+    <li><b>反目标（永远不做）</b>：给人打分、排名、红绿好坏色；把“谁打得好”包装成结论。中位数竖线只是参照，不是及格线。</li>
+  </ul>
+  <h2 id="XHxgjdXa">约束</h2>
+  <ul id="SLip-d-n">
+    <li>技术栈：React 19 + Vite 8 + Tailwind 4，后端 Cloudflare Worker + Durable Objects（已建好，见 <code>src/worker/</code>）。共享契约 <code>src/core/contract.ts</code> 不改，界面只消费它（<code>BattleState</code>、<code>Analysis</code>、<code>ServerMessage</code>）。</li>
+    <li>分析在服务器端做：页面拿 <code>GET /api/battles/:id/analysis</code> 的结果，不下载日志自己算。实时更新走 <code>/:id/ws</code>，收到 <code>log_added / fit_set / sides_set / analysis_ready</code> 后刷新。</li>
+    <li>配装计算用 pyfa（Pyodide，<code>src/fit/</code>，Web Worker），第一次加载 3–5 秒，界面要有加载态。</li>
+    <li>真实数据：J125990 2025-06-22 这场（<code>fixtures/real/j125990-20250622/</code>，52 个击毁、17 份日志）。画廊和截图对比都用这场，不编数字。</li>
+    <li>许可证 GPL-3.0-or-later；游戏图标来自 pyfa / EVE 图片服务器（<code>images.evetech.net</code>），伤害类型图标用 pyfa 自带的四张游戏原图。</li>
+  </ul>
+  <h2 id="ZZi1BCgk">视觉方向</h2>
+  <p id="8LuQewtW">选定 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="dir-a">dir-a · 回放室</ref>（另两个是 dir-b 战报、dir-c 对比台，未选）。</p>
+  <ul id="iXvfQ7TB">
+    <li><b>产品</b>：给 FC 和飞行员的舰队战复盘。</li>
+    <li><b>性格</b>：战术、实时、一眼读懂。</li>
+    <li><b>世界</b>：EVE 的战术总览（overview / tactical overlay）：深色底、友方蓝敌方红、游戏图标。</li>
+    <li><b>关键时刻</b>：回放画布动起来的那一刻（弹道、受击震动、维修特效），和时间轴上的击毁刻度。</li>
+    <li><b>签名</b>：锁定框四角（target-lock bracket corners），金色，跟着选中的人，用在回放节点、选中行和焦点上。</li>
+  </ul>
+  <p id="pIYTYVY5">接受的视觉选择：强调色只有一种金色（<code>#e8c26a</code>），只用于游标、选中、主按钮和锁定框；阵营颜色只给圆点、图标外圈、曲线和条形，<b>永远不给文字</b>；数字永远用文字色、等宽、右对齐。</p>
+  <h2 id="3CWi_ncy">基础值（tokens）</h2>
+  <p id="jcXcxLu1">代码里的唯一来源：<code>src/app/styles/tokens.css</code>（CSS 变量，浅色在 <code>:root</code>，深色在 <code>[data-appearance=&quot;dark&quot;]</code>），Tailwind 4 通过 <code>@theme</code> 引用这些变量，不另写一份数值。数值从画板的 <code>pages/tokens.css</code> 原样复制；总表见 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="tok-sheet" />。选择：颜色 tok-c1 金色 + tok-g2 游戏风格，字体 tok-t1，密度 tok-d2。</p>
+  <table id="GU8iZCuR">
+    <tr>
+      <th>
+        <p>Token</p>
+      </th>
+      <th>
+        <p>浅色</p>
+      </th>
+      <th>
+        <p>深色</p>
+      </th>
+      <th>
+        <p>用途</p>
+      </th>
+      <th>
+        <p>画板</p>
+      </th>
+    </tr>
+    <tr>
+      <td>
+        <p><b>表面</b></p>
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-bg</code></p>
+      </td>
+      <td>
+        <p>#f5f7fa</p>
+      </td>
+      <td>
+        <p>#0b0d14</p>
+      </td>
+      <td>
+        <p>页面底色</p>
+      </td>
+      <td>
+        <p>tok-c1</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-surface</code></p>
+      </td>
+      <td>
+        <p>#ffffff</p>
+      </td>
+      <td>
+        <p>#11141c</p>
+      </td>
+      <td>
+        <p>抽屉、面板、弹层</p>
+      </td>
+      <td>
+        <p>tok-c1</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-raised</code></p>
+      </td>
+      <td>
+        <p>#eceff4</p>
+      </td>
+      <td>
+        <p>#1a1e28</p>
+      </td>
+      <td>
+        <p>按钮、悬停行、当前标签</p>
+      </td>
+      <td>
+        <p>tok-c1</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><b>文字</b></p>
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-text</code></p>
+      </td>
+      <td>
+        <p>#111827</p>
+      </td>
+      <td>
+        <p>#eef0f5</p>
+      </td>
+      <td>
+        <p>正文、所有数字</p>
+      </td>
+      <td>
+        <p>tok-c1</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-text-2</code></p>
+      </td>
+      <td>
+        <p>#4b5565</p>
+      </td>
+      <td>
+        <p>#a3a9b8</p>
+      </td>
+      <td>
+        <p>次要文字、图例</p>
+      </td>
+      <td>
+        <p>tok-c1</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-text-3</code></p>
+      </td>
+      <td>
+        <p>#636c7e</p>
+      </td>
+      <td>
+        <p>#848ca0</p>
+      </td>
+      <td>
+        <p>表头、时间、坐标轴</p>
+      </td>
+      <td>
+        <p>tok-c1</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><b>边框</b></p>
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-hair</code></p>
+      </td>
+      <td>
+        <p>rgba(17,24,39,.09)</p>
+      </td>
+      <td>
+        <p>rgba(238,240,245,.09)</p>
+      </td>
+      <td>
+        <p>分隔线、行线、控件边框</p>
+      </td>
+      <td>
+        <p>tok-c1</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><b>强调</b></p>
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-accent</code></p>
+      </td>
+      <td>
+        <p>#e8c26a</p>
+      </td>
+      <td>
+        <p>#e8c26a</p>
+      </td>
+      <td>
+        <p>主按钮底、游标</p>
+      </td>
+      <td>
+        <p>tok-c1</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-accent-ink</code></p>
+      </td>
+      <td>
+        <p>#111827</p>
+      </td>
+      <td>
+        <p>#0b0d14</p>
+      </td>
+      <td>
+        <p>主按钮上的文字</p>
+      </td>
+      <td>
+        <p>tok-c1</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-accent-line</code></p>
+      </td>
+      <td>
+        <p>#8a6418</p>
+      </td>
+      <td>
+        <p>#e8c26a</p>
+      </td>
+      <td>
+        <p>锁定框、选中行左线、焦点环</p>
+      </td>
+      <td>
+        <p>tok-c1</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-sel</code></p>
+      </td>
+      <td>
+        <p>rgba(232,194,106,.16)</p>
+      </td>
+      <td>
+        <p>rgba(232,194,106,.10)</p>
+      </td>
+      <td>
+        <p>选中行、当前事件行的底</p>
+      </td>
+      <td>
+        <p>tok-c1</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><b>语义（数据）</b></p>
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-side-0</code></p>
+      </td>
+      <td>
+        <p>#2a78d6</p>
+      </td>
+      <td>
+        <p>#3987e5</p>
+      </td>
+      <td>
+        <p>“我方”（友方蓝）：圆点、图标外圈、曲线、条形</p>
+      </td>
+      <td>
+        <p>tok-g2</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-side-1</code></p>
+      </td>
+      <td>
+        <p>#d9442b</p>
+      </td>
+      <td>
+        <p>#e5533a</p>
+      </td>
+      <td>
+        <p>“敌方”（敌方红）；也用于失败图标</p>
+      </td>
+      <td>
+        <p>tok-g2</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-side-2</code></p>
+      </td>
+      <td>
+        <p>#8a1f86</p>
+      </td>
+      <td>
+        <p>#a63c9e</p>
+      </td>
+      <td>
+        <p>第三方（洋红）；和蓝、红一起通过了全配对色盲校验</p>
+      </td>
+      <td>
+        <p>tok-sheet</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-side-n</code></p>
+      </td>
+      <td>
+        <p>#5f6778</p>
+      </td>
+      <td>
+        <p>#9aa1b2</p>
+      </td>
+      <td>
+        <p>第四方起，以及未分边的人（中性灰，外圈上加字母 D、E… 区分）</p>
+      </td>
+      <td>
+        <p>tok-sheet</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-repair</code></p>
+      </td>
+      <td>
+        <p>#1baf7a</p>
+      </td>
+      <td>
+        <p>#1fa889</p>
+      </td>
+      <td>
+        <p>维修弹道、维修量、“+”数字</p>
+      </td>
+      <td>
+        <p>tok-g2</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--color-dead</code></p>
+      </td>
+      <td>
+        <p>#9aa1ae</p>
+      </td>
+      <td>
+        <p>#4a5163</p>
+      </td>
+      <td>
+        <p>被击毁的节点和图标</p>
+      </td>
+      <td>
+        <p>tok-g2</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><b>字体</b></p>
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--font-ui</code></p>
+      </td>
+      <td>
+        <p>Inter, &quot;PingFang SC&quot;, &quot;Noto Sans SC&quot;, system-ui, sans-serif</p>
+      </td>
+      <td>
+        <p>界面文字</p>
+      </td>
+      <td>
+        <p>tok-t1</p>
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--font-mono</code></p>
+      </td>
+      <td>
+        <p>&quot;JetBrains Mono&quot;, ui-monospace, monospace</p>
+      </td>
+      <td>
+        <p>数字、时间（tabular-nums）</p>
+      </td>
+      <td>
+        <p>tok-t1</p>
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--fs</code> / <code>--fs-s</code> / <code>--fs-l</code> / <code>--fs-title</code></p>
+      </td>
+      <td>
+        <p>13 / 12 / 16 / 24 px</p>
+      </td>
+      <td>
+        <p>正文 / 表格和行 / 小标题 / 页标题</p>
+      </td>
+      <td>
+        <p>tok-d2</p>
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--lh</code></p>
+      </td>
+      <td>
+        <p>20px</p>
+      </td>
+      <td>
+        <p>正文行高</p>
+      </td>
+      <td>
+        <p>tok-d2</p>
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><b>间距</b></p>
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--row</code></p>
+      </td>
+      <td>
+        <p>32px（手机触控行 44）</p>
+      </td>
+      <td>
+        <p>行高、控件高</p>
+      </td>
+      <td>
+        <p>tok-d2</p>
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--space-1…8</code></p>
+      </td>
+      <td>
+        <p>4 · 8 · 12 · 16 · 24 · 32 px（1,2,3,4,6,8）</p>
+      </td>
+      <td>
+        <p>所有内外边距</p>
+      </td>
+      <td>
+        <p>tok-d2</p>
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><b>圆角</b></p>
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--radius-ctl</code> / <code>--radius-card</code></p>
+      </td>
+      <td>
+        <p>6 / 10 px</p>
+      </td>
+      <td>
+        <p>控件 / 抽屉和卡片</p>
+      </td>
+      <td>
+        <p>tok-c1</p>
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><b>层次</b></p>
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>（无阴影 token）</p>
+      </td>
+      <td>
+        <p>只用 <code>--color-hair</code> 边框和表面色区分</p>
+      </td>
+      <td>
+        <p>抽屉、弹层不加投影</p>
+      </td>
+      <td>
+        <p>dir-a</p>
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><b>动效</b></p>
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--ease</code></p>
+      </td>
+      <td>
+        <p>cubic-bezier(0.22, 1, 0.36, 1)</p>
+      </td>
+      <td>
+        <p>所有过渡</p>
+      </td>
+      <td>
+        <p>dir-a</p>
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--dur-hover</code></p>
+      </td>
+      <td>
+        <p>140ms</p>
+      </td>
+      <td>
+        <p>悬停、按下</p>
+      </td>
+      <td>
+        <p>dir-a</p>
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--dur-edge-in</code> / <code>--dur-edge-fade</code></p>
+      </td>
+      <td>
+        <p>200ms / 3s</p>
+      </td>
+      <td>
+        <p>弹道出现 / 淡出</p>
+      </td>
+      <td>
+        <p>dir-a</p>
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p><code>--dur-move</code></p>
+      </td>
+      <td>
+        <p>300ms</p>
+      </td>
+      <td>
+        <p>锁定框移动、抽屉进出</p>
+      </td>
+      <td>
+        <p>dir-a</p>
+      </td>
+      <td>
+        <p />
+      </td>
+    </tr>
+  </table>
+  <p id="anst8Kxl">深浅色：默认跟随系统，顶栏可切换，选择记在 localStorage（<i>我的决定</i>：画板两套都画了，用户没指定默认）。<code>prefers-reduced-motion</code> 时关掉震动、旋转环和弹道动画，只保留静态线。</p>
+  <p id="U1XxCMEJ">阵营色（含第三方洋红）已过全配对色盲校验（dataviz 校验器，深浅两套）。伤害类型不用颜色（游戏里动能是灰色，过不了校验），只用 pyfa 的四张游戏图标（EM / 热能 / 动能 / 爆炸）。</p>
+  <h2 id="dYJcg5g0">布局</h2>
+  <p id="huYq_sSr">回放页骨架选 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="lay-l2">lay-l2 · 左侧名单</ref>，手机选 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="lay-p1">lay-p1 · 回放在上、底部抽屉</ref>，尺寸见 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="lay-sheet" />。布局组件：<code>AppShell</code>（顶栏 + 主体）、<code>TopBar</code>、<code>SidePanel</code>（名单 / 对比 / 击毁 / 配装标签）、<code>ReplayCanvas</code>、<code>EventFeed</code>、<code>Timeline</code>、<code>Drawer</code>、<code>BottomSheet</code>。</p>
+  <table id="-C0SUqy_">
+    <tr>
+      <th>
+        <p>页面</p>
+      </th>
+      <th>
+        <p>导航</p>
+      </th>
+      <th>
+        <p>顶栏</p>
+      </th>
+      <th>
+        <p>内容宽度 / 边距</p>
+      </th>
+      <th>
+        <p>窄 → 宽的变化</p>
+      </th>
+      <th>
+        <p>画板</p>
+      </th>
+    </tr>
+    <tr>
+      <td>
+        <p>首页</p>
+      </td>
+      <td>
+        <p>无</p>
+      </td>
+      <td>
+        <p>48，产品名</p>
+      </td>
+      <td>
+        <p>居中单栏，最宽 720，边距 24</p>
+      </td>
+      <td>
+        <p>手机边距 16</p>
+      </td>
+      <td>
+        <p>c3-home, f-home</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>回放页（主页面）</p>
+      </td>
+      <td>
+        <p>名单区上方标签：名单 / 对比 / 击毁 / 配装</p>
+      </td>
+      <td>
+        <p>48：战斗名 · 击毁数 · ISK · 日志数 · 上传 · 分享</p>
+      </td>
+      <td>
+        <p>满屏不设上限；名单 280 固定；时间轴高 120 横跨全宽；事件流高 260（在右栏）</p>
+      </td>
+      <td>
+        <p>≥1100 三栏（名单 280 · 画布 · 事件流 340）；760–1100 名单收成 56 宽图标栏，事件流移到画布下方；&lt;760 见手机</p>
+      </td>
+      <td>
+        <p>lay-l2, lay-sheet, f-replay</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>空战斗</p>
+      </td>
+      <td>
+        <p>同回放页</p>
+      </td>
+      <td>
+        <p>同回放页</p>
+      </td>
+      <td>
+        <p>画布位置换成引导（C 方案）</p>
+      </td>
+      <td>
+        <p>手机单栏</p>
+      </td>
+      <td>
+        <p>c3-u-c, f-empty</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>个人</p>
+      </td>
+      <td>
+        <p>右侧抽屉，回放保留，锁定框跟着他；可展开成整页</p>
+      </td>
+      <td>
+        <p>抽屉头：舰船图标、名字、军团、阵营</p>
+      </td>
+      <td>
+        <p>抽屉宽 420</p>
+      </td>
+      <td>
+        <p>手机直接整页</p>
+      </td>
+      <td>
+        <p>c5-p-a, f-person</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>对比</p>
+      </td>
+      <td>
+        <p>名单区“对比”标签，或展开成整页</p>
+      </td>
+      <td>
+        <p>同回放页</p>
+      </td>
+      <td>
+        <p>表格满宽，横向滚动</p>
+      </td>
+      <td>
+        <p>手机只保留名字 + 一列，左右切换列组</p>
+      </td>
+      <td>
+        <p>c2-t-a, f-compare</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>排边</p>
+      </td>
+      <td>
+        <p>顶栏菜单 → 排边面板（弹层）</p>
+      </td>
+      <td>
+        <p>弹层头：说明 + 完成</p>
+      </td>
+      <td>
+        <p>两栏，弹层最宽 960</p>
+      </td>
+      <td>
+        <p>手机两栏变上下两段</p>
+      </td>
+      <td>
+        <p>c1-opt-b, f-sides</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>击毁</p>
+      </td>
+      <td>
+        <p>名单区“击毁”标签</p>
+      </td>
+      <td>
+        <p>同回放页</p>
+      </td>
+      <td>
+        <p>列表</p>
+      </td>
+      <td>
+        <p>同名单区</p>
+      </td>
+      <td>
+        <p>f-kills</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>手机回放</p>
+      </td>
+      <td>
+        <p>底部抽屉：名单 / 事件 / 对比；顶栏收起统计</p>
+      </td>
+      <td>
+        <p>44</p>
+      </td>
+      <td>
+        <p>回放在上，时间轴高 64（只保留曲线和击毁刻度），抽屉三档高度</p>
+      </td>
+      <td>
+        <p>—</p>
+      </td>
+      <td>
+        <p>lay-p1, f-phone</p>
+      </td>
+    </tr>
+  </table>
+  <p id="MaEqLun4">画布节点大小：有日志的人 r15，主要敌人 r13，其他 r9；画布矮于 420 时缩小一档，只在选中时显示名字。</p>
+  <h2 id="s6lFCBD8">组件</h2>
+  <h3 id="PdhAhFXL">回放画布（ReplayCanvas）</h3>
+  <p id="vZDlws6v">画板 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="f-replay" />，参考实现 <code>pages/lay/replay.js</code>（d3-force）。</p>
+  <ul id="mRjnZB8T">
+    <li>节点是舰船图标（<code>images.evetech.net/types/&lt;typeId&gt;/render</code>），外圈用阵营色；两方时“我方”在左、敌方在右，交火时互相拉近。三方及以上时各方按圆周分区：我方固定在左，其余各方按人数从右开始顺时针排（三方 = 左 / 右 / 上）。</li>
+    <li>选中或悬停一个节点时，提示框里显示人物头像（32）+ 名字 + 舰船；选中的人名字标签前加 16 的头像。其余节点不放头像，保持舰船图标为主。</li>
+    <li>弹道画在图标<b>下面</b>，线上带武器 / 模块图标；粗细和抖动幅度按该类事件在本场的分位数（log-quantile）缩放，不同类型分开算。</li>
+    <li>受伤害：图标震动，幅度按伤害量分位数。维修：绿色弹道 + “+数字”。点人 / 扰频：旋转环。能量中和：吸能特效。击毁：图标变灰、爆开。</li>
+    <li>锁定框四角跟着选中的人移动（300ms）。</li>
+    <li>“我方” = 上传者最多的那一边，蓝色在左；顶栏可以切换哪边算“我方”。</li>
+  </ul>
+  <h3 id="pnVfO0L2">时间轴（Timeline）</h3>
+  <p id="s7VH11Ck">选定合并版 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="c4-t-d" />（由用户提议把 c4-t-a/b/c 合成图层开关），规格 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="c4-spec" />。</p>
+  <ul id="Do2TuysO">
+    <li>上方一排图层开关：我方伤害 / 敌方伤害 / 主目标 / 我方维修 / 点人 / 击毁 / 击毁用舰船图标。默认开：两条伤害曲线 + 主目标条 + 击毁刻度（高 124）。开维修和点人时变分道。</li>
+    <li>游标是金色竖线；点击跳转，拖动拖进度。Shift 拖出一段 = 只看这段，对比表、名单、事件都按这段重算，Esc 取消。</li>
+    <li>悬停：竖线 + 提示（那一秒双方伤害、当时主目标）；数字用文字色，颜色只在圆点上。滚轮 / 双指缩放时间范围。</li>
+    <li>控件：播放、下一事件、倍速（1× / 2× / 4× / 8×）、时钟。</li>
+  </ul>
+  <h3 id="FPBZ14RR">事件流（EventFeed）</h3>
+  <p id="PFdyK8n7">选定 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="c6-merged">c6-merged · 默认合并同类</ref>，可切到逐条（c6-raw）和只看关键（c6-key）。每种模式都有列标题（用户要求）：</p>
+  <ul id="tKUJ6JTX">
+    <li>合并：最后时间 / 出手 / 用（武器·模块）/ 对象 / 总量 ×次数</li>
+    <li>逐条：时间 / 出手 / 用 / 对象 / 数值</li>
+    <li>只看关键：时间 / 事件</li>
+  </ul>
+  <p id="-KS8Ow3z">跟随播放，当前行用 <code>--color-sel</code> 底 + 金色左线；右栏窄时用紧凑版（时间分隔行代替时间列）。</p>
+  <h3 id="UsIeJjaE">名单行与排边</h3>
+  <p id="fecbH3zj">规格 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="c1-spec" />，排边选 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="c1-opt-b">c1-opt-b · BR 式两栏面板</ref>，同时保留行菜单（c1-opt-a 的“移到敌方 / 整个联盟一起移”）作为快捷方式。</p>
+  <ul id="Y6O1X4Fh">
+    <li>行的顺序：人物头像 20 · 日志点 · 名字 · 标签 · 舰船图标 16 + 舰船名。</li>
+    <li>行高 32（手机 44），文字 12；名字截断，舰船名不截断。有日志 = 实心点，没日志 = 空心圈；被击毁 = 名字划线、图标变暗；选中 = 金色左线 + 浅底，回放里同时出现锁定框。</li>
+    <li>名单顺序：我方有日志的人在前；敌方按出手量。点一人 = 选中并打开个人抽屉（见“审查后补的决定”）。</li>
+    <li>阵营来源默认不标；只有改过的才标“据日志”（自动修正，悬停看依据，例如“修了敌方 842 次”）或“手动”（悬停看谁在何时改的）。标签用边框 + 文字色。</li>
+    <li>排边面板：每一方一栏（BR 有几方就几栏，最后还有一栏“新建一方”的拖放区），拖联盟、军团、个人；联盟和军团行用游戏里的联盟或军团图标；任何人都能改，实时同步（<code>PUT /:id/sides</code> → <code>sides_set</code>）。优先级：手动个人 &gt; 手动军团/联盟 &gt; 日志证据 &gt; BR/击毁报告 &gt; ESI。</li>
+    <li><b>不要</b>：用阵营色给名字上色；做发光彩色胶囊；在行里放第二个按钮（操作都进 ⋯ / 右键菜单）。</li>
+  </ul>
+  <h3 id="wsjqarQi">对比表（CompareTable）</h3>
+  <p id="Qh08a8aW">选定 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="c2-t-a">c2-t-a · 大表</ref>，并排（c2-t-b）和分布（c2-t-c）作为同一处可切换的视图。规格 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="c2-spec" />。</p>
+  <ul id="3GFfglgr">
+    <li>数字等宽、右对齐、千分位；秒保留到 0.5；百分比取整。数字用文字色，条形用阵营色。</li>
+    <li>没有值显示“—”，悬停说明原因；0 和“—”不混用。</li>
+    <li>每个数值列条形上一道细竖线 = 有值者的中位数。不排名、不打分。</li>
+    <li>点表头排序，默认按输出；列可开关，分组：输出 · 节奏 · 承伤 · 后勤 · 点控（指标来自 <code>PilotStats</code>，包括 <code>switchAfterKillMedian</code>）。勾选的人置顶高亮。</li>
+  </ul>
+  <h3 id="YyEC8uf2">首页与上传</h3>
+  <p id="hgKtyuRs">首页 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="c3-home" />：一个输入框贴 BR 链接（<code>br.evetools.org/br/&lt;id&gt;</code> 或 related 链接）+ 最近的战斗。上传选 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="c3-u-a">c3-u-a</ref> + <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="c3-u-c">c3-u-c</ref>：平时整页任意处拖放 + 右下角上传列表；战斗还没有日志时显示 C 的引导页作为空状态。规格 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="c3-spec" />。</p>
+  <ul id="JmnMD02g">
+    <li>上传行状态：排队 → 上传（进度）→ 解析（进度）→ 完成。完成写出：谁的日志、多少条、时间段、客户端语言；阵营被修正时带“据日志”。</li>
+    <li>重复文件跳过并说明与哪份相同（同一角色多份按指纹合并）；时间对不上、不是战斗日志、查不到角色，都写原因并给“移除”。只有失败用敌方红图标，文字一律正文色。</li>
+  </ul>
+  <h3 id="N3yXynnD">个人抽屉</h3>
+  <p id="7bbAC-T5">选定 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="c5-p-a">c5-p-a · 右侧抽屉</ref>：回放保留，锁定框跟着他；标签：数据 / 配装 / 事件；可展开成整页；手机直接整页。</p>
+  <h3 id="nLIcf2d2">配装</h3>
+  <p id="Rwy1mIue">选定 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="c7-f-a">c7-f-a · 个人抽屉的“配装”标签</ref>，规格 <ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="c7-spec" />。</p>
+  <ul id="nXh2VrTJ">
+    <li>两种来源：粘贴 EFT；被击毁过的人可“从击毁报告带入”一键填好。任何人都能给任何人加，实时同步（<code>PUT /:id/fits/:charId</code>，上限 64 KiB）。</li>
+    <li>显示 pyfa 理论值 vs 日志实际（例：Blanchard2213 理论 834 DPS，实际开火均值 230、峰值 1268）。</li>
+    <li>深渊模块没有变异数据时明确提示“按基础属性计算，理论值会偏离实际”。pyfa 首次加载 3–5 秒显示加载态。</li>
+  </ul>
+  <h2 id="RqxlaSUI">整体流程</h2>
+  <p id="CYKQQFqC">用户已看过并认可（“看起来可以”）：<ref artboard="eve-combat-analytics-design-system" to="TfA3ezPeDRqxzuLDt6hhk" board="f-replay">画板第 5 页“整体页面”</ref>。顺序：f-home 贴链接 → f-empty 空战斗引导 → f-upload 拖入日志 → f-replay 回放 → f-person 个人抽屉 → f-fit 配装 → f-compare 对比 → f-sides 排边 → f-kills 击毁列表（点一行跳到那一刻）→ f-phone 手机。</p>
+  <mermaid id="q81ifzch">flowchart LR
+  home[首页 贴 BR 链接] --&gt; empty[空战斗 引导]
+  empty --&gt; upload[拖入日志]
+  upload --&gt; replay[回放页]
+  replay --&gt; person[个人抽屉]
+  person --&gt; fit[配装标签]
+  replay --&gt; compare[对比]
+  replay --&gt; sides[排边面板]
+  replay --&gt; kills[击毁列表]
+  kills --&gt;|跳到那一刻| replay</mermaid>
+  <h2 id="DD4oxnZO">DESIGN.md（仓库根目录，新建）</h2>
+  <ol id="qXc5rXtS">
+    <li>五条方向（上文“视觉方向”）。</li>
+    <li>指向 <code>src/app/styles/tokens.css</code> + 用途列。</li>
+    <li>字体、间距、圆角规则；每类页面的布局规则（上文布局表）。</li>
+    <li>每个组件：何时用哪个变体，永远不做什么（上文各组件的“不要”）。</li>
+    <li>“不要”示例：阵营色文字、彩色胶囊标签、红绿好坏色、排名列、数字用彩色、阴影。</li>
+    <li>上线前检查：深浅两套都看过；1280 / 900 / 390 三个宽度；reduced-motion；没有 token 外的颜色；用 J125990 真数据截图。</li>
+  </ol>
+  <h2 id="5Vzo8R1p">基础值页和画廊</h2>
+  <ul id="5FZjGC6g">
+    <li><b>基础值页</b>：<code>/_gallery</code> 的第一页，运行时从 CSS 变量读出所有 token，按上表分组列出，带用途。</li>
+    <li><b>画廊</b>：<code>/_gallery</code>，不需要登录；每个组件每个状态，用产品自己的组件和 J125990 真数据渲染（名单行全部状态、上传行全部状态、对比表、时间轴各图层组合、事件流三种模式、配装两种来源和深渊提示、排边面板）。项目没有 Storybook，不加。</li>
+  </ul>
+  <h2 id="uUp5XuEJ">守护测试</h2>
+  <p id="3a0vlxuM">vitest 测试：解析 <code>tokens.css</code> 的变量名，和基础值页声明的列表比对，有遗漏就失败。另加一条检查：<code>src/app/**</code> 里除 <code>tokens.css</code> 外出现十六进制 / rgb 颜色字面量就失败（画布绘制从 CSS 变量取色）。</p>
+  <h2 id="azJSnvec">替换计划</h2>
+  <p id="508u8oQ7">新产品，没有旧界面要替换（旧仓库代码已在重写分支上整体弃用）。验证计划：每个做好的界面和对应画板比对——首页 f-home，空战斗 f-empty，上传 f-upload / c3-spec，回放页 f-replay / lay-sheet，个人 f-person，配装 f-fit / c7-spec，对比 f-compare / c2-spec，排边 f-sides / c1-spec，击毁 f-kills，手机 f-phone，时间轴 c4-t-d / c4-spec，事件流 c6-merged。</p>
+  <h2 id="yhnggO_Z">留给实现者</h2>
+  <ul id="8d0wtdio">
+    <li>组件内部拆分、状态管理方式（建议一个按战斗的 store 订阅 WebSocket）、路由库。</li>
+    <li>画布用 SVG 还是 Canvas（画板是 SVG + d3-force；节点多于 200 时可换 Canvas，外观不变）。</li>
+    <li>动画具体曲线，只要用 token 里的时长和缓动。</li>
+  </ul>
+  <h3 id="RSWB99EQ">人物头像（Portrait）</h3>
+  <p id="6mDinp9f">用户要求：人物头像出现在所有提到人的界面里。来源 <code>images.evetech.net/characters/&lt;charId&gt;/portrait?size=64|128</code>（显示尺寸的两倍，取 64 或 128）；联盟和军团用 <code>/alliances/&lt;id&gt;/logo</code>、<code>/corporations/&lt;id&gt;/logo</code>。画板已补上，见 f-replay、f-person、f-sides、f-kills、f-upload。</p>
+  <table id="RZa7CbUm">
+    <tr>
+      <th>
+        <p>位置</p>
+      </th>
+      <th>
+        <p>尺寸</p>
+      </th>
+      <th>
+        <p>怎么放</p>
+      </th>
+    </tr>
+    <tr>
+      <td>
+        <p>名单行、对比表名字列</p>
+      </td>
+      <td>
+        <p>20</p>
+      </td>
+      <td>
+        <p>行首，舰船图标挪到舰船名前</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>事件流（出手、对象）</p>
+      </td>
+      <td>
+        <p>16</p>
+      </td>
+      <td>
+        <p>阵营圆点后、名字前</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>个人抽屉头</p>
+      </td>
+      <td>
+        <p>56</p>
+      </td>
+      <td>
+        <p>头像右下角叠 24 的舰船图标</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>击毁列表</p>
+      </td>
+      <td>
+        <p>28</p>
+      </td>
+      <td>
+        <p>被击毁者头像右下角叠 16 的舰船图标</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>上传行（完成后）</p>
+      </td>
+      <td>
+        <p>16</p>
+      </td>
+      <td>
+        <p>日志主人名字前（角色 id 来自文件名）</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>排边面板</p>
+      </td>
+      <td>
+        <p>20</p>
+      </td>
+      <td>
+        <p>个人行用头像；联盟 / 军团行用它们的图标</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>回放画布</p>
+      </td>
+      <td>
+        <p>32 / 16</p>
+      </td>
+      <td>
+        <p>只在提示框和选中者的名字标签里出现</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>对比表分布视图、维修给了谁等小列表</p>
+      </td>
+      <td>
+        <p>—</p>
+      </td>
+      <td>
+        <p>保持舰船图标（我的决定：密集处头像和舰船图标并排太挤）</p>
+      </td>
+    </tr>
+  </table>
+  <ul id="26LR8O1I">
+    <li>方形，圆角 <code>--radius-ctl</code>，底色 <code>--color-raised</code>（加载前占位）；不画成圆形，不加阵营色外圈（阵营色只在圆点上）。<code>loading=&quot;lazy&quot;</code>。</li>
+    <li>没有角色 id 的实体（只有名字的 <code>name:</code>、NPC、按舰船类型合并的 <code>ship:</code>）显示同尺寸的空占位，不画首字母。</li>
+  </ul>
+  <h3 id="tCuzp45w">三方及以上</h3>
+  <p id="-yMSoJlY">用户选择：几方就分几方（不合并成“其他”）。</p>
+  <ul id="O-dWCVg8">
+    <li>颜色：第 1、2、3 方用 <code>--color-side-0/1/2</code>（蓝、红、洋红，三色全配对通过色盲和正常视觉校验，深浅两套）。第 4 方起用 <code>--color-side-n</code> 中性灰，外圈和名单分组标题上加字母 D、E…（色盲校验规定超过三种颜色就必须加第二种编码）。</li>
+    <li>“我方”永远是蓝色；其余各方按人数从多到少依次取红、洋红、灰。</li>
+    <li>没分到边的人（<code>side: -1</code>）：名单底部一组“未分边”，中性灰空心圈；回放画布放在中间下方；排边面板顶部提示“还有 N 人未分边”。</li>
+    <li>时间轴：每方一条伤害曲线，同样的颜色规则；图层开关按方数生成。对比表“阵营”筛选变成多选。</li>
+    <li>这场 J125990 只有两方，画板上没有三方示例；画廊用一份标明“示例”的三方假数据（在 fixture 头注释里写清楚），不改真实数据。</li>
+  </ul>
+  <h2 id="lip2uobr">审查后补的决定</h2>
+  <p id="POj5ekwr">以下是实现审查提出、由协调者定下的点（标“我的决定”），不改变用户选过的任何方案。</p>
+  <ul id="7Uf3FIxz">
+    <li><b>选一段时间后重算（我的决定）</b>：整场分析仍由服务器算；Shift 选段后的重算在浏览器里做，用 <code>src/core</code> 新增的纯函数 <code>statsForRange(analysis, from, to)</code> 只读 <code>Analysis.interactions</code> 等已下发数据，不下载日志。缺的中间数据（主目标区间、击毁合计）由协调者加进 <code>Analysis</code>。配装标签里的“实际开火均值 / 峰值”同样从已下发数据算。</li>
+    <li><b>从击毁报告带入配装（我的决定）</b>：新增 Worker 接口 <code>GET /api/killmails/:id/:hash/fit</code>，服务器用规定的 User-Agent 拉 ESI 击毁报告，按槽位转成 EFT 文本返回；页面把它填进 EFT 输入框，用户确认后照常 <code>PUT /fits/:charId</code>。契约由协调者先加。</li>
+    <li><b>武器 / 模块图标（我的决定）</b>：照 <code>ship-types.json</code> 的做法，从 pyfa eve.db 导出模块、弹药、无人机的中英文名 → typeId 表（<code>src/core/data/item-types.json</code>）；查不到时弹道上显示文字名，不画占位图。伤害类型图标出现在两处：个人抽屉的“承伤构成”和对比表“承伤”组的类型拆分；炮台类伤害在没有带弹药的配装时归为“未知类型”并写明原因。</li>
+    <li><b>上传行完成信息（我的决定）</b>：给 <code>UploadedLogSummary</code> 加时间段、客户端语言（协调者改契约）；“据日志”标记等下一次 <code>analysis_ready</code> 到了再补上；“解析”阶段是不定进度条，不显示百分比。</li>
+    <li><b>首页“最近的战斗”（我的决定）</b>：只记本浏览器打开过的战斗（localStorage），不做全站列表，避免公开别人的战斗。</li>
+    <li><b>点名单里的人（我的决定）</b>：一次点击 = 选中（锁定框、他的弹道高亮、其他人变暗）+ 打开个人抽屉；“只看他”是抽屉里的开关，不是默认。再点一次或 Esc 取消选中。</li>
+    <li><b>“我方”切换（我的决定）</b>：只改当前观看者的视图，写进 URL 参数 <code>?ours=1</code>，分享链接带上它；不影响别人。</li>
+    <li><b>“手动”标签悬停（我的决定）</b>：v1 没有身份，只显示改动时间（“手动 · 16:05 改”），不显示是谁。</li>
+  </ul>
+  <h2 id="TqWSBXLP">用到的产物</h2>
+  <table id="SAyLJPPh">
+    <tr>
+      <th>
+        <p>类型</p>
+      </th>
+      <th>
+        <p>ID / 路径</p>
+      </th>
+      <th>
+        <p>决定了什么</p>
+      </th>
+    </tr>
+    <tr>
+      <td>
+        <p>画板</p>
+      </td>
+      <td>
+        <p><code>artboard/eve-combat-analytics-design-system</code>（<code>.ryugi/artifacts/artboard/eve-combat-analytics-design-system/</code>，被 .gitignore 忽略）</p>
+      </td>
+      <td>
+        <p>方向 dir-a；颜色 tok-c1 + tok-g2；字体 tok-t1；密度 tok-d2；布局 lay-l2 + lay-p1 + lay-sheet；排边 c1-opt-b（+ 行菜单）；对比 c2-t-a（并排 / 分布可切）；上传 c3-u-a + c3-u-c；时间轴 c4-t-d；个人 c5-p-a；事件流 c6-merged（带列标题）；配装 c7-f-a；整体流程 flows 页 10 块板</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>画板文件</p>
+      </td>
+      <td>
+        <p><code>pages/tokens.css</code></p>
+      </td>
+      <td>
+        <p>基础值的数值来源（上表照抄）</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>画板文件</p>
+      </td>
+      <td>
+        <p><code>pages/lay/replay.js</code>、<code>pages/c4/tl2.js</code>、<code>pages/c6/feed.js</code></p>
+      </td>
+      <td>
+        <p>回放画布、合并时间轴、事件流的参考实现（可读，不直接复制）</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>画板文件</p>
+      </td>
+      <td>
+        <p><code>pages/data/*.js</code></p>
+      </td>
+      <td>
+        <p>J125990 真实数据的画板版本</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>OwlMem</p>
+      </td>
+      <td>
+        <p><code>projects/eve-combat-analytics/README.md</code>、<code>metrics-brainstorm.md</code>、<code>br-evetools-integration.md</code></p>
+      </td>
+      <td>
+        <p>产品决定、指标清单、BR 接入方式</p>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <p>文档</p>
+      </td>
+      <td>
+        <p><code>document/eve-combat-analytics-design</code>（本文件）</p>
+      </td>
+      <td>
+        <p>界面设计定稿</p>
+      </td>
+    </tr>
+  </table>
+</doc>
+
