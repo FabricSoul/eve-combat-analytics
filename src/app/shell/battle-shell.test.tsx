@@ -126,8 +126,14 @@ describe('battle shell review', () => {
     const header = host.querySelector('header.app-topbar')!
     act(() => { socket.dispatchEvent(new Event('open')) })
     expect(header.textContent).not.toMatch(/重连中…|离线/)
-    act(() => { socket.dispatchEvent(new Event('close')) })
+    const lost = socket
+    act(() => { lost.dispatchEvent(new Event('close')) })
     expect(header.querySelector('[role="status"]')?.textContent).toMatch(/重连中…|离线/)
+    // A late event on the closed socket must not clear the status; only the reconnect's new socket does.
+    act(() => { lost.dispatchEvent(new Event('open')) })
+    expect(header.querySelector('[role="status"]')?.textContent).toMatch(/重连中…|离线/)
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1100)) })
+    expect(socket).not.toBe(lost)
     act(() => { socket.dispatchEvent(new Event('open')) })
     expect(header.textContent).not.toMatch(/重连中…|离线/)
   })
