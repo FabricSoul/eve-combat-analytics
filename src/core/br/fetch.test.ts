@@ -91,4 +91,68 @@ describe('fetchBattleMeta', () => {
     const f = fakeFetch((c) => (c.url === BR_URL ? jsonResponse(composition) : jsonResponse({}, 400)))
     await expect(fetchBattleMeta(ID, deps(f))).rejects.toMatchObject({ code: 'br_unavailable' })
   })
+
+  it.each([
+    ['null team', { ...composition, teams: [null] }],
+    ['unparseable window start', { ...composition, relateds: [{ ...composition.relateds[0]!, start: 'unparseable' }] }],
+    ['window end before start', { ...composition, relateds: [{ ...composition.relateds[0]!, end: 1 }] }],
+    ['null related', { ...composition, relateds: [null] }],
+    ['null attacker', { ...composition, relateds: [{ ...composition.relateds[0]!, kms: [{ ...composition.relateds[0]!.kms![0]!, attackers: [null] }] }] }],
+    ['bad team id', { ...composition, teams: [['ally:abc']] }],
+  ])('rejects a malformed nested composition (%s) before ESI (F1 I2)', async (_n, body) => {
+    const f = server(() => jsonResponse(body))
+    await expect(fetchBattleMeta(ID, deps(f))).rejects.toMatchObject({ name: 'ApiFailure', code: 'br_not_found' })
+    expect(f.calls.map((c) => c.url)).toEqual([BR_URL])
+  })
+
+  it('rejects a composition for a different BR (F1 I3)', async () => {
+    const f = server(() => jsonResponse({ ...composition, id: '1'.repeat(24) }))
+    await expect(fetchBattleMeta(ID, deps(f))).rejects.toMatchObject({ code: 'br_not_found' })
+    expect(f.calls.map((c) => c.url)).toEqual([BR_URL])
+  })
+
+  it('accepts a composition whose id differs only in case (F1 I3)', async () => {
+    const f = server(() => jsonResponse({ ...composition, id: ID.toUpperCase() }))
+    expect((await fetchBattleMeta(ID, deps(f))).brId).toBe(ID)
+  })
+
+  it('rejects a composition returned beyond the 30-second deadline (F1 I4)', async () => {
+    let elapsed = 0
+    let n = 0
+    const f = fakeFetch((c) => {
+      if (c.url !== BR_URL) return esiNames(c.body as number[])
+      n++
+      if (n > 1) elapsed += 12_000
+      return jsonResponse(n >= 4 ? composition : { status: 'processing' })
+    })
+    await expect(
+      fetchBattleMeta(ID, { fetch: f.fetch, sleep: async (ms) => void (elapsed += ms), now: () => elapsed }),
+    ).rejects.toMatchObject({ code: 'br_unavailable' })
+  })
+
+  it('counts 5xx backoff against the deadline and caps waits by the time left (F1 I4)', async () => {
+    let elapsed = 0
+    const sleeps: number[] = []
+    const f = fakeFetch(() => {
+      elapsed += 9_000
+      return jsonResponse({ status: 'processing' })
+    })
+    await expect(
+      fetchBattleMeta(ID, { fetch: f.fetch, sleep: async (ms) => void (sleeps.push(ms), (elapsed += ms)), now: () => elapsed }),
+    ).rejects.toMatchObject({ code: 'br_unavailable' })
+    expect(elapsed).toBeLessThanOrEqual(30_000 + 9_000)
+    expect(sleeps.every((ms) => ms <= 2000)).toBe(true)
+  })
+
+  it('passes an abort signal so a stuck GET cannot outlive the deadline (F1 I4)', async () => {
+    let signal: AbortSignal | null | undefined
+    const f = server(() => jsonResponse(composition))
+    const orig = f.fetch
+    const spy = ((u: RequestInfo | URL, init?: RequestInit) => {
+      if (String(u) === BR_URL) signal = init?.signal
+      return orig(u, init)
+    }) as typeof fetch
+    await fetchBattleMeta(ID, { ...deps(f), fetch: spy })
+    expect(signal).toBeInstanceOf(AbortSignal)
+  })
 })

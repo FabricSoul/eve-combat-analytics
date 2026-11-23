@@ -88,3 +88,39 @@ describe('affiliations', () => {
     expect(out[1]).toEqual({ charId: 2, corpId: 5, allyId: null })
   })
 })
+
+describe('F1 minors', () => {
+  it('namesToCharacters keeps a real own key for __proto__', async () => {
+    const f = fakeFetch(() => jsonResponse({}))
+    const out = await namesToCharacters(['__proto__'], mk(f))
+    expect(Object.hasOwn(out, '__proto__')).toBe(true)
+    expect(Object.getOwnPropertyDescriptor(out, '__proto__')!.value).toBeNull()
+  })
+
+  it.each([
+    ['null', null],
+    ['array for ids', []],
+    ['characters not an array', { characters: 5 }],
+    ['character row without id', { characters: [{ name: 'x' }] }],
+  ])('namesToCharacters rejects an invalid payload (%s) with EsiError', async (_n, body) => {
+    const f = fakeFetch(() => jsonResponse(body))
+    await expect(namesToCharacters(['x'], mk(f))).rejects.toMatchObject({ name: 'EsiError' })
+  })
+
+  it.each([
+    ['null', null],
+    ['object', {}],
+    ['row without name', [{ id: 1, category: 'character' }]],
+  ])('idsToNames rejects an invalid payload (%s) with EsiError', async (_n, body) => {
+    const f = fakeFetch(() => jsonResponse(body))
+    await expect(idsToNames([1], mk(f))).rejects.toMatchObject({ name: 'EsiError' })
+  })
+
+  it.each([
+    ['null', null],
+    ['row without corporation_id', [{ character_id: 1 }]],
+  ])('affiliations rejects an invalid payload (%s) with EsiError', async (_n, body) => {
+    const f = fakeFetch(() => jsonResponse(body))
+    await expect(affiliations([1], mk(f))).rejects.toMatchObject({ name: 'EsiError' })
+  })
+})

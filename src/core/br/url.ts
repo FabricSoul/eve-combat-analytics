@@ -13,7 +13,7 @@ export const parseBrUrl: ParseBrUrl = (input) => {
   } catch {
     return null
   }
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null
+  if (u.protocol !== 'https:' || u.username || u.password || u.port) return null
   if (u.hostname !== 'br.evetools.org' && u.hostname !== 'www.br.evetools.org') return null
   const m = PATH.exec(u.pathname)
   return m ? m[1]!.toLowerCase() : null

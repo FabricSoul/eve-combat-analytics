@@ -91,12 +91,17 @@ export function normalizeBrComposition(raw: unknown, names: BattleMeta['names'],
   }
 }
 
-/** Side index of a participant (alliance first, then corp), or -1. */
+/** Side index of a participant: an alliance match on any team wins over a corp match, else -1. */
 export function sideOf(p: { allyId: number | null; corpId: number | null }, teams: TeamMember[][]): number {
-  for (let i = 0; i < teams.length; i++) {
-    const t = teams[i]!
-    if (p.allyId !== null && t.includes(`ally:${p.allyId}`)) return i
-    if (p.corpId !== null && t.includes(`corp:${p.corpId}`)) return i
+  const { allyId, corpId } = p
+  if (allyId !== null) {
+    const ally: TeamMember = `ally:${allyId}`
+    const i = teams.findIndex((t) => t.includes(ally))
+    if (i >= 0) return i
+  }
+  if (corpId !== null) {
+    const corp: TeamMember = `corp:${corpId}`
+    return teams.findIndex((t) => t.includes(corp))
   }
   return -1
 }

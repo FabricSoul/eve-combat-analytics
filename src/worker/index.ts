@@ -1,5 +1,6 @@
 import type { BattleRoom } from './battle-room'
-import { ApiFailure, battlePath, errorResponse, parseBrId } from './http'
+import { parseBrUrl } from '../core/br/url'
+import { ApiFailure, battlePath, errorResponse } from './http'
 
 export { BattleRoom } from './battle-room'
 
@@ -19,9 +20,8 @@ export default {
       }
       if (request.method === 'POST' && url.pathname === '/api/battles') {
         const payload: unknown = await request.json().catch(() => null)
-        const brId = parseBrId(
-          typeof payload === 'object' && payload !== null && 'brUrl' in payload ? payload.brUrl : null,
-        )
+        const brUrl = typeof payload === 'object' && payload !== null && 'brUrl' in payload ? payload.brUrl : null
+        const brId = typeof brUrl === 'string' ? parseBrUrl(brUrl) : null
         if (!brId) throw new ApiFailure('bad_br_url', 'Expected a br.evetools.org battle URL or a battle ID')
         const result = await env.BATTLE.get(env.BATTLE.idFromName(brId)).create(brId)
         if ('error' in result) throw new ApiFailure(result.error, result.message)

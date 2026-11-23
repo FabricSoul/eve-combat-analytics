@@ -8,6 +8,8 @@ export interface EsiDeps {
   fetch: typeof fetch
   /** Resolves after `ms` milliseconds. */
   sleep: (ms: number) => Promise<void>
+  /** Epoch ms; defaults to Date.now. Used for the error-limit cooldown deadline. */
+  now?: () => number
 }
 
 /** A failure that maps onto the public API's error codes (thrown by the BR fetch). */
@@ -37,8 +39,8 @@ const MAX_ATTEMPTS = 3
 const BACKOFF_MS = 500
 const ERROR_LIMIT_FLOOR = 10
 
-/** Pending error-limit wait (ms) per deps object, honoured before that deps' next call. */
-const pendingWait = new WeakMap<EsiDeps, number>()
+/** Error-limit cooldown deadline (epoch ms) per deps object; every caller waits for it. */
+const cooldownUntil = new WeakMap<EsiDeps, number>()
 
 export async function esiRequest<T = unknown>(
   deps: EsiDeps,
@@ -50,11 +52,11 @@ export async function esiRequest<T = unknown>(
   const headers: Record<string, string> = { 'User-Agent': USER_AGENT, Accept: 'application/json' }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
 
+  const clock = () => (deps.now ?? Date.now)()
   for (let attempt = 1; ; attempt++) {
-    const wait = pendingWait.get(deps)
-    if (wait) {
-      pendingWait.delete(deps)
-      await deps.sleep(wait)
+    // Gate every caller (and every retry) on the shared cooldown deadline.
+    for (let left = (cooldownUntil.get(deps) ?? 0) - clock(); left > 0; left = (cooldownUntil.get(deps) ?? 0) - clock()) {
+      await deps.sleep(left)
     }
 
     let res: Response
@@ -67,7 +69,7 @@ export async function esiRequest<T = unknown>(
     const remain = Number(res.headers.get('x-esi-error-limit-remain'))
     const reset = Number(res.headers.get('x-esi-error-limit-reset'))
     if (res.headers.has('x-esi-error-limit-remain') && remain < ERROR_LIMIT_FLOOR && reset > 0) {
-      pendingWait.set(deps, reset * 1000)
+      cooldownUntil.set(deps, Math.max(cooldownUntil.get(deps) ?? 0, clock() + reset * 1000))
     }
 
     if (res.ok) {

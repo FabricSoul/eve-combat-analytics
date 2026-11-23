@@ -12,7 +12,6 @@ describe('parseBrUrl accepts', () => {
     [`https://br.evetools.org/br/${ID}#top`],
     [`https://br.evetools.org/br/${ID}/?tab=x#y`],
     [`  https://br.evetools.org/br/${ID}\n`],
-    [`http://br.evetools.org/br/${ID}`],
     [ID],
     [` ${ID} `],
   ])('%s', (input) => {
@@ -38,6 +37,10 @@ describe('parseBrUrl rejects', () => {
     [`https://zkillboard.com/kill/123/`],
     [`https://br.evetools.org/br/${ID}/extra`],
     [`${ID}0`],
+    [`http://br.evetools.org/br/${ID}`],
+    [`https://pilot@br.evetools.org/br/${ID}`],
+    [`https://user:pw@br.evetools.org/br/${ID}`],
+    [`https://br.evetools.org:444/br/${ID}`],
   ])('%s', (input) => {
     expect(parseBrUrl(input)).toBeNull()
   })

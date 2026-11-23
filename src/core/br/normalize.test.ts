@@ -43,3 +43,12 @@ describe('normalizeBrComposition on the real BR 6b035d82', () => {
     expect(km.attackers[0]!.corpId).toBe(98740310)
   })
 })
+
+describe('sideOf precedence (F1 I6)', () => {
+  it('an alliance match on a later team beats a corp match on an earlier team', () => {
+    expect(sideOf({ allyId: 2, corpId: 50 }, [['corp:50'], ['ally:2']])).toBe(1)
+  })
+  it('falls back to the corp when no alliance matches', () => {
+    expect(sideOf({ allyId: 3, corpId: 50 }, [['corp:50'], ['ally:2']])).toBe(0)
+  })
+})

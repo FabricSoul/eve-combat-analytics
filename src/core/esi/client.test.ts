@@ -19,14 +19,54 @@ describe('esiRequest', () => {
     const f = fakeFetch((_c, n) =>
       jsonResponse({}, 200, n === 1 ? { 'x-esi-error-limit-remain': '9', 'x-esi-error-limit-reset': '17' } : {}),
     )
-    const s = fakeSleep()
-    const deps = { fetch: f.fetch, sleep: s.sleep }
+    const sleeps: number[] = []
+    let elapsed = 0
+    const deps = {
+      fetch: f.fetch,
+      sleep: async (ms: number) => {
+        sleeps.push(ms)
+        elapsed += ms
+      },
+      now: () => elapsed,
+    }
     await esiRequest(deps, 'GET', '/a/')
-    expect(s.sleeps).toEqual([])
+    expect(sleeps).toEqual([])
     await esiRequest(deps, 'GET', '/b/')
-    expect(s.sleeps).toEqual([17000])
+    expect(sleeps).toEqual([17000])
     await esiRequest(deps, 'GET', '/c/')
-    expect(s.sleeps).toEqual([17000])
+    expect(sleeps).toEqual([17000])
+  })
+
+  it('gates concurrent callers until the cooldown ends (F1 I5)', async () => {
+    const f = fakeFetch((_c, n) =>
+      jsonResponse({}, 200, n === 1 ? { 'x-esi-error-limit-remain': '9', 'x-esi-error-limit-reset': '17' } : {}),
+    )
+    let release!: () => void
+    const cooldown = new Promise<void>((r) => (release = r))
+    let elapsed = 0
+    const deps = { fetch: f.fetch, sleep: () => cooldown, now: () => elapsed }
+    await esiRequest(deps, 'GET', '/probe/')
+    const next = [esiRequest(deps, 'GET', '/probe/'), esiRequest(deps, 'GET', '/probe/')]
+    await Promise.resolve()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(f.calls).toHaveLength(1)
+    elapsed = 17_000
+    release()
+    await Promise.all(next)
+    expect(f.calls).toHaveLength(3)
+  })
+
+  it('skips a cooldown whose reset time has already passed (F1 I5)', async () => {
+    const f = fakeFetch((_c, n) =>
+      jsonResponse({}, 200, n === 1 ? { 'x-esi-error-limit-remain': '9', 'x-esi-error-limit-reset': '17' } : {}),
+    )
+    const s = fakeSleep()
+    let elapsed = 0
+    const deps = { fetch: f.fetch, sleep: s.sleep, now: () => elapsed }
+    await esiRequest(deps, 'GET', '/probe/')
+    elapsed = 18_000
+    await esiRequest(deps, 'GET', '/probe/')
+    expect(s.sleeps).toEqual([])
   })
 
   it('does not wait when remain is 10 or more', async () => {

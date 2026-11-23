@@ -8,4 +8,7 @@ describe('sideForCharacter', () => {
   it('matches by alliance', () => expect(sideForCharacter({ charId: 1, corpId: 9, allyId: 2 }, t)).toBe(0))
   it('matches by corp', () => expect(sideForCharacter({ charId: 1, corpId: 50, allyId: null }, t)).toBe(1))
   it('-1 when nobody matches', () => expect(sideForCharacter({ charId: 1, corpId: 9, allyId: 3 }, t)).toBe(-1))
+  it('prefers an alliance on a later side to a corporation on an earlier side', () => {
+    expect(sideForCharacter({ charId: 42, corpId: 50, allyId: 2 }, [['corp:50'], ['ally:2']])).toBe(1)
+  })
 })

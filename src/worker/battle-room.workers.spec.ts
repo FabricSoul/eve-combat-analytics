@@ -28,6 +28,13 @@ function create(brUrl: string) {
   })
 }
 
+it('creates a battle from a supported www BR link (F1 I1)', async () => {
+  const id = testId(900)
+  const response = await create(`https://www.br.evetools.org/br/${id}/?tab=teams#top`)
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual({ brId: id })
+})
+
 async function prepare(n: number) {
   const id = testId(n)
   const response = await create(id)
