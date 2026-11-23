@@ -21,6 +21,7 @@ export interface ReplayPilot {
 export interface ReplayNode extends ReplayPilot, SimulationNodeDatum {
   x: number
   y: number
+  ordinal: number
   radius: number
   labeled: boolean
 }
@@ -98,6 +99,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     const spread = Math.sqrt(index + 1) * 7
     return {
       ...pilot,
+      ordinal: index,
       x: anchor.x + Math.cos(angle) * spread,
       y: anchor.y + Math.sin(angle) * spread,
       radius: hasLog ? (compact ? 12 : 15) : pilot.primaryEnemy ? (compact ? 11 : 13) : (compact ? 8 : 9),
@@ -105,15 +107,16 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     }
   })
   const byKey = new Map(nodes.map((node) => [node.entity.key, node]))
+  const assigned = nodes.filter(({ entity }) => entity.side !== -1)
+  const unassigned = nodes.filter(({ entity }) => entity.side === -1).map((node) => ({ node, radius: node.radius }))
+  const bottomInset = unassigned.length ? 41 : 0
   const anchorFor = ({ entity }: ReplayNode) => anchors.get(entity.side) ?? anchors.get(-1)!
   const links = forceLink<ReplayNode, CombatLink>()
     .distance(({ source, target }) => source.entity.side === target.entity.side ? 70 : Math.min(width * 0.5, 420))
     .strength(({ count }) => Math.min(0.12, 0.02 * count))
-  const simulation = forceSimulation(nodes).stop()
+  const simulation = forceSimulation(assigned).stop()
     .force('x', forceX<ReplayNode>((node) => anchorFor(node).x).strength(0.09))
-    .force('y', forceY<ReplayNode>((node) => anchorFor(node).y).strength((node) => (
-      order.length < 3 && node.entity.side !== -1 ? 0.025 : 0.10
-    )))
+    .force('y', forceY<ReplayNode>((node) => anchorFor(node).y).strength(order.length < 3 ? 0.025 : 0.10))
     .force('collide', forceCollide<ReplayNode>(({ radius, labeled }) => radius + (labeled ? 26 : 8)).strength(0.9))
     .force('charge', forceManyBody().strength(-30).distanceMax(160))
     .force('link', links)
@@ -122,10 +125,10 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
 
   function tick(count = 1) {
     simulation.tick(count)
-    for (const node of nodes) {
+    for (const node of assigned) {
       const inset = node.radius + 5
       node.x = Math.max(inset, Math.min(width - inset, node.x))
-      node.y = Math.max(42 + inset, Math.min(height - inset - (node.labeled ? 20 : 8), node.y))
+      node.y = Math.max(42 + inset, Math.min(height - inset - Math.max(bottomInset, node.labeled ? 20 : 8), node.y))
     }
   }
 
@@ -137,8 +140,8 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
       if (from === to || (focusOnly && from !== selected && to !== selected)) continue
       const source = byKey.get(from)
       const target = byKey.get(to)
-      if (!source || !target) continue
-      const key = `${source.index}/${target.index}`
+      if (!source || !target || source.entity.side === -1 || target.entity.side === -1) continue
+      const key = `${source.ordinal}/${target.ordinal}`
       const pair = pairs.get(key)
       if (pair) pair.count++
       else pairs.set(key, { source, target, count: 1 })
@@ -147,8 +150,30 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     simulation.alpha(Math.max(simulation.alpha(), 0.2))
   }
 
+  function placeUnassigned(live: readonly ReplayEdge[], selected: EntityKey | null, focusOnly: boolean): Set<ReplayNode> {
+    const shown = new Set<EntityKey>()
+    if (selected) shown.add(selected)
+    for (const { from, to } of live) {
+      if (focusOnly && from !== selected && to !== selected) continue
+      if (byKey.get(from)?.entity.side === -1) shown.add(from)
+      if (byKey.get(to)?.entity.side === -1) shown.add(to)
+    }
+    const row = unassigned.filter(({ node }) => shown.has(node.entity.key))
+    const naturalWidth = row.reduce((total, { radius }) => total + 2 * radius + 10, 0)
+    const scale = Math.min(1, Math.max(0, width - 12) / (naturalWidth || 1))
+    let left = (width - naturalWidth * scale) / 2
+    for (const { node, radius } of row) {
+      const slot = (2 * radius + 10) * scale
+      node.radius = Math.max(0, (radius + 2) * scale - 2)
+      node.x = left + slot / 2
+      node.y = height - 25
+      left += slot
+    }
+    return new Set(row.map(({ node }) => node))
+  }
+
   tick(145)
-  return { nodes, byKey, tick, engage, isMoving: () => simulation.alpha() > 0.004 }
+  return { nodes, byKey, tick, engage, placeUnassigned, isMoving: () => simulation.alpha() > 0.004 }
 }
 
 export type ReplayLayout = ReturnType<typeof makeLayout>

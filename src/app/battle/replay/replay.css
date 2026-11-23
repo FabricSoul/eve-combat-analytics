@@ -45,7 +45,16 @@
 }
 
 .replay-pilot[data-log="true"] { border-width: 2.5px; }
-.replay-pilot img { width: 100%; height: 100%; border-radius: 50%; object-fit: contain; pointer-events: none; }
+.replay-pilot img { grid-area: 1 / 1; width: 100%; height: 100%; border-radius: 50%; object-fit: contain; pointer-events: none; }
+.replay-pilot img[data-loaded]:not([hidden]) + .replay-hull { visibility: hidden; }
+.replay-hull {
+  grid-area: 1 / 1;
+  width: 68%;
+  height: 70%;
+  background: var(--color-text-3);
+  clip-path: polygon(50% 0, 66% 38%, 98% 85%, 65% 74%, 50% 100%, 35% 74%, 2% 85%, 34% 38%);
+  pointer-events: none;
+}
 .replay-pilot img[hidden] { display: none; }
 .replay-pilot:focus-visible { outline: 2px solid var(--color-accent-line); outline-offset: 3px; }
 .replay-marker[data-dead] .replay-pilot { border-color: var(--color-dead); }
@@ -72,10 +81,10 @@
 
 .replay-pilot-label {
   position: absolute;
-  top: calc(var(--replay-diameter) / 2 + 4px);
-  left: 0;
-  transform: translateX(-50%);
+  inset: 0 auto auto 0;
   display: flex;
+  width: max-content;
+  visibility: hidden;
   max-width: 94px;
   align-items: center;
   gap: var(--space-1);
@@ -88,6 +97,7 @@
     -1px -1px var(--color-bg), 1px -1px var(--color-bg);
 }
 
+.replay-pilot-label[data-positioned] { visibility: visible; }
 .replay-pilot-label > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 .replay-marker[data-selected="true"] .replay-pilot-label { max-width: 160px; color: var(--color-text); }
 

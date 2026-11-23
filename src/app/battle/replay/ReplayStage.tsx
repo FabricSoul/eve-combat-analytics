@@ -8,6 +8,8 @@ import { Portrait } from '@/app/ui/Portrait'
 import { upperTimeIndex } from './layout-effects'
 import { makePainter } from './paint'
 import type { ReplayFrame } from './paint'
+import { placePilotLabel } from './placement'
+import type { Rect } from './placement'
 import { buildScene, makeLayout } from './scene'
 import type { ReplayNode } from './scene'
 import './replay.css'
@@ -22,16 +24,18 @@ interface ReplayStageProps extends Omit<ReplayFrame, 'reducedMotion'> {
 interface PilotMarkerProps {
   node: ReplayNode
   selected: boolean
+  inspected: boolean
   register: (key: EntityKey, element: HTMLDivElement | null) => void
   onInspect: (key: EntityKey | null) => void
   onSelect: (key: EntityKey) => void
 }
 
-const PilotMarker = memo(function PilotMarker({ node, selected, register, onInspect, onSelect }: PilotMarkerProps) {
-  const { entity: { key, name, charId, hasLog }, color, radius, labeled, ship, shipId, letter } = node
+const PilotMarker = memo(function PilotMarker({ node, selected, inspected, register, onInspect, onSelect }: PilotMarkerProps) {
+  const { entity: { key, name, charId, hasLog, side }, color, radius, labeled, ship, shipId, letter } = node
 
   return (
     <div ref={(element) => { register(key, element) }} className="replay-marker" data-selected={selected}
+      data-unassigned={side === -1 || undefined}
       style={{ '--replay-side': color, '--replay-diameter': `${radius * 2}px` } as CSSProperties}>
       <button type="button" className="replay-pilot" data-log={hasLog} aria-pressed={selected}
         aria-label={ship ? `${name} · ${ship}` : name}
@@ -40,13 +44,15 @@ const PilotMarker = memo(function PilotMarker({ node, selected, register, onInsp
         onBlur={() => onInspect(null)} onClick={() => onSelect(key)}>
         {shipId !== null && (
           <img key={shipId} src={typeRenderUrl(shipId, radius * 2)} alt="" draggable={false}
+            onLoad={(event) => { event.currentTarget.dataset.loaded = '' }}
             onError={(event) => { event.currentTarget.hidden = true }} />
         )}
+        <span className="replay-hull" aria-hidden="true" />
         <span className="replay-death-mark" aria-hidden="true">×</span>
         {letter && <span className="replay-side-letter" aria-hidden="true">{letter}</span>}
       </button>
-      {(selected || labeled) && (
-        <span className="replay-pilot-label" aria-hidden="true">
+      {(selected || inspected || labeled) && (
+        <span key={selected ? 'selected' : 'plain'} className="replay-pilot-label" aria-hidden="true">
           {selected && <Portrait charId={charId} size={16} />}
           <span>{name}</span>
         </span>
@@ -136,13 +142,18 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
     let tooltipKey: EntityKey | undefined
     let tooltipWidth = 0
     let tooltipHeight = 0
+    let labelSizes = new WeakMap<HTMLElement, Pick<Rect, 'width' | 'height'>>()
 
     function schedule() {
       if (!disposed && animation === null) animation = requestAnimationFrame(draw)
     }
 
     const painter = makePainter(lineCanvas, effectsCanvas, element, schedule)
-    void document.fonts?.ready.then(schedule)
+    void document.fonts?.ready.then(() => {
+      labelSizes = new WeakMap()
+      tooltipKey = undefined
+      schedule()
+    })
     function appearanceChanged() {
       painter.refreshTokens()
       schedule()
@@ -176,24 +187,32 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
         tooltipHeight = tooltip.current?.offsetHeight ?? 0
       }
 
-      const { related, shakes, burst } = painter.paint(layout, scene.edges, scene.pointSpans, { ...current, reducedMotion }, width, height)
+      const live = painter.liveEdges(scene.edges, t)
+      const unassigned = layout.placeUnassigned(live, selected, focusOnly)
+      const { related, positions, occupied, bounds, burst } = painter.paint(
+        layout, live, scene.pointSpans, unassigned, { ...current, reducedMotion }, width, height,
+      )
+      const labels: { element: HTMLElement; node: ReplayNode; priority: number }[] = []
       for (const node of layout.nodes) {
-        const marker = markers.current.get(node.entity.key)
+        const { key, side } = node.entity
+        const marker = markers.current.get(key)
         if (!marker) continue
+        const position = positions.get(node)
+        marker.hidden = !position
+        if (!position) continue
+
+        const { x, y } = position
         const lastLoss = node.deaths[upperTimeIndex(node.deaths, t) - 1]
-        const keep = selected === null || selected === node.entity.key || related.has(node.entity.key)
-        const shake = shakes.get(node) ?? 0
-        const phase = (t % 1000) * 0.24 + (node.index ?? 0)
-        const x = node.x + Math.sin(phase) * shake
-        const y = node.y + Math.cos(phase * 1.3) * shake
+        const keep = selected === null || selected === key || related.has(key)
         marker.style.transform = `translate3d(${x}px, ${y}px, 0)`
+        if (side === -1) marker.style.setProperty('--replay-diameter', `${node.radius * 2}px`)
         marker.toggleAttribute('data-dead', lastLoss !== undefined)
         marker.toggleAttribute('data-dim', !keep)
-        marker.hidden = focusOnly && !keep
-        if (lastLoss && t - lastLoss.t < 920 && (!focusOnly || keep)) burst?.(node, t - lastLoss.t)
+        if (lastLoss && t - lastLoss.t < 920) burst?.(position, node.radius, t - lastLoss.t)
 
-        if (node.entity.key === selected && bracket.current) {
+        if (key === selected && bracket.current) {
           const inset = node.radius + 7
+          bracket.current.style.setProperty('--replay-lock-size', `${2 * inset}px`)
           bracket.current.style.transform = `translate3d(${x - inset}px, ${y - inset}px, 0)`
           if (!bracket.current.hasAttribute('data-positioned')) {
             // Commit the initial position before enabling movement between targets.
@@ -201,12 +220,34 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
             bracket.current.setAttribute('data-positioned', '')
           }
         }
-        if (node.entity.key === detailKey && tooltip.current) {
-          const tooltipX = Math.max(4, Math.min(width - tooltipWidth - 4, x - tooltipWidth / 2))
-          const tooltipY = y > 118 ? y - node.radius - 12 - tooltipHeight : y + node.radius + 25
-          tooltip.current.style.transform = `translate3d(${tooltipX}px, ${tooltipY}px, 0)`
-          tooltip.current.toggleAttribute('data-positioned', true)
-        }
+        const label = marker.querySelector<HTMLElement>('.replay-pilot-label')
+        if (label) labels.push({ element: label, node, priority: key === selected ? 2 : key === detailKey ? 1 : 0 })
+      }
+
+      const detailNode = detailKey ? layout.byKey.get(detailKey) : undefined
+      const detailPosition = detailNode && positions.get(detailNode)
+      if (tooltip.current && detailPosition) {
+        const { x, y } = detailPosition
+        const tooltipX = Math.max(4, Math.min(width - tooltipWidth - 4, x - tooltipWidth / 2))
+        const tooltipY = y > 118 ? y - detailNode.radius - 12 - tooltipHeight : y + detailNode.radius + 25
+        tooltip.current.style.transform = `translate3d(${tooltipX}px, ${tooltipY}px, 0)`
+        tooltip.current.toggleAttribute('data-positioned', true)
+        occupied.push({ x: tooltipX, y: tooltipY, width: tooltipWidth, height: tooltipHeight })
+      } else {
+        tooltip.current?.removeAttribute('data-positioned')
+      }
+
+      // Read new label sizes together before writing their positions.
+      for (const { element } of labels) {
+        if (!labelSizes.has(element)) labelSizes.set(element, { width: element.offsetWidth, height: element.offsetHeight })
+      }
+      for (const { element, node, priority } of labels.sort((a, b) => b.priority - a.priority)) {
+        const center = positions.get(node)!
+        const rect = placePilotLabel(center, node.radius, labelSizes.get(element)!, bounds, occupied, priority > 0)
+        element.toggleAttribute('data-positioned', rect !== null)
+        if (!rect) continue
+        element.style.transform = `translate3d(${rect.x - center.x}px, ${rect.y - center.y}px, 0)`
+        occupied.push(rect)
       }
       if (!reducedMotion && layout.isMoving()) schedule()
     }
@@ -232,12 +273,12 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
     <div ref={host} className="replay-stage">
       <canvas ref={under} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer" aria-hidden="true" />
       {layout?.nodes.map((node) => (
-        <PilotMarker key={node.entity.key} node={node} selected={selected === node.entity.key}
+        <PilotMarker key={node.entity.key} node={node} selected={selected === node.entity.key} inspected={inspected === node.entity.key}
           register={register} onInspect={inspect} onSelect={select} />
       ))}
       <canvas ref={over} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer replay-effects" aria-hidden="true" />
       {locked && (
-        <div ref={bracket} className="replay-lock" style={{ '--replay-lock-size': `${locked.radius * 2 + 14}px` } as CSSProperties}>
+        <div ref={bracket} className="replay-lock">
           <Bracket />
         </div>
       )}
