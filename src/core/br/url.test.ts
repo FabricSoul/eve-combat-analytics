@@ -27,7 +27,6 @@ describe('parseBrUrl rejects', () => {
     [''],
     ['   '],
     ['hello'],
-    [`https://br.evetools.org/related/30002953/202611221900`],
     [`https://br.evetools.org/battle/${ID}`],
     [`https://br.evetools.org/br/${ID.slice(1)}`],
     [`https://br.evetools.org/br/${ID}0`],
@@ -43,5 +42,46 @@ describe('parseBrUrl rejects', () => {
     [`https://br.evetools.org:444/br/${ID}`],
   ])('%s', (input) => {
     expect(parseBrUrl(input)).toBeNull()
+  })
+})
+
+describe('parseBrUrl related links (F5)', () => {
+  const KEY = 'related-31002058-202506221600'
+  it.each([
+    ['https://br.evetools.org/related/31002058/202506221600'],
+    ['https://br.evetools.org/related/31002058/202506221600/'],
+    ['https://www.br.evetools.org/related/31002058/202506221600?x=1#y'],
+    ['https://zkillboard.com/related/31002058/202506221600/'],
+    ['https://zkillboard.com/related/31002058/202506221600'],
+    ['https://www.zkillboard.com/related/31002058/202506221600/?a=b'],
+    ['  https://zkillboard.com/related/31002058/202506221600/ \n'],
+  ])('accepts %s', (input) => {
+    expect(parseBrUrl(input)).toBe(KEY)
+  })
+  it.each([
+    ['https://br.evetools.org/related/0/202506221600'],
+    ['https://br.evetools.org/related/-5/202506221600'],
+    ['https://br.evetools.org/related/abc/202506221600'],
+    ['https://br.evetools.org/related/1.5/202506221600'],
+    ['https://br.evetools.org/related/31002058/20250622160'],
+    ['https://br.evetools.org/related/31002058/2025062216000'],
+    ['https://br.evetools.org/related/31002058/202513221600'],
+    ['https://br.evetools.org/related/31002058/202506321600'],
+    ['https://br.evetools.org/related/31002058/202506222460'],
+    ['https://br.evetools.org/related/31002058/202506221660'],
+    ['https://br.evetools.org/related/31002058/202502291600'],
+    ['https://br.evetools.org/related/31002058'],
+    ['https://br.evetools.org/related/31002058/202506221600/extra'],
+    ['https://zkillboard.com/kill/128066846/'],
+    ['https://zkillboard.com/br/123/'],
+    ['https://zkillboard.com/battle/31002058/202506221600/'],
+    ['https://br.evetools.org/battle/31002058/202506221600'],
+    ['http://zkillboard.com/related/31002058/202506221600/'],
+    ['https://evil.example/related/31002058/202506221600'],
+  ])('rejects %s', (input) => {
+    expect(parseBrUrl(input)).toBeNull()
+  })
+  it('accepts a leap day', () => {
+    expect(parseBrUrl('https://zkillboard.com/related/1/202402291200/')).toBe('related-1-202402291200')
   })
 })

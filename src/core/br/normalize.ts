@@ -9,7 +9,7 @@ interface RawParticipant {
   weap?: number
   dmg?: number
 }
-interface RawKm {
+export interface RawKm {
   id: number
   hash: string
   system: number
@@ -33,7 +33,7 @@ interface RawComposition {
 
 const idOrNull = (v: number | undefined): number | null => (v && v > 0 ? v : null)
 
-function participant(p: RawParticipant): KillmailParticipant {
+export function participant(p: RawParticipant): KillmailParticipant {
   return {
     charId: idOrNull(p.char),
     corpId: idOrNull(p.corp),
@@ -47,6 +47,18 @@ function participant(p: RawParticipant): KillmailParticipant {
 function teamMember(x: string | number): TeamMember {
   const s = String(x)
   return s.startsWith('corp:') ? (s as TeamMember) : (`ally:${Number(s)}` as TeamMember)
+}
+
+export function killmailOf(k: RawKm): Killmail {
+  return {
+    id: k.id,
+    hash: k.hash,
+    systemId: k.system,
+    t: k.time,
+    value: k.totalValue,
+    victim: participant(k.victim),
+    attackers: (k.attackers ?? []).map(participant),
+  }
 }
 
 export function normalizeBrComposition(raw: unknown, names: BattleMeta['names'], fetchedAt: number): BattleMeta {
@@ -68,15 +80,7 @@ export function normalizeBrComposition(raw: unknown, names: BattleMeta['names'],
     for (const k of r.kms ?? []) {
       if (seen.has(k.id)) continue
       seen.add(k.id)
-      killmails.push({
-        id: k.id,
-        hash: k.hash,
-        systemId: k.system,
-        t: k.time,
-        value: k.totalValue,
-        victim: participant(k.victim),
-        attackers: (k.attackers ?? []).map(participant),
-      })
+      killmails.push(killmailOf(k))
     }
   }
   killmails.sort((a, b) => a.t - b.t || a.id - b.id)

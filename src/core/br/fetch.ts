@@ -2,6 +2,8 @@ import type { BattleMeta } from '../contract'
 import { ApiFailure, EsiError, USER_AGENT, type EsiDeps } from '../esi/client'
 import { idsToNames } from '../esi/names'
 import { normalizeBrComposition } from './normalize'
+import { type RawRelated, normalizeBrRelated } from './related'
+import { parseRelatedKey } from './url'
 
 export interface FetchBattleDeps extends EsiDeps {
   /** Epoch ms; becomes BattleMeta.fetchedAt. */
@@ -9,6 +11,7 @@ export interface FetchBattleDeps extends EsiDeps {
 }
 
 const BR_COMPOSITION = 'https://br.evetools.org/newapi/br/composition'
+const BR_RELATED = 'https://br.evetools.org/newapi/br/related'
 const POLL_MS = 2000
 const POLL_BUDGET_MS = 30_000
 const MAX_ATTEMPTS = 3
@@ -38,7 +41,7 @@ const overBudget = (brId: string) =>
   new ApiFailure('br_unavailable', `battle report ${brId} was not ready within ${POLL_BUDGET_MS / 1000} s`)
 
 /** One GET with retries on 5xx / network errors, all inside the shared deadline. Throws ApiFailure. */
-async function getComposition(brId: string, deps: FetchBattleDeps, clock: Clock): Promise<Body> {
+async function getComposition(brId: string, url: string, deps: FetchBattleDeps, clock: Clock): Promise<Body> {
   for (let attempt = 1; ; attempt++) {
     const remaining = POLL_BUDGET_MS - clock.elapsed()
     if (remaining <= 0) throw overBudget(brId)
@@ -46,7 +49,7 @@ async function getComposition(brId: string, deps: FetchBattleDeps, clock: Clock)
     let body: unknown
     let bodyError = false
     try {
-      res = await deps.fetch(`${BR_COMPOSITION}/${brId}`, {
+      res = await deps.fetch(url, {
         headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
         signal: AbortSignal.timeout(remaining),
       })
@@ -67,7 +70,7 @@ async function getComposition(brId: string, deps: FetchBattleDeps, clock: Clock)
     if (res && res.status < 500) {
       if (bodyError) throw new ApiFailure('br_not_found', `battle report ${brId} returned an invalid body`)
       if (!res.ok) throw new ApiFailure('br_not_found', `battle report ${brId}: HTTP ${res.status}`)
-      if (body && typeof body === 'object' && (body as { status?: unknown }).status === 'processing') {
+      if (body && typeof body === 'object' && ((body as { status?: unknown }).status === 'processing' || (body as { result?: unknown }).result === 'processing')) {
         return { kind: 'processing' }
       }
       return { kind: 'ok', body }
@@ -127,55 +130,78 @@ function validateComposition(raw: unknown, brId: string): void {
   if (!raw.relateds.every(validRelated)) throw bad('malformed related systems or killmails')
 }
 
-function collectIds(raw: unknown): number[] {
-  const c = raw as {
-    teams: (string | number)[][]
-    relateds: { kms?: { victim: Record<string, number>; attackers?: Record<string, number>[] }[] }[]
-  }
+type RawParticipantIds = Record<string, number>
+function collectIds(teams: (string | number)[][], kms: { victim: RawParticipantIds; attackers?: RawParticipantIds[] }[]): number[] {
   const ids = new Set<number>()
   const add = (v: unknown) => {
     if (typeof v === 'number' && v > 0) ids.add(v)
   }
-  for (const team of c.teams) {
+  for (const team of teams) {
     for (const m of team) add(Number(String(m).replace(/^(ally|corp):/, '')))
   }
-  for (const r of c.relateds) {
-    for (const k of r.kms ?? []) {
-      for (const p of [k.victim, ...(k.attackers ?? [])]) {
-        add(p.char)
-        add(p.corp)
-        add(p.ally)
-        add(p.ship)
-        add(p.weap)
-      }
+  for (const k of kms) {
+    for (const p of [k.victim, ...(k.attackers ?? [])]) {
+      add(p.char)
+      add(p.corp)
+      add(p.ally)
+      add(p.ship)
+      add(p.weap)
     }
   }
   return [...ids]
 }
 
-export async function fetchBattleMeta(brId: string, deps: FetchBattleDeps): Promise<BattleMeta> {
+/** Shape check of a related response before any ESI call. Throws br_not_found. */
+function validateRelated(raw: unknown, key: string, systemId: number, stamp: string): asserts raw is RawRelated {
+  const bad = (why: string) => new ApiFailure('br_not_found', `related ${key}: ${why}`)
+  if (!isRecord(raw) || raw.result !== 'success' || !Array.isArray(raw.kms)) throw bad('no related data')
+  if (raw.systemID !== systemId || raw.datetime !== stamp) throw bad('response is for another system or time')
+  const sys = raw.system
+  if (!isRecord(sys) || typeof sys.name !== 'string' || typeof sys.region !== 'string') throw bad('no system')
+  if (!(isNum(sys.ss) || (typeof sys.ss === 'string' && sys.ss.trim() !== '' && Number.isFinite(Number(sys.ss))))) {
+    throw bad('no system security')
+  }
+  if (raw.kms.length === 0 || !raw.kms.every(validKillmail)) throw bad('no killmails or malformed killmails')
+}
+
+async function poll(brId: string, url: string, deps: FetchBattleDeps): Promise<unknown> {
   const clock = makeClock(deps)
-  let raw: unknown
   for (;;) {
-    const r = await getComposition(brId, deps, clock)
-    if (r.kind === 'ok') {
-      raw = r.body
-      break
-    }
+    const r = await getComposition(brId, url, deps, clock)
+    if (r.kind === 'ok') return r.body
     const wait = Math.min(POLL_MS, POLL_BUDGET_MS - clock.elapsed())
     if (wait <= 0) throw overBudget(brId)
     await clock.sleep(wait)
   }
+}
 
-  validateComposition(raw, brId)
-
-  let names: BattleMeta['names']
+async function namesFor(ids: number[], deps: FetchBattleDeps): Promise<BattleMeta['names']> {
   try {
-    names = await idsToNames(collectIds(raw), deps)
+    return await idsToNames(ids, deps)
   } catch (e) {
     if (e instanceof EsiError) throw new ApiFailure('br_unavailable', `ESI name lookup failed: ${e.message}`)
     throw e
   }
+}
+
+async function fetchRelatedMeta(key: string, systemId: number, stamp: string, time: number, deps: FetchBattleDeps) {
+  const raw = await poll(key, `${BR_RELATED}/${systemId}/${stamp}`, deps)
+  validateRelated(raw, key, systemId, stamp)
+  const names = await namesFor(collectIds([], raw.kms as never), deps)
+  return normalizeBrRelated(raw, key, time, names, deps.now())
+}
+
+/** `key` is a 24-hex BR id or a `related-<systemId>-<YYYYMMDDHHMM>` key (see parseBrUrl). */
+export async function fetchBattleMeta(key: string, deps: FetchBattleDeps): Promise<BattleMeta> {
+  const related = parseRelatedKey(key)
+  if (related) return fetchRelatedMeta(key, related.systemId, related.stamp, related.time, deps)
+  if (!/^[0-9a-f]{24}$/.test(key)) throw new ApiFailure('br_not_found', `"${key}" is not a battle key`)
+  const brId = key
+  const raw = await poll(brId, `${BR_COMPOSITION}/${brId}`, deps)
+
+  validateComposition(raw, brId)
+  const c = raw as { teams: (string | number)[][]; relateds: { kms?: never[] }[] }
+  const names = await namesFor(collectIds(c.teams, c.relateds.flatMap((r) => r.kms ?? [])), deps)
   try {
     // the canonical key is the requested id, never a differently-cased echo
     return normalizeBrComposition({ ...(raw as object), id: brId }, names, deps.now())

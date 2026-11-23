@@ -42,7 +42,7 @@ export function errorResponse(error: unknown): Response {
   return new ApiFailure('br_unavailable', 'Battle API request failed', 500).response()
 }
 
-export const battlePath = /^\/api\/battles\/([a-f0-9]{24})(?:\/(.*))?$/i
+export const battlePath = /^\/api\/battles\/([a-f0-9]{24}|related-\d{1,15}-\d{12})(?:\/(.*))?$/i
 
 export async function readText(request: Request, limit: number, message: string): Promise<string> {
   if (Number(request.headers.get('Content-Length')) > limit) {
