@@ -229,7 +229,7 @@ export function makePainter(
 
   function paint(
     layout: ReplayLayout, live: readonly ReplayEdge[], pointSpans: readonly EwarSpan[],
-    shownUnassigned: ReadonlySet<ReplayNode>, frame: ReplayFrame, width: number, height: number,
+    present: ReadonlySet<EntityKey>, frame: ReplayFrame, width: number, height: number,
   ) {
     under.clearRect(0, 0, width, height)
     over.clearRect(0, 0, width, height)
@@ -240,6 +240,7 @@ export function makePainter(
     const shakes = new Map<ReplayNode, number>()
     const points = new Map<ReplayNode, number>()
     for (const edge of live) {
+      if (!present.has(edge.from) || !present.has(edge.to)) continue
       const source = layout.byKey.get(edge.from)
       const target = layout.byKey.get(edge.to)
       if (!source || !target) continue
@@ -276,7 +277,7 @@ export function makePainter(
     }
 
     for (const span of pointSpans) {
-      if (span.start > t || span.end < t) continue
+      if (span.start > t || span.end < t || !present.has(span.from) || !present.has(span.to)) continue
       const highlighted = selected === span.from || selected === span.to
       if (focusOnly && !highlighted) continue
       const target = layout.byKey.get(span.to)
@@ -292,8 +293,8 @@ export function makePainter(
     const occupied: Rect[] = []
     const bounds = { x: 4, y: 32, width: Math.max(0, width - 8), height: Math.max(0, height - 36) }
     for (const node of layout.nodes) {
-      const { key, side } = node.entity
-      if (side === -1 && !shownUnassigned.has(node)) continue
+      const { key } = node.entity
+      if (!present.has(key)) continue
       if (focusOnly && selected !== key && !related.has(key)) continue
       const shake = shakes.get(node) ?? 0
       const phase = (t % 1000) * 0.24 + node.ordinal

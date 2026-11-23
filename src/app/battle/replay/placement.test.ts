@@ -1,19 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { EntityKey } from '@/core/contract'
 import { placePilotLabel } from './placement'
-import { makeLayout, type ReplayEdge, type ReplayPilot } from './scene'
+import { makeLayout, type ReplayPilot } from './scene'
 
 function pilot(key: EntityKey, side: number): ReplayPilot {
   return {
     entity: { key, side, name: key, charId: null, hasLog: false, sideSource: 'unknown', shipTypes: [] },
     ship: null, shipId: null, primaryEnemy: false, color: 'var(--color-side-n)', letter: null, deaths: [],
-  }
-}
-
-function shot(t: number, from: EntityKey, to: EntityKey): ReplayEdge {
-  return {
-    t, from, to, kind: 'damage', amount: 100, weapon: null, quality: null,
-    repairType: null, ewar: null, sources: [], corroborated: false, strength: 1,
   }
 }
 
@@ -41,25 +34,37 @@ describe('pilot label placement', () => {
 })
 
 describe('unassigned replay row', () => {
-  it('shows only live unassigned endpoints and the selected pilot, all on the same row', () => {
+  it('keeps the seat of an unassigned ship as other ships enter and leave', () => {
     const layout = makeLayout([
-      pilot('char:1', 0), pilot('char:2', -1), pilot('char:3', -1), pilot('char:4', -1), pilot('char:5', -1),
+      pilot('char:1', 0), pilot('char:2', -1), pilot('char:3', -1), pilot('char:4', -1),
     ], [0], 400, 340)
-    const edges = [shot(1000, 'char:1', 'char:3'), shot(5000, 'char:2', 'char:1'), shot(7000, 'char:1', 'char:5')]
-    const visible = [...layout.placeUnassigned(edges.slice(1, 2), 'char:4', false)]
-    expect(visible.map(({ entity }) => entity.key)).toEqual(['char:2', 'char:4'])
-    expect(visible[0]?.y).toBe(visible[1]?.y)
-    expect(visible[0]?.y).toBeGreaterThan(300)
-    expect((visible[1]?.x ?? 0) - (visible[0]?.x ?? 0)).toBeGreaterThan(16)
+    layout.placeUnassigned(new Set(['char:2', 'char:4']))
+    const left = layout.byKey.get('char:2')!
+    const right = layout.byKey.get('char:4')!
+    const x = right.x
+    expect(left.y).toBe(right.y)
+    expect(right.y).toBeGreaterThan(300)
+    expect(right.x - left.x).toBeGreaterThan(16)
 
-    expect([...layout.placeUnassigned([], 'char:4', false)].map(({ entity }) => entity.key)).toEqual(['char:4'])
-    expect([...layout.placeUnassigned(edges.slice(1, 2), 'char:4', true)].map(({ entity }) => entity.key)).toEqual(['char:4'])
+    layout.placeUnassigned(new Set(['char:3', 'char:4']))
+    expect(right.x).toBe(x)
+    expect(layout.byKey.get('char:3')!.x).toBe(left.x)
+  })
+
+  it('keeps occupied seat centers when the row has to fit more ships', () => {
+    const pilots = Array.from({ length: 12 }, (_, index) => pilot(`char:${index}`, -1))
+    const layout = makeLayout(pilots, [], 180, 300)
+    layout.placeUnassigned(new Set(['char:0', 'char:1', 'char:2', 'char:3', 'char:4']))
+    const initial = layout.nodes.slice(0, 5).map(({ x }) => x)
+    layout.placeUnassigned(new Set(pilots.map(({ entity }) => entity.key)))
+    initial.forEach((x, index) => expect(layout.nodes[index]!.x).toBeCloseTo(x))
   })
 
   it('fits a crowded row into the stage without overlapping the ship rings', () => {
     const pilots = Array.from({ length: 12 }, (_, index) => pilot(`char:${index}`, -1))
     const layout = makeLayout(pilots, [], 180, 300)
-    const visible = [...layout.placeUnassigned(pilots.map(({ entity }) => shot(1000, entity.key, entity.key)), null, false)]
+    layout.placeUnassigned(new Set(pilots.map(({ entity }) => entity.key)))
+    const visible = layout.nodes
     expect(visible).toHaveLength(12)
     expect(visible[0]!.x - visible[0]!.radius - 2).toBeGreaterThan(0)
     expect(visible.at(-1)!.x + visible.at(-1)!.radius + 2).toBeLessThan(180)

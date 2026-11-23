@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi } from 'vitest'
+import type { EntityKey } from '@/core/contract'
 import { makePainter } from './paint'
 import { makeLayout, type ReplayEdge, type ReplayPilot } from './scene'
 
@@ -34,7 +35,8 @@ describe('replay paint anchors', () => {
     const over = canvasProbe()
     const paint = makePainter(under.context, over.context, document.createElement('div'), () => {}).paint
     const frame = { t: 500, selected: null, focusOnly: false, reducedMotion: false, playing: false }
-    const moving = paint(layout, [edge], [], new Set(), frame, 500, 400)
+    const present = new Set<EntityKey>(['char:1', 'char:2'])
+    const moving = paint(layout, [edge], [], present, frame, 500, 400)
     const sourceMarker = moving.positions.get(source!)
     const targetMarker = moving.positions.get(target!)
 
@@ -47,7 +49,7 @@ describe('replay paint anchors', () => {
     expect(over.probe.fillText.mock.calls[0]?.[1]).toBeCloseTo(targetMarker!.x + target!.radius + 4 + 36)
     expect(over.probe.fillText.mock.calls[0]?.[2]).toBeCloseTo(targetMarker!.y - target!.radius - 17 - 17 * 150 / 1200)
 
-    const still = paint(layout, [edge], [], new Set(), { ...frame, reducedMotion: true }, 500, 400)
+    const still = paint(layout, [edge], [], present, { ...frame, reducedMotion: true }, 500, 400)
     expect(still.positions.get(target!)).toEqual({ x: 350, y: 200 })
     expect(under.probe.lineTo).toHaveBeenLastCalledWith(350, 200)
   })

@@ -5,10 +5,10 @@ import { typeRenderUrl } from '@/app/lib/images'
 import { sideColor, sideLetter } from '@/app/lib/sides'
 import { Bracket } from '@/app/ui/Bracket'
 import { Portrait } from '@/app/ui/Portrait'
-import { upperTimeIndex } from './layout-effects'
 import { makePainter } from './paint'
 import type { ReplayFrame } from './paint'
 import { placePilotLabel } from './placement'
+import { deathAt } from './presence'
 import type { Rect } from './placement'
 import { buildScene, makeLayout } from './scene'
 import type { ReplayNode } from './scene'
@@ -34,7 +34,7 @@ const PilotMarker = memo(function PilotMarker({ node, selected, inspected, regis
   const { entity: { key, name, charId, hasLog, side }, color, radius, labeled, ship, shipId, letter } = node
 
   return (
-    <div ref={(element) => { register(key, element) }} className="replay-marker" data-selected={selected}
+    <div ref={(element) => { register(key, element) }} className="replay-marker" data-selected={selected} inert
       data-unassigned={side === -1 || undefined}
       style={{ '--replay-side': color, '--replay-diameter': `${radius * 2}px` } as CSSProperties}>
       <button type="button" className="replay-pilot" data-log={hasLog} aria-pressed={selected}
@@ -43,7 +43,7 @@ const PilotMarker = memo(function PilotMarker({ node, selected, inspected, regis
         onFocus={(event) => { if (event.currentTarget.matches(':focus-visible')) onInspect(key) }}
         onBlur={() => onInspect(null)} onClick={() => onSelect(key)}>
         {shipId !== null && (
-          <img key={shipId} src={typeRenderUrl(shipId, radius * 2)} alt="" draggable={false}
+          <img key={shipId} data-src={typeRenderUrl(shipId, radius * 2)} alt="" draggable={false}
             onLoad={(event) => { event.currentTarget.dataset.loaded = '' }}
             onError={(event) => { event.currentTarget.hidden = true }} />
         )}
@@ -94,12 +94,9 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
   const { width, height, dpr } = size
   const [inspected, inspect] = useState<EntityKey | null>(null)
   const scene = useMemo(() => buildScene(analysis, killmails, order), [analysis, killmails, order])
-  const selectedOutsideScene = selected && !scene.pilotKeys.has(selected) ? analysis.entities[selected] : undefined
-  const layout = useMemo(() => {
-    if (!width || !height) return null
-    const pilots = selectedOutsideScene ? [...scene.pilots, scene.pilot(selectedOutsideScene)] : scene.pilots
-    return makeLayout(pilots, order, width, height)
-  }, [scene, selectedOutsideScene, order, width, height])
+  const layout = useMemo(() => (
+    width && height ? makeLayout(scene.pilots, order, width, height) : null
+  ), [scene, order, width, height])
   const detail = (inspected ? layout?.byKey.get(inspected) : undefined) ?? (selected ? layout?.byKey.get(selected) : undefined)
   const frame = useRef({ t, playing, selected, focusOnly, detailKey: detail?.entity.key })
 
@@ -169,11 +166,13 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
       const { detailKey, ...current } = frame.current
       const { t, playing, selected, focusOnly } = current
       const reducedMotion = reduced.matches
+      const present = scene.visibleAt(t, selected)
+      const membershipChanged = layout.setVisible(present)
       const layoutTime = playing ? Math.floor(t / 250) * 250 : t
-      if (layoutTime !== lastLayoutTime || selected !== lastLayoutSelection || focusOnly !== lastFocusOnly) {
+      if (membershipChanged || layoutTime !== lastLayoutTime || selected !== lastLayoutSelection || focusOnly !== lastFocusOnly) {
         layout.engage(scene.edges, t, selected, focusOnly)
-        const seek = lastLayoutTime === null || Math.abs(layoutTime - lastLayoutTime) > 500
-        layout.tick(lastLayoutTime === null ? 75 : reducedMotion || seek ? 24 : 1)
+        // Settle the initial layout, then advance gently even across a large seek.
+        layout.tick(lastLayoutTime === null ? 145 : 1)
         lastLayoutTime = layoutTime
         lastLayoutSelection = selected
         lastFocusOnly = focusOnly
@@ -188,9 +187,9 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
       }
 
       const live = painter.liveEdges(scene.edges, t)
-      const unassigned = layout.placeUnassigned(live, selected, focusOnly)
+      layout.placeUnassigned(present)
       const { related, positions, occupied, bounds, burst } = painter.paint(
-        layout, live, scene.pointSpans, unassigned, { ...current, reducedMotion }, width, height,
+        layout, live, scene.pointSpans, present, { ...current, reducedMotion }, width, height,
       )
       const labels: { element: HTMLElement; node: ReplayNode; priority: number }[] = []
       for (const node of layout.nodes) {
@@ -198,11 +197,18 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
         const marker = markers.current.get(key)
         if (!marker) continue
         const position = positions.get(node)
-        marker.hidden = !position
+        if (marker.hasAttribute('data-present') !== Boolean(position)) {
+          marker.toggleAttribute('data-present', Boolean(position))
+          marker.inert = !position
+          if (position) {
+            const image = marker.querySelector<HTMLImageElement>('img[data-src]:not([src])')
+            if (image?.dataset.src) image.src = image.dataset.src
+          }
+        }
         if (!position) continue
 
         const { x, y } = position
-        const lastLoss = node.deaths[upperTimeIndex(node.deaths, t) - 1]
+        const lastLoss = deathAt(node.deaths, t)
         const keep = selected === null || selected === key || related.has(key)
         marker.style.transform = `translate3d(${x}px, ${y}px, 0)`
         if (side === -1) marker.style.setProperty('--replay-diameter', `${node.radius * 2}px`)
