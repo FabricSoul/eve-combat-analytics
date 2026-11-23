@@ -57,8 +57,8 @@ function BattleWorkspace() {
     recordRecent({
       brId: meta.brId,
       title: first === undefined ? meta.brId : systems.length > 1 ? `${first} 等 ${systems.length} 个星系` : first,
-      start: meta.windows.length ? Math.min(...meta.windows.map(({ start }) => start)) : 0,
-      end: meta.windows.length ? Math.max(...meta.windows.map(({ end }) => end)) : 0,
+      start: meta.windows.length ? Math.min(...meta.windows.map(({ start }) => start)) : undefined,
+      end: meta.windows.length ? Math.max(...meta.windows.map(({ end }) => end)) : undefined,
       kills: meta.killmails.length,
       logs: logCount,
       openedAt: Date.now(),
