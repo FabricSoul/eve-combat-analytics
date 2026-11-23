@@ -84,6 +84,20 @@ it('exposes a disconnect and reconnects with the latest snapshot', async () => {
   expect(battle).toMatchObject({ live: true, reconnecting: false, summary: { fits: [fit] } })
 })
 
+it('merges uploaded names by ID into the existing summary from log_added', async () => {
+  const existing = { 1: { name: 'Existing character', category: 'character' } }
+  const metaNames = { 1000165: { name: 'Hedion University', category: 'corporation' } }
+  const summary = { ...initialSummary, meta: { ...initialSummary.meta, names: existing } }
+  fetcher.mockImplementation(async (url) => url === battlePath ? Response.json(summary) : Response.json(initialAnalysis))
+  await mount()
+  const message = {
+    type: 'log_added', log: { id: 'log', charId: 1, charName: 'Existing character', side: -1, events: 1, uploadedAt: 1 },
+    names: {}, metaNames,
+  } as const
+  act(() => sockets[0]!.message(message))
+  expect(battle.summary?.meta.names).toEqual({ ...existing, ...metaNames })
+})
+
 it('backs off repeated 503 analysis responses and clears the delay on success', async () => {
   const analysisPath = `${battlePath}/analysis`
   fetcher.mockImplementation(async (url) => {

@@ -28,6 +28,15 @@ describe('createServices wires the real core modules', () => {
     expect(await services.namesToCharacters(['Some Pilot'])).toEqual({ 'Some Pilot': 2112292159 })
     expect(await services.affiliations([2112292159])).toEqual([{ charId: 2112292159, corpId: 98422578, allyId: 99015341 }])
   })
+  it('looks up numeric names through ESI with the project User-Agent and a 1,000 ID batch limit', async () => {
+    calls.length = 0
+    const ids = [22456, ...Array.from({ length: 1_000 }, (_, i) => 900000000 + i)]
+    expect(await services.idsToNames(ids)).toEqual({ 22456: { name: 'Sabre', category: 'inventory_type' } })
+    expect(calls.map(({ body }) => (body as number[]).length)).toEqual([1_000, 1])
+    expect(calls.every(({ url, method, headers }) => url.includes('/latest/universe/names/') && method === 'POST'
+      && headers['user-agent'] === 'eve-combat-analytics (+https://github.com/FabricSoul/eve-combat-analytics)')).toBe(true)
+  })
+
   it('parses gamelogs with the real parser', () => {
     const log = services.parseGamelog(
       '------------------------------------------------------------\n  Gamelog\n  Listener: Some Pilot\n  Session Started: 2026.11.22 20:00:00\n------------------------------------------------------------\n',

@@ -2,13 +2,14 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Affiliation, BattleMeta, ParseGamelog } from '../core/contract'
 import { fetchBattleMeta } from '../core/br/fetch'
 import type { EsiDeps } from '../core/esi/client'
-import { affiliations, namesToCharacters } from '../core/esi/names'
+import { affiliations, idsToNames, namesToCharacters } from '../core/esi/names'
 import { parseGamelog } from '../core/log/parse'
 import type { Env } from './index'
 
 export interface Services {
   parseGamelog: ParseGamelog
   fetchBattleMeta(brId: string): Promise<BattleMeta>
+  idsToNames(ids: number[], signal?: AbortSignal): Promise<BattleMeta['names']>
   namesToCharacters(names: string[], signal?: AbortSignal): Promise<Record<string, number | null>>
   affiliations(charIds: number[], signal?: AbortSignal): Promise<Affiliation[]>
   now(): number
@@ -63,6 +64,9 @@ export function createServices(_env: Env, deps: ServiceDeps = defaultDeps()): Se
   return {
     parseGamelog,
     fetchBattleMeta: (brId) => fetchBattleMeta(brId, client),
+    idsToNames: (ids, signal) => signal
+      ? scope.run(signal, () => idsToNames(ids, client))
+      : idsToNames(ids, client),
     namesToCharacters: (names, signal) => signal
       ? scope.run(signal, () => namesToCharacters(names, client))
       : namesToCharacters(names, client),

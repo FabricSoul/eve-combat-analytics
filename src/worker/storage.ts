@@ -14,6 +14,14 @@ type LogRow = Omit<UploadedLogSummary, keyof LogEventSummary> & {
 export type StoredLog = UploadedLog & { unparsedCount: number }
 export type PendingLog = { id: string; nameOffset: number; events: LogEvent[] }
 export type PackedJson = ArrayBuffer[]
+export interface MetaNameResolution {
+  names: BattleMeta['names']
+  pendingIds: number[]
+}
+
+export function affiliationNameIds({ charId, corpId, allyId }: { charId: number } & StoredAffiliation): number[] {
+  return [charId, corpId, allyId].filter((id): id is number => id != null && id > 0)
+}
 
 const CHUNK_BYTES = 1024 * 1024
 const SIDE_EDIT_LIMIT = 30
@@ -71,7 +79,14 @@ export class BattleStorage {
       return JSON.parse(this.sql.exec<{ data: string }>('SELECT data FROM meta WHERE id = 1').one().data)
     }
     const chunks = this.sql.exec<{ data: ArrayBuffer }>('SELECT data FROM meta_chunks ORDER BY seq').toArray()
-    return unpackJson(chunks.map(({ data }) => data))
+    const meta = await unpackJson<BattleMeta>(chunks.map(({ data }) => data))
+    if (this.hasTable('meta_names')) {
+      const names = this.sql.exec<{ id: number; name: string; category: string }>(
+        'SELECT id, name, category FROM meta_names WHERE name IS NOT NULL',
+      )
+      for (const { id, name, category } of names) meta.names[id] = { name, category }
+    }
+    return meta
   }
 
   async migrateIfNeeded(meta: BattleMeta): Promise<void> {
@@ -178,14 +193,26 @@ export class BattleStorage {
 
   private fitsAndNames(): Pick<BattleState, 'fits' | 'names'> {
     const fits = this.sql.exec<FitEntry & Record<string, SqlStorageValue>>('SELECT * FROM fits ORDER BY charId').toArray()
+    return { fits, names: this.nameIndex() }
+  }
+
+  private nameIndex(): NameIndex {
     const affiliation = this.hasColumn('names', 'affiliation') ? 'affiliation' : 'NULL AS affiliation'
     const rows = this.sql.exec<{ name: string; charId: number | null; side: number | null; affiliation: string | null }>(
       `SELECT name, charId, side, ${affiliation} FROM names`,
     ).toArray()
-    const names: NameIndex = Object.fromEntries(rows.map(({ name, charId, side, affiliation }) => [
+    return Object.fromEntries(rows.map(({ name, charId, side, affiliation }) => [
       name, charId === null ? null : { charId, side: side ?? -1, ...unpackAffiliation(affiliation) },
     ]))
-    return { fits, names }
+  }
+
+  pendingMetaNameIds(): number[] {
+    if (this.hasTable('meta_names')) {
+      return this.sql.exec<{ id: number }>('SELECT id FROM meta_names WHERE name IS NULL').toArray().map(({ id }) => id)
+    }
+    // An existing room may have indexed affiliations before recording their names by ID.
+    const logs = this.logRows().map((row) => this.summarizeLog(row))
+    return [...logs, ...Object.values(this.nameIndex())].flatMap((entry) => entry ? affiliationNameIds(entry) : [])
   }
 
   summary(meta: BattleMeta): BattleSummary {
@@ -285,6 +312,7 @@ export class BattleStorage {
     log: StoredLog,
     packed: PackedJson,
     resolution: { names: NameIndex; currentOffset: number | null; pending?: { id: string; offset: number | null } },
+    metaNames: MetaNameResolution,
   ): LogSummary {
     const { charId, id, charName, side, uploadedAt, unparsedCount, parsed, corpId, allyId } = log
     const details: LogEventSummary = { first: parsed.events[0]?.t, last: parsed.events.at(-1)?.t, language: parsed.language }
@@ -307,6 +335,12 @@ export class BattleStorage {
           'INSERT INTO names (name, charId, side, affiliation) VALUES (?, ?, ?, ?)',
           name, entry?.charId ?? null, entry?.side ?? null, entry && packAffiliation(entry),
         )
+      }
+      this.sql.exec('CREATE TABLE IF NOT EXISTS meta_names (id INTEGER PRIMARY KEY, name TEXT, category TEXT)')
+      this.sql.exec('DELETE FROM meta_names WHERE name IS NULL')
+      for (const id of metaNames.pendingIds) this.sql.exec('INSERT INTO meta_names (id) VALUES (?)', id)
+      for (const [id, { name, category }] of Object.entries(metaNames.names)) {
+        this.sql.exec('INSERT OR REPLACE INTO meta_names (id, name, category) VALUES (?, ?, ?)', Number(id), name, category)
       }
       this.markAnalysisDirty()
     })

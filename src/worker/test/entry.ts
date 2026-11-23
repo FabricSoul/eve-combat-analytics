@@ -109,6 +109,9 @@ function realFightServices({ meta, names, listeners }: Cloudflare.Env['REAL_FIGH
   return {
     parseGamelog: parseRealGamelog,
     async fetchBattleMeta(brId) { return { ...meta, brId } },
+    async idsToNames(ids) {
+      return Object.fromEntries(ids.flatMap((id) => meta.names[id] ? [[id, meta.names[id]]] : []))
+    },
     async namesToCharacters(names) { return Object.fromEntries(names.map((name) => [name, characters.get(name) ?? null])) },
     async affiliations(ids) {
       return ids.map((charId) => {
@@ -129,6 +132,8 @@ export class BattleRoom extends ProductionBattleRoom {
     let fetched = false
     let slow = true
     let slowBatch = true
+    let failMetaNames = this.ctx.id.name?.endsWith('a02')
+    const resolveMetaNames = failMetaNames || this.ctx.id.name?.endsWith('a01')
     return {
       parseGamelog,
       async fetchBattleMeta(id: string): Promise<BattleMeta> {
@@ -181,6 +186,22 @@ export class BattleRoom extends ProductionBattleRoom {
           default: throw new Error(`Unexpected name lookup batch: ${batch}`)
         }
       },
+      async idsToNames(ids: number[]) {
+        if (!resolveMetaNames) return {}
+        if (failMetaNames) {
+          failMetaNames = false
+          throw new Error('Temporary ESI name lookup failure')
+        }
+        // Synthetic ESI name responses, using fixture IDs and an NPC corporation.
+        const known: BattleMeta['names'] = {
+          100: { name: 'Logistics Pilot', category: 'character' },
+          101: { name: 'Target', category: 'character' },
+          1000165: { name: 'Hedion University', category: 'corporation' },
+          98108724: { name: 'Listener Corporation', category: 'corporation' },
+          1042504553: { name: 'Listener Alliance', category: 'alliance' },
+        }
+        return Object.fromEntries(ids.filter((id) => known[id]).map((id) => [id, known[id]!]))
+      },
       async affiliations(ids: number[]) {
         if (ids[0] === 2113179297 || (ids[0] ?? 0) >= 10000) {
           return ids.map((charId) => ({ charId, corpId: 1, allyId: null }))
@@ -190,7 +211,7 @@ export class BattleRoom extends ProductionBattleRoom {
         }
         return ids[0] === 100
           ? [{ charId: 100, corpId: 98108724, allyId: 1042504553 }]
-          : [{ charId: 101, corpId: 12345, allyId: null }]
+          : [{ charId: 101, corpId: resolveMetaNames ? 1000165 : 12345, allyId: null }]
       },
       now: () => now,
     }

@@ -30,6 +30,7 @@ function applyMessage(summary: BattleSummary, message: Exclude<ServerMessage, { 
     case 'log_added':
       return {
         ...summary,
+        meta: message.metaNames ? { ...summary.meta, names: { ...summary.meta.names, ...message.metaNames } } : summary.meta,
         logs: summary.logs.some(({ id }) => id === message.log.id) ? summary.logs : [...summary.logs, message.log],
         names: { ...summary.names, ...message.names },
       }

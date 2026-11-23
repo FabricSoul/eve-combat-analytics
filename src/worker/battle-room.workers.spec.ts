@@ -746,3 +746,42 @@ it('F6b persists battle-time affiliations for historical uploaders and names', a
     charId: pilot.charId, side: sideOf(pilot, teams), ...affiliation,
   })
 })
+
+it('broadcasts upload affiliation names and persists them for summaries and later snapshots', async () => {
+  const id = await prepare(0xa01)
+  const stub = env.BATTLE.getByName(id)
+  const viewer = await connect(id)
+  try {
+    const before = await viewer.next()
+    expect(before).toMatchObject({ type: 'snapshot', state: { logs: [] } })
+    expect((await state(id)).meta.names[1000165]).toBeUndefined()
+    const response = await upload(id, 'valid log')
+    expect(response.status).toBe(200)
+    await response.json()
+    const metaNames = {
+      100: { name: 'Logistics Pilot', category: 'character' },
+      101: { name: 'Target', category: 'character' },
+      1000165: { name: 'Hedion University', category: 'corporation' },
+    }
+    expect(await viewer.next()).toMatchObject({ type: 'log_added', metaNames })
+    expect((await state(id)).meta.names).toMatchObject(metaNames)
+    await evictDurableObject(stub)
+    expect((await state(id)).meta.names).toMatchObject(metaNames)
+    const later = await connect(id)
+    try {
+      expect(await later.next()).toMatchObject({ type: 'snapshot', state: { meta: { names: metaNames } } })
+    } finally {
+      later.close()
+    }
+  } finally {
+    viewer.close()
+  }
+})
+
+it('saves the upload on an ESI name failure and resolves the previously indexed corporation on a later upload', async () => {
+  const id = await prepare(0xa02)
+  expect((await upload(id, 'valid log')).status).toBe(200)
+  expect((await state(id)).meta.names[1000165]).toBeUndefined()
+  expect((await upload(id, 'replacement')).status).toBe(200)
+  expect((await state(id)).meta.names[1000165]).toEqual({ name: 'Hedion University', category: 'corporation' })
+})

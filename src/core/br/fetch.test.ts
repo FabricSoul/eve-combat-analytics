@@ -36,6 +36,27 @@ describe('fetchBattleMeta', () => {
     expect(f.calls.every((c) => c.headers['user-agent']?.startsWith('eve-combat-analytics'))).toBe(true)
   })
 
+  it('resolves an NPC corporation that appears only in a killmail affiliation', async () => {
+    // Real NPC corporation ID inserted into one synthetic affiliation in this fixture copy.
+    const raw = structuredClone(composition)
+    const corpId = 1000165
+    raw.relateds.find(({ kms }) => kms?.length)!.kms![0]!.victim.corp = corpId
+    const f = fakeFetch((call) => {
+      if (call.url === BR_URL) return jsonResponse(raw)
+      expect(call.method).toBe('POST')
+      expect(call.url).toContain('/latest/universe/names/')
+      expect(call.headers['user-agent']).toBe('eve-combat-analytics (+https://github.com/FabricSoul/eve-combat-analytics)')
+      const ids = call.body as number[]
+      expect(ids).toContain(corpId)
+      expect(ids.length).toBeLessThanOrEqual(1_000)
+      return jsonResponse([{ id: corpId, name: 'Hedion University', category: 'corporation' }])
+    })
+    const meta = await fetchBattleMeta(ID, deps(f))
+    expect(meta.killmails.some(({ victim }) => victim.corpId === corpId)).toBe(true)
+    expect(meta.teams.flat()).not.toContain(`corp:${corpId}`)
+    expect(meta.names[corpId]).toEqual({ name: 'Hedion University', category: 'corporation' })
+  })
+
   it('polls while processing (every 2 s) and then succeeds', async () => {
     const f = server((n) => jsonResponse(n < 3 ? { status: 'processing' } : composition))
     const s = fakeSleep()

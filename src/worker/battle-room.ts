@@ -12,8 +12,8 @@ import { ApiFailure, battlePath, errorResponse, readText, upstreamFailure } from
 import type { Env } from './index'
 import { abortable, createServices } from './services'
 import type { Services } from './services'
-import { BattleStorage, packJson, packStream } from './storage'
-import type { StoredAffiliation, StoredLog } from './storage'
+import { affiliationNameIds, BattleStorage, packJson, packStream } from './storage'
+import type { MetaNameResolution, StoredAffiliation, StoredLog } from './storage'
 
 const NAME_LIMIT = 2000
 const ESI_NAME_BATCH = 500
@@ -251,6 +251,7 @@ export class BattleRoom extends DurableObject<Env> {
       if (charId === null) throw new ApiFailure('unknown_character', 'Could not resolve the Gamelog listener')
       const assignment = await this.listenerSide(charId, battle, signal)
       const resolution = await this.resolveNames(events, battle, signal)
+      const metaNames = await this.resolveMetaNames(battle.meta, { charId, ...assignment }, resolution.names, signal)
       // No more ESI calls are needed after this point.
       clearTimeout(timeout)
 
@@ -261,11 +262,31 @@ export class BattleRoom extends DurableObject<Env> {
       }
       const packed = await packJson(log.parsed)
       await this.scheduleAnalysis()
-      const summary = this.store.saveLog(log, packed, resolution)
-      this.broadcast({ type: 'log_added', log: summary, names: resolution.names })
+      const summary = this.store.saveLog(log, packed, resolution, metaNames)
+      const delta = Object.keys(metaNames.names).length ? metaNames.names : undefined
+      if (delta) battle.meta = { ...battle.meta, names: { ...battle.meta.names, ...delta } }
+      this.broadcast({ type: 'log_added', log: summary, names: resolution.names, metaNames: delta })
       return Response.json(summary)
     } finally {
       clearTimeout(timeout)
+    }
+  }
+
+  private async resolveMetaNames(
+    meta: BattleMeta, listener: { charId: number } & StoredAffiliation, names: NameIndex, signal: AbortSignal,
+  ): Promise<MetaNameResolution> {
+    const ids = new Set(this.store.pendingMetaNameIds())
+    for (const entry of [listener, ...Object.values(names)]) {
+      if (entry) for (const id of affiliationNameIds(entry)) ids.add(id)
+    }
+    const missing = [...ids].filter((id) => !Object.hasOwn(meta.names, id))
+    if (!missing.length) return { names: {}, pendingIds: [] }
+    try {
+      const names = await abortable(signal, () => this.services.idsToNames(missing, signal))
+      return { names, pendingIds: [] }
+    } catch {
+      // Metadata lookup is best-effort. Save the upload and retry on a later one.
+      return { names: {}, pendingIds: missing }
     }
   }
 
