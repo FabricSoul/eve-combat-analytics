@@ -81,10 +81,13 @@ function tagOf(entity: Entity, charId: number, summary: BattleSummary, analysis:
 
 /**
  * Roster groups: our side first (pilots with logs, then the rest), then each other side by population, then 未分边.
- * Inside a group: character rows first (ours: with logs first), then ship:/name: rows, each by damage output.
+ * `at` limits who counts as dead to killmails up to that time. Inside a group: character rows first (ours: with logs first), then ship:/name: rows, each by damage output.
  */
-export function buildRoster(summary: BattleSummary, analysis: Analysis, oursSide: number): RosterGroup[] {
-  const dead = new Set(summary.meta.killmails.flatMap(({ victim }) => victim.charId === null ? [] : [victim.charId]))
+export function buildRoster(
+  summary: BattleSummary, analysis: Analysis, oursSide: number, at = Infinity,
+): RosterGroup[] {
+  // Dead from the first killmail where they are the victim; `at` is the replay cursor (range end while a range is set).
+  const dead = new Set(summary.meta.killmails.flatMap(({ victim, t }) => victim.charId === null || t > at ? [] : [victim.charId]))
   const output = new Map(analysis.stats.map((stats) => [stats.key, [stats.damageOut, stats.killmailDamage] as const]))
   const bySide = new Map<number, RosterRow[]>()
 

@@ -83,6 +83,19 @@ describe('buildRoster', () => {
     expect(side1[3]).toMatchObject({ charId: null, name: 'Hidden Pilot', shipTypeId: 47271 })
   })
 
+  it('marks a pilot dead only from the killmail time on (pod loss after a ship loss stays dead)', () => {
+    const kill = (id: number, t: number) => ({ ...base.meta.killmails[0]!, id, t })
+    const summary: BattleSummary = {
+      ...base,
+      meta: { ...base.meta, killmails: [kill(1, 1_000), { ...kill(2, 2_000), victim: { ...base.meta.killmails[0]!.victim } }] },
+    }
+    const deadAt = (at?: number) => buildRoster(summary, analysisOf(entities), 0, at).flatMap((g) => g.rows).find((r) => r.charId === 4)?.dead
+    expect(deadAt(999)).toBe(false)
+    expect(deadAt(1_000)).toBe(true)
+    expect(deadAt(5_000)).toBe(true)
+    expect(deadAt()).toBe(true)
+  })
+
   it('tags only changed sides: 据日志 with the reason, 手动 with the change time', () => {
     const summary: BattleSummary = {
       ...base,
