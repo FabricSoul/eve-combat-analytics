@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useId, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import type { Analysis, BattleSummary } from '@/core/contract'
 import { fmtHms, fmtNum } from '../lib/format'
 import { sideColor, sideLetter } from '../lib/sides'
@@ -77,7 +77,8 @@ function TimelineRoom({ compact, summary, analysis }: {
   const layout = useMemo(() => timelineLayout(compact, layers, damage.length > 0), [compact, layers, damage.length])
   const left = compact ? 8 : 72
   const right = compact ? 8 : 12
-  const { chart, width, start, end, hover, range, events } = useTimelineGestures(data.full, left, right, view)
+  const tipId = useId()
+  const { chart, width, start, end, readout, focusReadout, range, events } = useTimelineGestures(data.full, left, right, view)
   const seriesEnd = analysis?.interactions.at(-1)?.t ?? data.start
   const showRepair = !compact && layers.has('repOurs')
   const showPoint = !compact && layers.has('point')
@@ -95,11 +96,11 @@ function TimelineRoom({ compact, summary, analysis }: {
   const rangeStart = range ? Math.max(range[0], start) : 0
   const rangeEnd = range ? Math.min(range[1], end) : 0
   const cursorOnPlot = view.t >= start && view.t <= end
-  const hoverOnPlot = hover !== null && hover >= start && hover <= end
-  const hoverBucket = hoverOnPlot ? Math.floor((hover - (analysis?.timeline.start ?? data.start)) / second) : -1
+  const readoutOnPlot = readout !== null && readout >= start && readout <= end
+  const readoutBucket = readoutOnPlot ? Math.floor((readout - (analysis?.timeline.start ?? data.start)) / second) : -1
   // Reconstructed target spans can overlap at a switch. Prefer the newer call.
-  const primary = hoverOnPlot ? data.primaries.reduce<(typeof data.primaries)[number] | undefined>((current, target) =>
-    target.start <= hover && target.end >= hover && (!current || current.start <= target.start) ? target : current,
+  const primary = readoutOnPlot ? data.primaries.reduce<(typeof data.primaries)[number] | undefined>((current, target) =>
+    target.start <= readout && target.end >= readout && (!current || current.start <= target.start) ? target : current,
   undefined) : undefined
   const primaryEntity = primary ? analysis?.entities[primary.target] : undefined
 
@@ -136,6 +137,8 @@ function TimelineRoom({ compact, summary, analysis }: {
       <svg ref={chart} data-timeline-chart="" data-domain-start={start} data-domain-end={end}
         width="100%" height={layout.height} viewBox={`0 0 ${width} ${layout.height}`}
         role="slider" tabIndex={0} aria-label="回放时间" aria-valuemin={Math.floor(start)} aria-valuemax={Math.ceil(end)}
+        aria-keyshortcuts="Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown Escape"
+        aria-describedby={focusReadout && readoutOnPlot ? tipId : undefined}
         aria-valuenow={Math.round(clamp(view.t, start, end))} aria-valuetext={fmtHms(view.t)} {...events}>
         <Plot width={width} height={layout.height} left={left} right={right} start={start} end={end}
           bucketStart={data.start} lanes={layout.lanes} compact={compact} zoomed={end - start < data.full[1] - data.full[0]}
@@ -144,15 +147,15 @@ function TimelineRoom({ compact, summary, analysis }: {
         <g pointerEvents="none">
           {range && rangeEnd >= rangeStart && <rect x={x(rangeStart)} y="4" width={Math.max(1, x(rangeEnd) - x(rangeStart))}
             height={Math.max(1, bottom - 6)} fill="var(--color-sel)" stroke="var(--color-accent-line)" strokeDasharray="3 3" />}
-          {hoverOnPlot && <line x1={x(hover)} x2={x(hover)} y1="2" y2={bottom} stroke="var(--color-text-3)" />}
+          {readoutOnPlot && <line x1={x(readout)} x2={x(readout)} y1="2" y2={bottom} stroke="var(--color-text-3)" />}
           {cursorOnPlot && <line x1={x(view.t)} x2={x(view.t)} y1="2" y2={bottom} stroke="var(--color-accent-line)" strokeWidth="2" />}
         </g>
       </svg>
-      {hoverOnPlot && <div className="eca-timeline-tip" role="tooltip" style={{ '--hover-x': `${x(hover)}px` } as CSSProperties}>
-        <time className="app-number">{fmtHms(hover)}</time>
+      {readoutOnPlot && <div id={tipId} className="eca-timeline-tip" role="tooltip" style={{ '--hover-x': `${x(readout)}px` } as CSSProperties}>
+        <time className="app-number">{fmtHms(readout)}</time>
         {damage.map((curve) => <div key={curve.side} data-readout-side={curve.side} className="eca-timeline-readout">
           <Dot color={curve.color} /><span>{curve.label}</span>
-          <b className="app-number">{fmtNum(analysis?.timeline.damageBySide[curve.side]?.[hoverBucket] ?? 0)}</b><span>/秒</span>
+          <b className="app-number">{fmtNum(analysis?.timeline.damageBySide[curve.side]?.[readoutBucket] ?? 0)}</b><span>/秒</span>
         </div>)}
         {primary ? <div className="eca-timeline-target">
           <span>主目标</span><Portrait charId={primaryEntity?.charId ?? null} size={16} />

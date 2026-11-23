@@ -35,8 +35,10 @@ export function useTimelineGestures(
   const [width, setWidth] = useState(960)
   const [zoom, setZoom] = useState<TimeRange | null>(null)
   const [hover, setHover] = useState<number | null>(null)
+  const [focusReadout, setFocusReadout] = useState(false)
   const [draft, setDraft] = useState<TimeRange | null>(null)
   const drag = useRef<Drag | null>(null)
+  const keyboardRange = useRef<{ anchor: number; edge: number } | null>(null)
   const touches = useRef(new Map<number, number>())
   const pinch = useRef<Pinch | null>(null)
   const [fullStart, fullEnd] = full
@@ -88,6 +90,8 @@ export function useTimelineGestures(
     if (!isTouch && drag.current) return
     event.currentTarget.focus({ preventScroll: true })
     event.currentTarget.setPointerCapture?.(event.pointerId)
+    keyboardRange.current = null
+    setFocusReadout(false)
     setHover(null)
     if (isTouch) {
       touches.current.set(event.pointerId, event.clientX)
@@ -166,17 +170,32 @@ export function useTimelineGestures(
     if (event.key === 'Escape' && (view.range || drag.current?.mode === 'range')) {
       event.preventDefault()
       drag.current = null
+      keyboardRange.current = null
       setDraft(null)
       view.setRange(null)
       return
     }
-    const step = event.shiftKey ? 10 * second : second
+    const direction = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[event.key]
+    if (event.shiftKey && direction !== undefined) {
+      event.preventDefault()
+      view.pause()
+      setFocusReadout(true)
+      setHover(null)
+      const previous = view.range ? keyboardRange.current : null
+      const anchor = previous?.anchor ?? clamp(view.t, start, end)
+      const edge = clamp((previous?.edge ?? anchor) + direction * 10 * second, start, end)
+      keyboardRange.current = { anchor, edge }
+      view.setRange(edge === anchor ? null : ordered(anchor, edge))
+      return
+    }
     const time = {
-      ArrowLeft: view.t - step, ArrowDown: view.t - step, ArrowRight: view.t + step, ArrowUp: view.t + step,
       Home: start, End: end,
-    }[event.key]
+    }[event.key] ?? (direction === undefined ? undefined : view.t + direction * second)
     if (typeof time !== 'number') return
     event.preventDefault()
+    keyboardRange.current = null
+    setFocusReadout(true)
+    setHover(null)
     view.pause()
     view.seek(clamp(time, start, end))
   }
@@ -184,6 +203,9 @@ export function useTimelineGestures(
   const events = {
     onPointerDown, onPointerMove, onPointerUp: endPointer, onPointerCancel: endPointer,
     onLostPointerCapture: endPointer, onPointerLeave: () => setHover(null), onKeyDown,
+    onFocus: () => { setFocusReadout(true); setHover(null) },
+    onBlur: () => { setFocusReadout(false); keyboardRange.current = null },
   }
-  return { chart, width, start, end, hover, range: draft ?? view.range, events }
+  const readout = hover ?? (focusReadout ? clamp(view.t, start, end) : null)
+  return { chart, width, start, end, readout, focusReadout, range: draft ?? view.range, events }
 }

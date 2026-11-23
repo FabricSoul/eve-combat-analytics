@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BattleProvider } from '@/app/state/battle-store'
 import { ViewProvider, useView } from '@/app/state/view-store'
-import { fmtNum } from '@/app/lib/format'
+import { fmtHms, fmtNum } from '@/app/lib/format'
 import { loadUiFixture } from '@/app/test/ui-fixture'
 import { Timeline } from '../Timeline'
 import { Plot } from './Plot'
@@ -165,6 +165,47 @@ describe('timeline', () => {
     expect(view.t).toBe(start + 65_000)
     await act(() => chart().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
     expect(view.range).toBeNull()
+  })
+
+  it('extends or shrinks a keyboard range from the cursor and clears it with Escape', async () => {
+    await render()
+    const cursor = start + 30_000
+    await act(() => view.seek(cursor))
+    await act(() => chart().focus())
+    const key = (name: string, shiftKey = false) => act(() => chart().dispatchEvent(
+      new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true, shiftKey }),
+    ))
+    await key('ArrowRight', true)
+    expect(view.range).toEqual([cursor, cursor + 10_000])
+    await key('ArrowUp', true)
+    expect(view.range).toEqual([cursor, cursor + 20_000])
+    await key('ArrowLeft', true)
+    expect(view.range).toEqual([cursor, cursor + 10_000])
+    expect(view.t).toBe(cursor)
+    expect(chart().querySelector('[stroke-dasharray="3 3"]')).not.toBeNull()
+    await key('Escape')
+    expect(view.range).toBeNull()
+    await key('ArrowDown', true)
+    expect(view.range).toEqual([cursor - 10_000, cursor])
+    await key('ArrowRight')
+    expect(view.t).toBe(cursor + 1000)
+  })
+
+  it('shows and describes the timeline readout at the keyboard cursor until blur', async () => {
+    await render()
+    await act(() => view.seek(start + 30_000))
+    expect(host.querySelector('[role="tooltip"]')).toBeNull()
+    await act(() => chart().focus())
+    const tip = () => host.querySelector('[role="tooltip"]')
+    expect(tip()?.querySelector('time')?.textContent).toBe(fmtHms(start + 30_000))
+    expect(chart().getAttribute('aria-describedby')).toBe(tip()?.id)
+    await act(() => chart().dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'ArrowRight', bubbles: true, cancelable: true,
+    })))
+    expect(tip()?.querySelector('time')?.textContent).toBe(fmtHms(start + 31_000))
+    await act(() => chart().blur())
+    expect(tip()).toBeNull()
+    expect(chart().hasAttribute('aria-describedby')).toBe(false)
   })
 
   it('zooms around the wheel and pinch anchors', async () => {
