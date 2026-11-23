@@ -38,27 +38,71 @@ function chooseTarget(targets: Map<EntityKey, TargetDamage>, total: number): Ent
   return highestDamage * 5 >= total * 2 ? primary : null
 }
 
+type PrimaryRun = Pick<PrimaryTarget, 'target' | 'bySide' | 'start' | 'end'>
+
+export interface PrimaryHitRange {
+  span: PrimaryTarget
+  hits: Interaction[]
+  first: number
+  afterLast: number
+}
+
+function hitAtOrAfter(hits: Interaction[], t: number): number {
+  let left = 0
+  let right = hits.length
+  while (left < right) {
+    const mid = (left + right) >>> 1
+    if (hits[mid]!.t < t) left = mid + 1
+    else right = mid
+  }
+  return left
+}
+
+function clipRuns(
+  runs: PrimaryRun[], hits: Interaction[], deaths: Map<EntityKey, number[]>,
+): PrimaryHitRange[] {
+  const byTarget = new Map<EntityKey, Interaction[]>()
+  for (const { target } of runs) byTarget.set(target, [])
+  for (const hit of hits) byTarget.get(hit.to)?.push(hit)
+
+  const clipped = runs.map((run) => {
+    const targetHits = byTarget.get(run.target)!
+    const first = hitAtOrAfter(targetHits, run.start)
+    const afterLast = hitAtOrAfter(targetHits, run.end)
+    const start = targetHits[first]!.t
+    const end = targetHits[afterLast - 1]!.t
+    const killedAt = deaths.get(run.target)?.find((t) => t >= start && t <= end + KILL_GRACE_MS) ?? null
+    return {
+      span: { ...run, start, end, killedAt, damage: 0, shooters: [] },
+      hits: targetHits,
+      first,
+      afterLast,
+    }
+  })
+  return clipped.sort((a, b) => a.span.start - b.span.start)
+}
+
 export function detectPrimaries(
   bySide: number,
   damage: Interaction[],
   timelineStart: number,
   entities: Map<EntityKey, Entity>,
   deaths: Map<EntityKey, number[]>,
-): PrimaryTarget[] {
+): PrimaryHitRange[] {
   const hits = damage.filter(({ amount }) => amount > 0)
-  const spans: PrimaryTarget[] = []
+  const runs: PrimaryRun[] = []
   const targets = new Map<EntityKey, TargetDamage>()
   const isEnemy = (key: EntityKey) => {
     const side = entities.get(key)!.side
     return side >= 0 && side !== bySide
   }
 
-  // The window beginning at each second determines that second's primary.
-  // Each hit enters and leaves the window once.
+  // Qualifying windows form runs. Each hit enters and leaves the rolling window once.
   let left = 0
   let right = 0
   let total = 0
   let start = timelineStart
+  let lastQualified = timelineStart
   while (left < hits.length) {
     while (left < right && hits[left]!.t < start) {
       const hit = hits[left++]!
@@ -78,18 +122,14 @@ export function detectPrimaries(
 
     const target = chooseTarget(targets, total)
     if (target !== null) {
-      const last = spans.at(-1)
-      if (last?.target === target && start - last.end < BRIDGE_MS) {
-        last.end = start + STEP_MS
-      } else {
-        spans.push({ target, bySide, start, end: start + STEP_MS, killedAt: null, damage: 0, shooters: [] })
-      }
+      const last = runs.at(-1)
+      const end = start + WINDOW_MS
+      if (last?.target === target && start - lastQualified - STEP_MS < BRIDGE_MS) last.end = end
+      else runs.push({ target, bySide, start, end })
+      lastQualified = start
     }
     start += STEP_MS
   }
 
-  for (const span of spans) {
-    span.killedAt = deaths.get(span.target)?.find((t) => t >= span.start && t <= span.end + KILL_GRACE_MS) ?? null
-  }
-  return spans
+  return runs.length > 0 ? clipRuns(runs, hits, deaths) : []
 }

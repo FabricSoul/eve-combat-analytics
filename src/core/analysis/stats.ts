@@ -1,5 +1,5 @@
-import type { Entity, EntityKey, EwarSpan, Interaction, PilotStats, PrimaryTarget } from '../contract'
-import { floorSecond } from './primaries'
+import type { Entity, EntityKey, EwarSpan, Interaction, PilotStats } from '../contract'
+import { floorSecond, type PrimaryHitRange } from './primaries'
 
 interface PilotAccumulator {
   stats: PilotStats
@@ -52,34 +52,29 @@ function collectRepairs(
 }
 
 function attributePrimaryHits(
-  damage: Interaction[],
-  spans: PrimaryTarget[],
+  ranges: PrimaryHitRange[],
   pilots: Map<EntityKey, PilotAccumulator>,
 ): void {
-  let spanIndex = 0
-  let shooters = new Set<EntityKey>()
-  for (const { t, amount, from, to } of damage) {
-    let span = spans[spanIndex]
-    while (span && span.end <= t) {
-      span = spans[++spanIndex]
-      shooters = new Set()
-    }
-    if (!span) break
-    if (t < span.start || to !== span.target || amount <= 0) continue
-
-    span.damage += amount
-    const firstHit = !shooters.has(from)
-    if (firstHit) {
+  const countedThrough = new Map<EntityKey, number>()
+  for (const [index, { span, hits, first, afterLast }] of ranges.entries()) {
+    const shooters = new Set<EntityKey>()
+    const leader = hits[first]!.from
+    const uncountedStart = countedThrough.get(span.target) ?? 0
+    for (let i = first; i < afterLast; i++) {
+      const { t, from, amount } = hits[i]!
+      span.damage += amount
+      const pilot = pilots.get(from)
+      if (pilot) {
+        // The same target's qualifying runs can overlap. Count each hit
+        // once in the share, while preserving both spans' own totals.
+        if (i >= uncountedStart) pilot.primaryDamage += amount
+        if (index > 0 && from !== leader && !shooters.has(from)) pilot.switches.push((t - span.start) / 1000)
+      }
       shooters.add(from)
-      span.shooters.push(from)
     }
-    const pilot = pilots.get(from)
-    if (pilot) {
-      pilot.primaryDamage += amount
-      if (firstHit && spanIndex > 0) pilot.switches.push((t - span.start) / 1000)
-    }
+    span.shooters = [...shooters].sort()
+    countedThrough.set(span.target, Math.max(afterLast, uncountedStart))
   }
-  for (const span of spans) span.shooters.sort()
 }
 
 export function collectStats(
@@ -87,7 +82,7 @@ export function collectStats(
   interactions: Interaction[],
   ewarSpans: EwarSpan[],
   damageBySide: Interaction[][],
-  primaries: PrimaryTarget[][],
+  primaries: PrimaryHitRange[][],
   killmailTotals: ReadonlyMap<EntityKey, { damage: number; count: number }>,
 ): PilotStats[] {
   const stats: PilotStats[] = []
@@ -195,12 +190,13 @@ export function collectStats(
     if (pilot) pilot.stats.pointSeconds += (end - start) / 1000
   }
   collectRepairs(needsRepair, repairedBy)
-  for (const [side, damage] of damageBySide.entries()) attributePrimaryHits(damage, primaries[side]!, pilots)
+  for (const ranges of primaries) attributePrimaryHits(ranges, pilots)
   for (const [key, pilot] of pilots) {
     const { engagementStart, engagementEnd, firstShot, activeSeconds, primaryDamage, reactions, switches } = pilot
     const sideFirstShot = damageBySide[entities.get(key)!.side]?.[0]?.t
-    if (engagementStart !== null && engagementEnd !== null && engagementEnd > engagementStart) {
-      pilot.stats.activeRatio = activeSeconds / ((engagementEnd - engagementStart) / 1000)
+    if (engagementStart !== null && engagementEnd !== null) {
+      const engagedSeconds = (floorSecond(engagementEnd) - floorSecond(engagementStart)) / 1000 + 1
+      pilot.stats.activeRatio = activeSeconds / engagedSeconds
     }
     if (firstShot !== null && sideFirstShot !== undefined) pilot.stats.firstShotDelay = (firstShot - sideFirstShot) / 1000
     if (pilot.stats.damageOut > 0) pilot.stats.primaryShare = primaryDamage / pilot.stats.damageOut

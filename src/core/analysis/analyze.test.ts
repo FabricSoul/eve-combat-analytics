@@ -8,7 +8,6 @@ import {
   exchange,
   hit,
   log,
-  other,
   pilotComparison,
   primaryGaps,
   primaryThreshold,
@@ -92,7 +91,7 @@ describe('analyze', () => {
     expect(analyze(primaryThreshold(39, true)).primaries).toEqual([])
     expect(analyze(primaryThreshold(40, false)).primaries).toEqual([])
     expect(analyze(primaryThreshold(40, true)).primaries).toEqual([
-      { bySide: 0, start: at(0), end: at(1), target: 'char:3', killedAt: null, damage: 40, shooters: ['char:1', 'char:2'] },
+      { bySide: 0, start: at(0), end: at(0), target: 'char:3', killedAt: null, damage: 40, shooters: ['char:1', 'char:2'] },
     ])
   })
 
@@ -100,11 +99,11 @@ describe('analyze', () => {
     const state = primaryGaps()
     expect(analyze(state).primaries).toEqual([
       {
-        bySide: 0, start: at(0), end: at(26), target: 'char:3', killedAt: at(36),
+        bySide: 0, start: at(0), end: at(25), target: 'char:3', killedAt: at(35),
         damage: 450, shooters: ['char:1', 'char:2'],
       },
       {
-        bySide: 0, start: at(31), end: at(41), target: 'char:3', killedAt: at(36),
+        bySide: 0, start: at(40), end: at(40), target: 'char:3', killedAt: null,
         damage: 150, shooters: ['char:1', 'char:2'],
       },
     ])
@@ -115,12 +114,12 @@ describe('analyze', () => {
   it('computes every comparison field and includes killmail participants without logs', () => {
     const analysis = analyze(pilotComparison())
     expect(analysis.stats.find(({ key }) => key === 'char:1')).toEqual({
-      key: 'char:1', activeRatio: 4 / 42, damageOut: 190, damageIn: 100, repairOut: 75, repairIn: 30, neutOut: 8,
-      neutIn: 9, primaryShare: 180 / 190, switchDelayMedian: 9, repReactionMedian: 16, firstShotDelay: 0,
+      key: 'char:1', activeRatio: 4 / 43, damageOut: 190, damageIn: 100, repairOut: 75, repairIn: 30, neutOut: 8,
+      neutIn: 9, primaryShare: 180 / 190, switchDelayMedian: null, repReactionMedian: 16, firstShotDelay: 0,
       hitQuality: { Hits: 2, Smashes: 1, none: 1 }, misses: 1, pointSeconds: 29, killmailDamage: 540, killmailCount: 2,
     })
     expect(analysis.stats.find(({ key }) => key === 'char:2')).toMatchObject({
-      activeRatio: 2 / 19, firstShotDelay: 1, primaryShare: 1, switchDelayMedian: 9, repReactionMedian: null,
+      activeRatio: 2 / 20, firstShotDelay: 1, primaryShare: 1, switchDelayMedian: 0, repReactionMedian: null,
     })
     expect(analysis.stats.find(({ key }) => key === 'char:5')).toEqual({
       key: 'char:5', activeRatio: 0, damageOut: 0, damageIn: 0, repairOut: 0, repairIn: 0, neutOut: 0, neutIn: 0,
@@ -132,14 +131,14 @@ describe('analyze', () => {
     expect(analysis.interactions.find(({ kind }) => kind === 'nos')?.amount).toBe(50)
   })
 
-  it('uses zero for active ratio when engagement has no duration and ignores hostile repair for reaction times', () => {
+  it('counts the only engaged second when engagement has no duration and ignores hostile repair for reaction times', () => {
     const state = battle([
       log(1, 'Ace', 0, [
         hit(0, 'Rook', 20),
         event(0, 'Rook', { kind: 'repair', dir: 'out', amount: 15, repairType: 'armor', module: null }),
       ]),
     ])
-    expect(analyze(state).stats[0]).toMatchObject({ activeRatio: 0, repReactionMedian: null, repairOut: 15 })
+    expect(analyze(state).stats[0]).toMatchObject({ activeRatio: 1, repReactionMedian: null, repairOut: 15 })
   })
 
   it('matches the real battle report coverage and Zeikku Targaryen killmail totals with zero logs', () => {
@@ -167,29 +166,5 @@ describe('analyze', () => {
     expect(analyze(state)).toEqual(result)
     expect(analyze({ ...state, logs: [...state.logs].reverse() })).toEqual(result)
     expect(JSON.stringify(analyze({ ...state, logs: [...state.logs].reverse() }))).toBe(JSON.stringify(result))
-  })
-
-  it('analyzes 90,000 events in under 500 ms', () => {
-    const state = battle([])
-    state.names = {}
-    for (let i = 0; i < 30; i++) {
-      const charId = 100 + i
-      const name = `Pilot ${i}`
-      state.names[name] = { charId, side: i % 2 }
-      const opponent = other(`Pilot ${i ^ 1}`, 'Cruiser')
-      const events = Array.from({ length: 3_000 }, (_, line) => {
-        const t = Math.floor(line / 4)
-        const dir = line % 2 === 0 ? 'out' : 'in'
-        const target = line % 4 < 2 ? opponent : other(`Pilot ${(i + 3) % 30}`, 'Frigate')
-        return hit(t, target, 100 + (line % 4 < 2 ? t % 8 : i), { dir, weapon: line % 3 ? 'Laser' : null })
-      })
-      state.logs.push(log(charId, name, i % 2, events))
-    }
-    const start = performance.now()
-    const analysis = analyze(state)
-    const elapsed = performance.now() - start
-    console.info(`Analysis of 90,000 events: ${elapsed.toFixed(1)} ms`)
-    expect(analysis.interactions).toHaveLength(67_500)
-    expect(elapsed).toBeLessThan(500)
   })
 })

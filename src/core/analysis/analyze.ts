@@ -42,7 +42,8 @@ export const analyze: Analyze = (state) => {
   const { timeline, shotsBySide } = indexDamage(interactions, entities, sideCount, firstKill)
   const primariesBySide = shotsBySide.map((damage, side) => detectPrimaries(side, damage, timeline.start, entities, deaths))
   const stats = collectStats(entities, interactions, ewarSpans, shotsBySide, primariesBySide, totals)
-  const primaries = primariesBySide.flat().sort((a, b) => a.start - b.start || a.bySide - b.bySide)
+  const primaries = primariesBySide.flatMap((ranges) => ranges.map(({ span }) => span))
+    .sort((a, b) => a.start - b.start || a.bySide - b.bySide)
   const entityRecord = Object.fromEntries([...entities].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0))
   return { entities: entityRecord, interactions, ewarSpans, primaries, stats, coverage, timeline }
 }

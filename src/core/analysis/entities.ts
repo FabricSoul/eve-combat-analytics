@@ -53,7 +53,7 @@ export function indexKillmails(meta: BattleState['meta'], entities: Map<EntityKe
       if (shipTypeId !== null) addShip(entry.entity, meta.names[shipTypeId]?.name)
 
       // A later killmail may be the first one that establishes this pilot's side.
-      if (!entities.has(key) && entry.entity.side === -1) entry.entity.side = sideOf(participant, meta.teams)
+      if (entry.entity.side === -1) entry.entity.side = sideOf(participant, meta.teams)
     }
   }
 

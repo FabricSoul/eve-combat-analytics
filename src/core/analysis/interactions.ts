@@ -1,49 +1,25 @@
-import type { BattleState, Counterparty, Entity, EntityKey, EwarSpan, Interaction, LogEvent } from '../contract'
-import { addShip, charKey } from './entities'
+import type { BattleState, Entity, EntityKey, EwarSpan, Interaction, LogEvent } from '../contract'
+import { charKey } from './entities'
+import { expectedSide, indexIdentities } from './identities'
 
 interface Observation {
   interaction: Interaction
   outgoing: boolean
   hasPeerLog: boolean
+  listenerId: number
 }
 
-function resolveCounterparty(
-  other: Counterparty,
-  state: BattleState,
-  entities: Map<EntityKey, Entity>,
-  byDisplayName: Map<string, Entity>,
-): EntityKey {
-  const displayName = other.name ?? other.raw
-  let entity = byDisplayName.get(displayName)
-  if (!entity) {
-    const resolved = Object.hasOwn(state.names, displayName) ? state.names[displayName] : null
-    const key = resolved ? charKey(resolved.charId) : `name:${displayName}` as const
-    entity = entities.get(key) ?? {
-      key,
-      name: resolved ? state.meta.names[resolved.charId]?.name ?? displayName : displayName,
-      charId: resolved?.charId ?? null,
-      side: resolved?.side ?? -1,
-      shipTypes: [],
-      hasLog: false,
-    }
-    byDisplayName.set(displayName, entity)
-    entities.set(key, entity)
-  }
-  addShip(entity, other.shipType)
-  return entity.key
-}
-
-function fromEvent(event: Exclude<LogEvent, { kind: "ewar_seen" }>, logId: string, from: EntityKey, to: EntityKey): Interaction {
+function fromEvent(event: LogEvent, logId: string, from: EntityKey, to: EntityKey): Interaction {
   return {
     t: event.t,
     from,
     to,
-    kind: event.kind,
+    kind: event.kind === 'ewar_seen' ? 'ewar' : event.kind,
     amount: 'amount' in event ? event.amount : 0,
     weapon: 'weapon' in event ? event.weapon : 'module' in event ? event.module : null,
     quality: event.kind === 'damage' ? event.quality : null,
     repairType: event.kind === 'repair' ? event.repairType : null,
-    ewar: event.kind === 'ewar' ? event.ewar : null,
+    ewar: 'ewar' in event ? event.ewar : null,
     sources: [{ logId, line: event.line }],
     corroborated: false,
   }
@@ -78,10 +54,11 @@ function match(otherLog: Pending, report: Interaction): Interaction | undefined 
   if (!unlabelled) return labelled
   if (!labelled) return unlabelled
 
-  // Reports in these two queues come from the same log. Line order breaks timestamp ties.
-  return unlabelled.t < labelled.t || (unlabelled.t === labelled.t && unlabelled.sources[0]!.line < labelled.sources[0]!.line)
-    ? unlabelled
-    : labelled
+  if (unlabelled.t !== labelled.t) return unlabelled.t < labelled.t ? unlabelled : labelled
+  const a = unlabelled.sources[0]!
+  const b = labelled.sources[0]!
+  // A listener may have uploaded multiple files. Follow file ID and line order for equal timestamps.
+  return a.logId < b.logId || (a.logId === b.logId && a.line < b.line) ? unlabelled : labelled
 }
 
 function enqueue(log: Pending, report: Interaction): void {
@@ -94,13 +71,49 @@ function enqueue(log: Pending, report: Interaction): void {
   weaponQueue.entries.push(report)
 }
 
+interface EwarReports {
+  events: Interaction[]
+  firstActive: number
+  nextByListener: Map<number, number>
+}
+
+function mergeEwar(reports: Map<string, EwarReports>, interaction: Interaction, listenerId: number): boolean {
+  const { from, to, ewar, t } = interaction
+  const key = JSON.stringify([from, to, ewar])
+  let group = reports.get(key)
+  if (!group) {
+    group = { events: [], firstActive: 0, nextByListener: new Map() }
+    reports.set(key, group)
+  }
+
+  // Each listener can report each activation once, and witnesses can join the
+  // same activation only within one second of its earliest report.
+  while (group.firstActive < group.events.length && t - group.events[group.firstActive]!.t > 1000) {
+    group.firstActive++
+  }
+  const source = interaction.sources[0]!
+  const next = Math.max(group.firstActive, group.nextByListener.get(listenerId) ?? 0)
+  group.nextByListener.set(listenerId, next + 1)
+  const earlier = group.events[next]
+  if (!earlier) {
+    group.events.push(interaction)
+    return false
+  }
+  earlier.sources.push(source)
+  earlier.corroborated = true
+  return true
+}
+
 function dedupe(observations: Observation[]): Interaction[] {
   const interactions: Interaction[] = []
   const pendingByHit = new Map<string, { outgoing: Pending; incoming: Pending }>()
-  for (const { interaction, outgoing, hasPeerLog } of observations) {
-    if (hasPeerLog) {
-      const { from, to, kind, amount } = interaction
-      const key = `${from}/${to}/${kind}/${amount}`
+  const ewarReports = new Map<string, EwarReports>()
+  for (const { interaction, outgoing, hasPeerLog, listenerId } of observations) {
+    if (interaction.kind === 'ewar') {
+      if (mergeEwar(ewarReports, interaction, listenerId)) continue
+    } else if (hasPeerLog) {
+      const { from, to, kind, amount, repairType } = interaction
+      const key = `${from}/${to}/${kind}/${amount}/${repairType}`
       let bothLogs = pendingByHit.get(key)
       if (!bothLogs) {
         bothLogs = { outgoing: pending(), incoming: pending() }
@@ -121,35 +134,75 @@ function dedupe(observations: Observation[]): Interaction[] {
   return interactions
 }
 
+function distinctEvents(events: LogEvent[], retained: Set<string> | undefined): LogEvent[] {
+  if (!retained) return events
+  return events.filter((event) => {
+    // Ignore the line number, which can differ for the same event across relogs.
+    const key = JSON.stringify([
+      event.t, event.kind, event.other.raw,
+      'dir' in event ? event.dir : event.source.raw,
+      'amount' in event ? event.amount : null,
+      'weapon' in event ? event.weapon : 'module' in event ? event.module : null,
+      'quality' in event ? event.quality : null,
+      'repairType' in event ? event.repairType : null,
+      'ewar' in event ? event.ewar : null,
+    ])
+    if (retained.has(key)) return false
+    retained.add(key)
+    return true
+  })
+}
+
 export function collectInteractions(state: BattleState, entities: Map<EntityKey, Entity>): Interaction[] {
-  const logs = [...state.logs].sort((a, b) => a.charId - b.charId)
-  const logIds = new Map<EntityKey, string>()
-  const byDisplayName = new Map<string, Entity>()
+  const logs = [...state.logs].sort((a, b) => a.charId - b.charId || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const splitListeners = new Set<number>()
   const observations: Observation[] = []
-  for (const log of logs) {
-    const key = charKey(log.charId)
-    entities.set(key, { key, name: log.charName, charId: log.charId, side: log.side, shipTypes: [], hasLog: true })
-    logIds.set(key, log.id)
+  for (const { charId, charName, side } of logs) {
+    const key = charKey(charId)
+    const listener = entities.get(key)
+    if (listener) {
+      splitListeners.add(charId)
+      if (listener.side === -1) listener.side = side
+    } else {
+      entities.set(key, { key, name: charName, charId, side, shipTypes: [], hasLog: true })
+    }
   }
+
+  const identities = indexIdentities(state, logs, entities)
+  const sides = state.meta.teams.length
+  let previousListener: number | undefined
+  let retained: Set<string> | undefined
   for (const log of logs) {
-    const listener = charKey(log.charId)
-    for (const event of log.parsed.events) {
-      // Third-party ewar is not attributed yet (follow-up task F3).
-      if (event.kind === 'ewar_seen') continue
-      const other = resolveCounterparty(event.other, state, entities, byDisplayName)
+    const listenerId = log.charId
+    if (listenerId !== previousListener) {
+      previousListener = listenerId
+      retained = splitListeners.has(listenerId) ? new Set() : undefined
+    }
+    const listener = charKey(listenerId)
+    const side = identities.effectiveSide({ charId: listenerId, side: entities.get(listener)!.side })
+    for (const event of distinctEvents(log.parsed.events, retained)) {
+      const otherSide = expectedSide(event.kind, side, sides)
+      const other = identities.resolve(event.other, otherSide, event.t, log)
+      if (event.kind === 'ewar_seen') {
+        const from = identities.resolve(event.source, otherSide, event.t, log)
+        observations.push({
+          interaction: fromEvent(event, log.id, from, other), outgoing: false, hasPeerLog: false, listenerId,
+        })
+        continue
+      }
       const outgoing = event.dir === 'out'
       const from = outgoing ? listener : other
       const to = outgoing ? other : listener
-      const peerLogId = logIds.get(other)
       observations.push({
         interaction: fromEvent(event, log.id, from, to),
         outgoing,
-        hasPeerLog: peerLogId !== undefined && peerLogId !== log.id,
+        hasPeerLog: other !== listener && entities.get(other)!.hasLog,
+        listenerId,
       })
     }
   }
 
-  // The sort is stable. Equal timestamps follow character ID, then parser line order.
+  // The sort is stable. Equal timestamps follow character ID, file ID, then parser line order.
   observations.sort((a, b) => a.interaction.t - b.interaction.t)
   return dedupe(observations)
 }

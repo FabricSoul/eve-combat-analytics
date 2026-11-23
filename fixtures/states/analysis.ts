@@ -12,8 +12,10 @@ import type {
 export const battleStart = 1_795_374_000_000
 export const at = (seconds: number) => battleStart + seconds * 1000
 
-export function other(name: string | null, shipType: string | null = null, raw = name ?? ''): Counterparty {
-  return { raw, name, corpTicker: null, allianceTicker: null, shipType, shipTypeId: null }
+export function other(
+  name: string | null, shipType: string | null = null, raw = name ?? '', shipTypeId: number | null = null,
+): Counterparty {
+  return { raw, name, corpTicker: null, allianceTicker: null, shipType, shipTypeId }
 }
 
 type EventFields = Omit<Extract<LogEvent, { kind: 'damage' }>, 't' | 'line' | 'other'>
@@ -21,6 +23,7 @@ type EventFields = Omit<Extract<LogEvent, { kind: 'damage' }>, 't' | 'line' | 'o
   | Omit<Extract<LogEvent, { kind: 'repair' }>, 't' | 'line' | 'other'>
   | Omit<Extract<LogEvent, { kind: 'neut' | 'nos' }>, 't' | 'line' | 'other'>
   | Omit<Extract<LogEvent, { kind: 'ewar' }>, 't' | 'line' | 'other'>
+  | Omit<Extract<LogEvent, { kind: 'ewar_seen' }>, 't' | 'line' | 'other'>
 
 export function event(sec: number, target: string | Counterparty, fields: EventFields): LogEvent {
   return { t: at(sec), line: 0, other: typeof target === 'string' ? other(target) : target, ...fields }
@@ -155,6 +158,6 @@ export const primaryGaps = () => battle([
   log(1, 'Ace', 0, [0, 11, 25, 40].map((sec) => hit(sec, 'Rook', 100))),
   log(2, 'Wing', 0, [0, 11, 25, 40].map((sec) => hit(sec, 'Rook', 50))),
 ], [
-  kill(1, 36, pilot(3, 200, 1000), []),
-  kill(2, 51.001, pilot(3, 200, 1001), []),
+  kill(1, 35, pilot(3, 200, 1000), []),
+  kill(2, 50.001, pilot(3, 200, 1001), []),
 ])
