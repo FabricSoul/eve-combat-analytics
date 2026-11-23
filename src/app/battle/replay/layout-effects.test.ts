@@ -18,17 +18,38 @@ describe('replay layout and effects', () => {
     expect(anchors.get(-1)).toEqual({ x: 500, y: 540 })
   })
 
-  it('reserves the top for the third side and anchors four sides in distinct sectors', () => {
-    const three = sideAnchors([7, 2, 5], 1000, 600)
-    expect(three.get(5)?.x).toBeCloseTo(500)
-    expect(three.get(5)?.y).toBeLessThan(300)
+  it('places three sides left, right, and top in the supplied order', () => {
+    const anchors = sideAnchors([7, 2, 5], 1000, 600)
+    expect(anchors.get(7)?.x).toBeLessThan(500)
+    expect(anchors.get(2)?.x).toBeGreaterThan(500)
+    expect(anchors.get(7)?.y).toBe(anchors.get(2)?.y)
+    expect(anchors.get(5)?.x).toBeCloseTo(500)
+    expect(anchors.get(5)?.y).toBeLessThan(300)
+  })
 
-    const four = sideAnchors([7, 2, 5, 9], 1000, 600)
-    expect(four.get(7)?.x).toBeLessThan(500)
-    expect(four.get(2)?.x).toBeGreaterThan(500)
-    expect(four.get(5)?.y).toBeGreaterThan(four.get(2)?.y ?? Infinity)
-    expect(four.get(9)?.y).toBeLessThan(four.get(2)?.y ?? -Infinity)
-    expect(four.get(-1)?.y).toBeGreaterThan(four.get(5)?.y ?? Infinity)
+  it('adds the fourth side below center with the unassigned row farther down', () => {
+    const anchors = sideAnchors([7, 2, 5, 9], 1000, 600)
+    expect(anchors.get(7)?.x).toBeLessThan(500)
+    expect(anchors.get(2)?.x).toBeGreaterThan(500)
+    expect(anchors.get(7)?.y).toBe(anchors.get(2)?.y)
+    expect(anchors.get(5)?.x).toBeCloseTo(500)
+    expect(anchors.get(5)?.y).toBeLessThan(300)
+    expect(anchors.get(9)?.x).toBeCloseTo(500)
+    expect(anchors.get(9)?.y).toBeGreaterThan(300)
+    expect(anchors.get(-1)).toEqual({ x: 500, y: 540 })
+    expect(anchors.get(9)!.y).toBeLessThan(anchors.get(-1)!.y)
+  })
+
+  it('fills upper-right and lower-right gaps before the left side', () => {
+    const anchors = sideAnchors([7, 2, 5, 9, 13, 11, 8, 3], 1000, 600)
+    expect(anchors.get(13)!.x).toBeGreaterThan(500)
+    expect(anchors.get(13)!.y).toBeLessThan(308)
+    expect(anchors.get(11)!.x).toBeGreaterThan(500)
+    expect(anchors.get(11)!.y).toBeGreaterThan(308)
+    expect(anchors.get(8)!.x).toBeLessThan(500)
+    expect(anchors.get(8)!.y).toBeLessThan(308)
+    expect(anchors.get(3)!.x).toBeLessThan(500)
+    expect(anchors.get(3)!.y).toBeGreaterThan(308)
   })
 
   it('scales quantities logarithmically and independently by kind', () => {

@@ -5,15 +5,20 @@ export interface Point { x: number; y: number }
 export function sideAnchors(order: readonly number[], width: number, height: number): Map<number, Point> {
   const center = { x: width / 2, y: height / 2 + 8 }
   const anchors = new Map<number, Point>([[-1, { x: center.x, y: height * 0.9 }]])
+  // Quarter turns from the right in screen coordinates. Fill the cardinal positions first.
+  const cardinal = [2, 0, -1, 1]
+  const quadrants = [[0, -1], [0, 1], [-2, -1], [2, 1]] as const
   for (const [index, side] of order.entries()) {
-    let angle = Math.PI
-    if (index > 0) {
-      // The three-sided layout keeps the open space at the bottom for unassigned pilots.
-      const slot = index - 1
-      angle = order.length === 3 && slot === 1
-        ? -Math.PI / 2
-        : (slot + Number(slot >= order.length / 2)) * 2 * Math.PI / order.length
+    let turn = cardinal[index]
+    if (turn === undefined) {
+      const extra = index - cardinal.length
+      const quadrant = extra % quadrants.length
+      const [start, end] = quadrants[quadrant]!
+      const slots = Math.ceil((order.length - cardinal.length - quadrant) / quadrants.length)
+      const slot = Math.floor(extra / quadrants.length) + 1
+      turn = start + (end - start) * slot / (slots + 1)
     }
+    const angle = turn * Math.PI / 2
     anchors.set(side, {
       x: center.x + Math.cos(angle) * width * 0.28,
       y: center.y + Math.sin(angle) * height * 0.29,
