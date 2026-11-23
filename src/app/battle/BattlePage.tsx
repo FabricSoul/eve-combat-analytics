@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
+import { recordRecent } from '../home/recent'
 import { defaultOursSide } from '../lib/sides'
 import { AppShell } from '../shell/AppShell'
+import { PhonePersonPage } from '../shell/PhonePersonPage'
+import { RosterRail } from '../shell/RosterRail'
+import { useBattleLayout } from '../shell/useBattleLayout'
 import { BattleProvider, useBattleContext } from '../state/battle-store'
 import { ViewProvider, useView, type PanelTab } from '../state/view-store'
+import { BottomSheet } from '../ui/BottomSheet'
 import { Tabs, type TabOption } from '../ui/Tabs'
 import { CompareTable } from './CompareTable'
 import { EmptyBattle } from './EmptyBattle'
@@ -21,16 +26,44 @@ const tabs: readonly TabOption<PanelTab>[] = [
   { value: 'kills', label: '击毁' }, { value: 'fit', label: '配装' },
 ]
 
+const phoneTabs = [
+  { value: 'roster', label: '名单' }, { value: 'events', label: '事件' }, { value: 'compare', label: '对比' },
+] as const
+type PhoneTab = typeof phoneTabs[number]['value']
+const phonePanels = { roster: Roster, compare: CompareTable, events: EventFeed }
+
 const panels = { roster: Roster, compare: CompareTable, kills: KillsList, fit: FitTab }
 const panelId = 'battle-panel'
 
 function BattleWorkspace() {
   const { summary, status, error } = useBattleContext()
   const view = useView()
+  const layout = useBattleLayout()
+  const [phoneTab, setPhoneTab] = useState<PhoneTab>('events')
+  const PhonePanel = phonePanels[phoneTab]
   const [sidesOpen, setSidesOpen] = useState(false)
   const picker = useRef<HTMLInputElement>(null)
   const openPicker = () => picker.current?.click()
   const Panel = panels[view.panelTab]
+  const opened = useRef<string | null>(null)
+  const meta = summary?.meta
+  const logCount = summary?.logs.length
+
+  useEffect(() => {
+    if (!meta || logCount === undefined || opened.current === meta.brId) return
+    opened.current = meta.brId
+    const systems = [...new Set(meta.windows.map(({ systemName }) => systemName))]
+    const first = systems[0]
+    recordRecent({
+      brId: meta.brId,
+      title: first === undefined ? meta.brId : systems.length > 1 ? `${first} 等 ${systems.length} 个星系` : first,
+      start: meta.windows.length ? Math.min(...meta.windows.map(({ start }) => start)) : 0,
+      end: meta.windows.length ? Math.max(...meta.windows.map(({ end }) => end)) : 0,
+      kills: meta.killmails.length,
+      logs: logCount,
+      openedAt: Date.now(),
+    })
+  }, [meta, logCount])
 
   useEffect(() => {
     function closeOrClear(event: KeyboardEvent) {
@@ -62,22 +95,40 @@ function BattleWorkspace() {
       shareUrl: summary ? shareUrl : undefined,
     }}>
       {summary ? (
-        <div className="battle-layout">
-          <aside className="battle-panel" aria-label="战斗数据">
-            <Tabs id={panelId} tabs={tabs} value={view.panelTab} onChange={view.setPanelTab} label="战斗数据" />
-            <div className="battle-panel-content" role="tabpanel" id={`${panelId}-panel-${view.panelTab}`}
-              aria-labelledby={`${panelId}-tab-${view.panelTab}`}>
-              <Panel />
-            </div>
-          </aside>
+        <div className="battle-layout" data-layout={layout}>
+          {layout !== 'phone' && (
+            <aside className="battle-panel" aria-label="战斗数据">
+              <Tabs id={panelId} tabs={tabs} value={view.panelTab} onChange={view.setPanelTab} label="战斗数据" />
+              {layout === 'tablet' && (
+                <div className="battle-rail-panel" id={`${panelId}-panel-roster`}
+                  role={view.panelTab === 'roster' ? 'tabpanel' : undefined}
+                  aria-labelledby={view.panelTab === 'roster' ? `${panelId}-tab-roster` : undefined}>
+                  <RosterRail />
+                </div>
+              )}
+              {(layout === 'desktop' || view.panelTab !== 'roster') && (
+                <div className="battle-panel-content" role="tabpanel" id={`${panelId}-panel-${view.panelTab}`}
+                  aria-labelledby={`${panelId}-tab-${view.panelTab}`} data-overlay={layout === 'tablet'}>
+                  <Panel />
+                </div>
+              )}
+            </aside>
+          )}
           <section className="battle-replay" aria-label="回放">
             {summary.logs.length === 0 ? <EmptyBattle onUpload={openPicker} /> : <ReplayCanvas />}
           </section>
-          <aside className="battle-feed" aria-label="事件流">
+          {layout !== 'phone' && <aside className="battle-feed" aria-label="事件流">
             <div className="battle-feed-content"><EventFeed /></div>
-          </aside>
-          <section className="battle-timeline" aria-label="时间轴"><Timeline /></section>
-          {view.selected && <aside className="battle-drawer" aria-label="个人详情"><PersonDrawer /></aside>}
+          </aside>}
+          <section className="battle-timeline" aria-label="时间轴"><Timeline compact={layout === 'phone'} /></section>
+          {layout === 'phone' && (
+            <BottomSheet<PhoneTab> tabs={phoneTabs} value={phoneTab} onChange={setPhoneTab}>
+              <PhonePanel />
+            </BottomSheet>
+          )}
+          {view.selected && (layout === 'phone'
+            ? <PhonePersonPage><PersonDrawer /></PhonePersonPage>
+            : <aside className="battle-drawer" aria-label="个人详情"><PersonDrawer /></aside>)}
           {sidesOpen && <div className="battle-sides"><SidesPanel onClose={() => setSidesOpen(false)} /></div>}
           <div className="battle-upload"><UploadDock pickerRef={picker} /></div>
         </div>

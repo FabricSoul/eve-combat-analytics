@@ -1,22 +1,24 @@
 import { useEffect } from 'react'
 import { FitTab } from '../../battle/FitTab'
 import { FitServices } from '../../battle/person/fit-data'
-import { BattleProvider, useBattleContext } from '../../state/battle-store'
+import { BattleProvider } from '../../state/battle-store'
 import { useView, ViewProvider } from '../../state/view-store'
 import { Button } from '../../ui/Button'
 import type { GallerySection } from '../GalleryPage'
 import fixture from './u7-fit-data.json'
-import { fullPilotGalleryData } from './u7-pilot-data'
+import { loadUiFixture } from '../../test/ui-fixture'
+
+const pilotData = loadUiFixture({ fullPilotEvents: true })
 
 const demoName = 'Blanchard2213'
 
 function FitPreview({ saved, name = demoName }: { saved: boolean; name?: string }) {
-  const { summary, analysis } = useBattleContext()
+  const { summary, analysis } = pilotData
   const { select, selected } = useView()
   const pilot = Object.values(analysis?.entities ?? {}).find((entity) => entity.name === name)
   const charId = pilot?.charId
   useEffect(() => { if (pilot) select(pilot.key) }, [pilot])
-  if (!analysis || !summary || !pilot || charId == null) return null
+  if (!pilot || charId == null) return null
   const { eft, setAt, killmailId, shipTypeId, stats } = fixture
   const fit = { eft, setAt, charId }
   const services = {
@@ -34,7 +36,7 @@ function FitPreview({ saved, name = demoName }: { saved: boolean; name?: string 
       return computeFitStats(text)
     },
   }
-  const data = fullPilotGalleryData({ analysis, summary: saved ? { ...summary, fits: [fit] } : summary })
+  const data = saved ? { analysis, summary: { ...summary, fits: [fit] } } : pilotData
   return <BattleProvider static={data}><FitServices.Provider value={services}>
     {selected ? <FitTab /> : <Button onClick={() => select(pilot.key)}>{name}</Button>}
   </FitServices.Provider></BattleProvider>

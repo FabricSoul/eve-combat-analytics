@@ -1,6 +1,6 @@
 """Export EFT rack and display names from the pinned pyfa eve.db.
 
-Usage: python3 src/app/battle/person/export-fit-items.py build/eve.db
+Usage: python3 etl/export-fit-items.py build/eve.db
 The existing killmail-types catalog covers English EFT names.
 """
 import json
@@ -23,7 +23,7 @@ with sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True) as db:
           AND t.typeName_zh != '' AND t.published = 1
         ORDER BY t.typeID
     """))
-    Path(__file__).with_name("fit-items.json").write_text(
+    (Path(__file__).resolve().parents[1] / "src/app/battle/person/fit-items.json").write_text(
         json.dumps({"slots": slots, "localized": localized}, ensure_ascii=False, separators=(",", ":")) + "\n",
         encoding="utf-8",
     )

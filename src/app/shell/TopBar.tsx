@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { BattleSummary } from '@/core/contract'
+import { Icon } from '../battle/upload/icons'
 import { fmtDate, fmtIsk, fmtNum } from '../lib/format'
 import { Button } from '../ui/Button'
 import type { Appearance } from './AppShell'
@@ -20,9 +21,20 @@ export function TopBar({
 }: TopBarProps) {
   const [share, setShare] = useState('')
   const [copied, setCopied] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const system = summary?.meta.windows[0]
-  const title = system ? `${system.systemName} · ${fmtDate(system.start)}` : 'EVE Combat Analytics'
+  const date = system ? fmtDate(system.start) : ''
+  const title = system ? `${system.systemName} · ${date}` : 'EVE Combat Analytics'
+  const sides = summary && [...new Set([
+    ...summary.meta.teams.map((_, index) => index),
+    ...summary.sideOverrides.map(({ side }) => side).filter((side) => side >= 0),
+  ])].sort((a, b) => a - b)
   const totalIsk = summary?.meta.killmails.reduce((sum, { value }) => sum + value, 0)
+  const stats = summary && <>
+    <span className="app-number">{fmtNum(summary.meta.killmails.length)}</span> 次击毁 ·{' '}
+    <span className="app-number">{fmtIsk(totalIsk, 0)}</span> ISK · 日志{' '}
+    <span className="app-number">{fmtNum(summary.logs.length)}</span> 份
+  </>
 
   async function copyShare() {
     if (!shareUrl) return
@@ -38,26 +50,33 @@ export function TopBar({
   }
 
   return (
-    <header className="app-topbar">
-      <a className="app-topbar-title" href="/">{title}</a>
-      {summary && (
-        <span className="app-topbar-meta">
-          <span className="app-number">{fmtNum(summary.meta.killmails.length)}</span> 次击毁 ·{' '}
-          <span className="app-number">{fmtIsk(totalIsk, 0)}</span> ISK · 日志{' '}
-          <span className="app-number">{fmtNum(summary.logs.length)}</span> 份
-        </span>
-      )}
-      <div className="app-topbar-actions">
-        {summary && onOursSideChange && summary.meta.teams.length > 1 && (
+    <header className="app-topbar" onBlur={(event) => {
+      if (!event.currentTarget.contains(event.relatedTarget)) setMenuOpen(false)
+    }} onKeyDown={(event) => {
+      if (event.key !== 'Escape' || !menuOpen) return
+      event.preventDefault()
+      setMenuOpen(false)
+      event.currentTarget.querySelector<HTMLButtonElement>('.app-topbar-menu-toggle')?.focus()
+    }}>
+      <a className="app-topbar-title" href="/">{system && <span className="app-topbar-short-title">{system.systemName} · {date.slice(5)}</span>}
+        <span className="app-topbar-full-title">{title}</span>
+      </a>
+      {stats && <span className="app-topbar-meta">{stats}</span>}
+      {onUpload && <Button className="app-topbar-upload-mobile" onClick={onUpload} aria-label="上传日志"><Icon name="upload" size={18} /></Button>}
+      {summary && <Button className="app-topbar-menu-toggle" variant="ghost" aria-label="更多战斗操作"
+        aria-expanded={menuOpen} aria-controls="battle-topbar-actions" onClick={() => setMenuOpen(!menuOpen)}>⋯</Button>}
+      <div className="app-topbar-actions" id={summary ? 'battle-topbar-actions' : undefined} data-menu-open={menuOpen}>
+        {stats && <span className="app-topbar-menu-meta">{stats}</span>}
+        {sides && onOursSideChange && sides.length > 1 && (
           <label className="app-topbar-side">
             <span className="app-topbar-label">我方</span>
             <select aria-label="我方" className="app-select" value={oursSide} onChange={(event) => onOursSideChange(Number(event.target.value))}>
-              {summary.meta.teams.map((_, index) => <option key={index} value={index}>第 {index + 1} 方</option>)}
+              {sides.map((side) => <option key={side} value={side}>第 {side + 1} 方</option>)}
             </select>
           </label>
         )}
-        {onOpenSides && <Button variant="ghost" onClick={onOpenSides}>排边</Button>}
-        {onUpload && <Button onClick={onUpload}>上传日志</Button>}
+        {onOpenSides && <Button variant="ghost" onClick={() => { setMenuOpen(false); onOpenSides() }}>排边</Button>}
+        {onUpload && <Button className="app-topbar-upload-desktop" onClick={onUpload}>上传日志</Button>}
         {shareUrl && (
           <div className="app-topbar-share">
             {share && <input aria-label="分享链接" readOnly value={share} ref={(node) => node?.select()} />}

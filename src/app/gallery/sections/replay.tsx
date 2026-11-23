@@ -5,13 +5,13 @@ import { fmtHms } from '@/app/lib/format'
 import { defaultOursSide } from '@/app/lib/sides'
 import { BattleProvider } from '@/app/state/battle-store'
 import { useView, ViewProvider } from '@/app/state/view-store'
-import { loadUiFixture } from '@/app/test/ui-fixture'
+import { loadUiFixture, uiReplayStart } from '@/app/test/ui-fixture'
 import { Button } from '@/app/ui/Button'
 import type { GallerySection } from '../GalleryPage'
 
 const fixture = loadUiFixture()
 const { analysis, summary } = fixture
-const start = analysis.timeline.start
+const start = uiReplayStart
 // The board opens at 92 s and animates its opening tracers. Pause partway through them here.
 const boardTime = start + 92_420
 const end = analysis.interactions.at(-1)?.t ?? start

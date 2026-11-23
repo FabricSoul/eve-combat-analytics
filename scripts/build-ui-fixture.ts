@@ -1,7 +1,8 @@
 // Run with: node scripts/build-ui-fixture.ts
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, statSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { runnerImport } from 'vite'
+import { exportPilotSeries } from '../etl/export-u7-pilot-data.mjs'
 import type { Analysis, Analyze, BattleState, BattleSummary } from '../src/core/contract'
 
 const root = new URL('../', import.meta.url)
@@ -24,26 +25,11 @@ function summaryOf({ logs, ...state }: BattleState): BattleSummary {
 }
 
 function replayWindow(analysis: Analysis): Analysis {
-  const { timeline } = analysis
   return {
     ...analysis,
     interactions: analysis.interactions.filter(({ t }) => start <= t && t <= end),
     ewarSpans: analysis.ewarSpans.filter((span) => span.start <= end && span.end >= start)
       .map((span) => ({ ...span, start: Math.max(span.start, start), end: Math.min(span.end, end) })),
-    primaries: analysis.primaries.filter((span) => span.start <= end && span.end >= start)
-      .map((span) => ({
-        ...span,
-        start: Math.max(span.start, start),
-        end: Math.min(span.end, end),
-        killedAt: span.killedAt !== null && start <= span.killedAt && span.killedAt <= end ? span.killedAt : null,
-      })),
-    timeline: {
-      start,
-      damageBySide: Object.fromEntries(Object.entries(timeline.damageBySide).map(([side, buckets]) => [
-        side,
-        Array.from({ length: (end - start) / 1000 + 1 }, (_, i) => buckets[(start - timeline.start) / 1000 + i] ?? 0),
-      ])),
-    },
   }
 }
 
@@ -59,15 +45,21 @@ const [{ realBattleStateWithBr }, { analyze }] = await Promise.all([
 ])
 
 const state = realBattleStateWithBr()
+const analysis = analyze(state)
 const outputs = {
   'summary.json': summaryOf(state),
-  'analysis.json': replayWindow(analyze(state)),
+  'analysis.json': { ...replayWindow(analysis), replayStart: start, pilotSeries: exportPilotSeries(analysis) },
 }
 mkdirSync(directory, { recursive: true })
-for (const [file, data] of Object.entries(outputs)) {
+const encoded = Object.entries(outputs).map(([file, data]) => {
   const json = JSON.stringify(data) + '\n'
-  const size = Buffer.byteLength(json)
-  if (size >= 3_000_000) throw new Error(`${file} exceeds the 3 MB fixture limit (${size} bytes)`)
+  return { file, json, size: Buffer.byteLength(json) }
+})
+const totalBytes = encoded.reduce((total, { size }) => total + size, 0)
+// The gallery also includes a recorded EFT and pyfa output for one real fit.
+const fitBytes = statSync(new URL('src/app/gallery/sections/u7-fit-data.json', root)).size
+if (totalBytes + fitBytes > 3_000_000) throw new Error(`Gallery data exceeds 3 MB (${totalBytes + fitBytes} bytes)`)
+for (const { file, json, size } of encoded) {
   writeFileSync(new URL(file, directory), json)
   console.log(`${file}: ${size} bytes`)
 }

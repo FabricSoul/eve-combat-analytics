@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Analysis, BattleSummary, Interaction } from '@/core/contract'
-import { loadUiFixture } from '../../test/ui-fixture'
+import { loadUiFixture, uiReplayStart } from '../../test/ui-fixture'
 import { buildFeed, defaultFeedKinds } from './model'
 
 const T = 1_000_000
@@ -92,7 +92,7 @@ describe('raw and key feeds', () => {
 describe('feed on J125990', () => {
   it('compresses a busy 10 s into a short grouped list', () => {
     const { analysis, summary: s } = loadUiFixture()
-    const t = analysis.timeline.start + 92_000
+    const t = uiReplayStart + 92_000
     const raw = buildFeed({ analysis, summary: s, mode: 'raw', t, oursSide: 1 })
     const merged = buildFeed({ analysis, summary: s, mode: 'merged', t, oursSide: 1 })
     expect(merged.length).toBeLessThanOrEqual(16)

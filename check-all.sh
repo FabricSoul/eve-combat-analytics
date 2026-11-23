@@ -9,5 +9,8 @@ echo "▸ Workers tests"   && npx vitest run --config vitest.workers.config.ts
 echo "▸ Fit assets"       && pnpm fit:assets
 echo "▸ Fit parity"       && node etl/parity/browser.mjs
 echo "▸ Production build" && npx vite build >/dev/null
+if [[ "${UI_SMOKE:-${PERF:-0}}" == 1 ]]; then
+  echo "▸ UI smoke" && node scripts/ui-smoke.mjs
+fi
 echo
 echo "All gates passed ✅"

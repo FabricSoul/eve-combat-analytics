@@ -3,7 +3,7 @@ import { defaultOursSide } from '../lib/sides'
 import { AppShell } from '../shell/AppShell'
 import { BattleProvider } from '../state/battle-store'
 import { ViewProvider } from '../state/view-store'
-import { loadUiFixture } from '../test/ui-fixture'
+import { loadUiFixture, uiReplayStart } from '../test/ui-fixture'
 import { TokensPage } from './TokensPage'
 
 export interface GallerySection {
@@ -19,9 +19,9 @@ const sections = Object.entries(import.meta.glob<GallerySection>('./sections/*.t
 export default function GalleryPage() {
   const fixture = loadUiFixture()
   const { analysis, summary } = fixture
-  const time = analysis.timeline.start
+  const time = uiReplayStart
   const bucketCount = Math.max(0, ...Object.values(analysis.timeline.damageBySide).map((buckets) => buckets.length))
-  const end = time + Math.max(0, bucketCount - 1) * 1000
+  const end = analysis.timeline.start + Math.max(0, bucketCount - 1) * 1000
 
   return (
     <AppShell>

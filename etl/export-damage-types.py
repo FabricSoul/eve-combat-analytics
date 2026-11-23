@@ -1,6 +1,6 @@
 """Export single-type damage sources from the pinned pyfa eve.db.
 
-Usage: python3 src/app/battle/compare/export-damage-types.py build/eve.db
+Usage: python3 etl/export-damage-types.py build/eve.db
 Mixed damage is deliberately omitted: combat logs report only total applied HP.
 """
 import json
@@ -27,7 +27,7 @@ with sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True) as db:
         for name in (english, chinese)
         if name
     }
-    Path(__file__).with_name("damage-types.json").write_text(
+    (Path(__file__).resolve().parents[1] / "src/app/battle/compare/damage-types.json").write_text(
         json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )

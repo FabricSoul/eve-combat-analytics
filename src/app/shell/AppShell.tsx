@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react'
+import './workspace.css'
 import { TopBar, type TopBarProps } from './TopBar'
 
 export type Appearance = 'light' | 'dark'
