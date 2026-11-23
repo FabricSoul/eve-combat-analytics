@@ -32,7 +32,7 @@ function mount(fixture = loadUiFixture(), initialTime = 0) {
   return fixture
 }
 
-const lastBefore = (list: { t: number }[], t: number) => list.findLastIndex((kill) => kill.t <= t)
+const lastBefore = (list: { t: number }[], t: number) => list.reduce((last, kill, index) => kill.t <= t ? index : last, -1)
 
 describe('KillsList', () => {
   it('lists every killmail except pods, in time order', () => {
