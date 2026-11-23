@@ -5,6 +5,7 @@
  * Never use this outside the gallery.
  */
 import type { Analysis, BattleSummary, Entity, EntityKey } from '@/core/contract'
+import { buildRoster, type RosterRow } from './model'
 
 export interface Fixture { summary: BattleSummary; analysis: Analysis }
 
@@ -39,4 +40,40 @@ export function onlyPilot(fixture: Fixture, key: EntityKey, patch: Partial<Entit
       coverage: fixture.analysis.coverage,
     },
   }
+}
+
+export interface RosterSamples {
+  logged: RosterRow
+  unlogged: RosterRow
+  dead: RosterRow
+  /** The dead sample's killmail time: the gallery's cursor for that state (before it the pilot is alive). */
+  deadAt: number
+  corrected: RosterRow
+}
+
+/**
+ * Real pilots of our side for each roster-row state in the gallery. Throws when the data has no pilot for a state, so a
+ * missing state cannot silently show somebody else. `dead` is the row as of its own killmail.
+ */
+export function rosterSamples(fixture: Fixture, ours: number): RosterSamples {
+  const { summary, analysis } = fixture
+  const start = analysis.timeline.start
+  const firstLoss = new Map<number, number>()
+  for (const { victim, t } of [...summary.meta.killmails].sort((a, b) => a.t - b.t)) {
+    if (victim.charId !== null && !firstLoss.has(victim.charId)) firstLoss.set(victim.charId, t)
+  }
+  const rowsAt = (at: number) => buildRoster(summary, analysis, ours, at).flatMap((group) => group.rows)
+  const alive = rowsAt(start).filter((row) => row.side === ours && row.charId !== null)
+  const need = <T,>(state: string, found: T | undefined): T => {
+    if (found === undefined) throw new Error(`no ${state} sample in this battle`)
+    return found
+  }
+  const notLost = (row: RosterRow) => row.charId !== null && !firstLoss.has(row.charId)
+  const logged = need('logged', alive.find((row) => row.hasLog && !row.tag && notLost(row)))
+  const unlogged = need('unlogged', alive.find((row) => !row.hasLog && !row.tag && notLost(row)))
+  const corrected = need('corrected', alive.find((row) => row.tag?.kind === 'log'))
+  const lost = need('dead', alive.find((row) => row.charId !== null && (firstLoss.get(row.charId) ?? 0) > start))
+  const deadAt = firstLoss.get(lost.charId!)!
+  const dead = need('dead', rowsAt(deadAt).find((row) => row.key === lost.key))
+  return { logged, unlogged, dead, deadAt, corrected }
 }

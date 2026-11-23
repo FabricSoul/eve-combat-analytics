@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
 import type { EntityKey } from '@/core/contract'
 import { Roster } from '../../battle/Roster'
-import { onlyPilot, withExtraSides } from '../../battle/roster/example'
+import { onlyPilot, rosterSamples, withExtraSides } from '../../battle/roster/example'
 import { defaultOursSide } from '../../lib/sides'
 import { BattleProvider } from '../../state/battle-store'
 import { ViewProvider, useView } from '../../state/view-store'
@@ -9,10 +9,7 @@ import { loadUiFixture } from '../../test/ui-fixture'
 
 const fixture = loadUiFixture()
 const ours = defaultOursSide(fixture.summary)
-const entities = Object.values(fixture.analysis.entities)
-const pilots = entities.filter((e) => e.charId !== null)
-const deadIds = new Set(fixture.summary.meta.killmails.map((k) => k.victim.charId))
-const pick = (test: (e: (typeof pilots)[number]) => boolean) => pilots.find((e) => e.side === ours && test(e)) ?? pilots[0]!
+const samples = rosterSamples(fixture, ours)
 
 function Select({ keyOf }: { keyOf: EntityKey }) {
   const { select } = useView()
@@ -29,8 +26,8 @@ function Box({ label, children, hover }: { label: string; children: ReactNode; h
   )
 }
 
-function State({ label, keyOf, patch, selected, manual, hover }: {
-  label: string; keyOf: EntityKey; patch?: Parameters<typeof onlyPilot>[2]; selected?: boolean; manual?: boolean; hover?: boolean
+function State({ label, keyOf, patch, selected, manual, hover, at }: {
+  label: string; keyOf: EntityKey; patch?: Parameters<typeof onlyPilot>[2]; selected?: boolean; manual?: boolean; hover?: boolean; at?: number
 }) {
   const data = onlyPilot(fixture, keyOf, patch)
   const charId = data.analysis.entities[keyOf]?.charId
@@ -40,7 +37,7 @@ function State({ label, keyOf, patch, selected, manual, hover }: {
   return (
     <Box label={label} hover={hover}>
       <BattleProvider static={{ ...data, summary }}>
-        <ViewProvider syncUrl={false} defaultSide={ours}>
+        <ViewProvider syncUrl={false} defaultSide={ours} initialTime={at ?? fixture.analysis.timeline.start}>
           {selected && <Select keyOf={keyOf} />}
           <Roster />
         </ViewProvider>
@@ -50,10 +47,7 @@ function State({ label, keyOf, patch, selected, manual, hover }: {
 }
 
 function RosterSection() {
-  const logged = pick((e) => e.hasLog && e.sideSource === 'br' && !deadIds.has(e.charId))
-  const unlogged = pick((e) => !e.hasLog && e.sideSource === 'br' && !deadIds.has(e.charId))
-  const dead = pick((e) => !e.hasLog && e.charId !== null && deadIds.has(e.charId))
-  const corrected = pick((e) => e.sideSource === 'log')
+  const { logged, unlogged, dead, corrected, deadAt } = samples
   const three = withExtraSides(fixture)
   return (
     <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
@@ -62,7 +56,7 @@ function RosterSection() {
         <State label="悬停（底色变深，显示 ⋯）" keyOf={unlogged.key} hover />
         <State label="选中（金色左线 + 浅底）" keyOf={logged.key} selected />
         <State label="没上传日志（空心圈）" keyOf={unlogged.key} />
-        <State label="已被击毁（划线、图标变暗）" keyOf={dead.key} />
+        <State label="已被击毁（划线、图标变暗；游标在他被击毁的那一刻）" keyOf={dead.key} at={deadAt} />
         <State label="阵营据日志修正（悬停看依据）" keyOf={corrected.key} />
         <State label="阵营被手动修改（示例：这场没有人手动改过）" keyOf={unlogged.key} patch={{ sideSource: 'manual' }} manual />
       </div>
