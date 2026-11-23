@@ -179,9 +179,13 @@ export interface Killmail {
 }
 
 export interface BattleMeta {
-  /** br.evetools.org id, the battle's key everywhere. */
+  /**
+   * The battle's key everywhere (URLs, Durable Object name): a br.evetools.org BR id (24 hex), or for a
+   * system/time "related" link `related-<systemId>-<YYYYMMDDHHMM>`.
+   */
   brId: string
-  source: 'br.evetools'
+  /** `br.evetools.related`: killmails from a related link; teams were inferred from who shot whom. */
+  source: 'br.evetools' | 'br.evetools.related'
   fetchedAt: number
   windows: SystemWindow[]
   /** teams[i] is side i. Usually two sides. */
@@ -191,7 +195,10 @@ export interface BattleMeta {
   names: Record<number, { name: string; category: string }>
 }
 
-/** Implemented in src/core/br/. */
+/**
+ * Implemented in src/core/br/. Returns the battle key (see BattleMeta.brId) for a BR link, a br.evetools or
+ * zkillboard `/related/<systemId>/<YYYYMMDDHHMM>` link, or a bare BR id; null otherwise.
+ */
 export type ParseBrUrl = (url: string) => string | null
 export type NormalizeBrComposition = (raw: unknown, names: BattleMeta['names'], fetchedAt: number) => BattleMeta
 
@@ -254,7 +261,8 @@ export interface ApiError {
 /**
  * POST /api/battles                 body { brUrl }          → { brId }   (idempotent)
  * GET  /api/battles/:brId                                   → BattleSummary  (no parsed events)
- * GET  /api/battles/:brId/logs/:logId                       → UploadedLog    (immutable: cache forever)
+ * GET  /api/battles/:brId/analysis                          → Analysis  (server-computed; ETag "v<analysisVersion>", gzip)
+ * GET  /api/battles/:brId/logs/:logId                       → UploadedLog    (immutable: cache forever; for "show source line")
  * POST /api/battles/:brId/logs      body: raw Gamelog text  → UploadedLogSummary
  * PUT  /api/battles/:brId/fits/:charId body: EFT text (≤ 64 KiB) → FitEntry
  * GET  /api/battles/:brId/ws        (WebSocket upgrade)     → ServerMessage stream
@@ -270,12 +278,16 @@ export interface UploadedLogSummary {
   uploadedAt: number
 }
 
-/** BattleState without parsed events; the client GETs each log by id and assembles a BattleState for analyze(). */
+/**
+ * BattleState without parsed events. The server runs analyze() after every change and bumps analysisVersion;
+ * clients GET /analysis (user decision 2026-11-22: analysis runs on the server, not in the browser).
+ */
 export interface BattleSummary {
   meta: BattleMeta
   logs: UploadedLogSummary[]
   fits: FitEntry[]
   names: NameIndex
+  analysisVersion: number
 }
 
 /** Every message stays well under 1 MiB: logs are fetched over HTTP, never pushed. */
@@ -283,6 +295,8 @@ export type ServerMessage =
   | { type: 'snapshot'; state: BattleSummary }
   | { type: 'log_added'; log: UploadedLogSummary; names: NameIndex }
   | { type: 'fit_set'; fit: FitEntry }
+  /** A new analysis is ready; clients refetch GET /analysis. */
+  | { type: 'analysis_ready'; version: number }
 
 // ───────────────────────────── Analysis ─────────────────────────────
 
@@ -358,6 +372,8 @@ export interface PilotStats {
   primaryShare: number
   /** Median seconds from a primary switch to this pilot's first hit on the new primary. */
   switchDelayMedian: number | null
+  /** Median seconds from the previous primary's killmail to this pilot's first hit on the next primary (signed). */
+  switchAfterKillMedian: number | null
   /** Median seconds from a friendly starting to take damage to this pilot's first rep on them. */
   repReactionMedian: number | null
   /** Seconds from the side's first shot to this pilot's first shot. */

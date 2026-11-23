@@ -102,6 +102,7 @@ export function collectStats(
       neutIn: 0,
       primaryShare: 0,
       switchDelayMedian: null,
+    switchAfterKillMedian: null,
       repReactionMedian: null,
       firstShotDelay: null,
       hitQuality: {},

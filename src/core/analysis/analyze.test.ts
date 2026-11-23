@@ -115,7 +115,7 @@ describe('analyze', () => {
     const analysis = analyze(pilotComparison())
     expect(analysis.stats.find(({ key }) => key === 'char:1')).toEqual({
       key: 'char:1', activeRatio: 4 / 43, damageOut: 190, damageIn: 100, repairOut: 75, repairIn: 30, neutOut: 8,
-      neutIn: 9, primaryShare: 180 / 190, switchDelayMedian: null, repReactionMedian: 16, firstShotDelay: 0,
+      neutIn: 9, primaryShare: 180 / 190, switchDelayMedian: null, switchAfterKillMedian: null, repReactionMedian: 16, firstShotDelay: 0,
       hitQuality: { Hits: 2, Smashes: 1, none: 1 }, misses: 1, pointSeconds: 29, killmailDamage: 540, killmailCount: 2,
     })
     expect(analysis.stats.find(({ key }) => key === 'char:2')).toMatchObject({
@@ -123,8 +123,8 @@ describe('analyze', () => {
     })
     expect(analysis.stats.find(({ key }) => key === 'char:5')).toEqual({
       key: 'char:5', activeRatio: 0, damageOut: 0, damageIn: 0, repairOut: 0, repairIn: 0, neutOut: 0, neutIn: 0,
-      primaryShare: 0, switchDelayMedian: null, repReactionMedian: null, firstShotDelay: null, hitQuality: {},
-      misses: 0, pointSeconds: 0, killmailDamage: 70, killmailCount: 1,
+      primaryShare: 0, switchDelayMedian: null, switchAfterKillMedian: null, repReactionMedian: null, firstShotDelay: null,
+      hitQuality: {}, misses: 0, pointSeconds: 0, killmailDamage: 70, killmailCount: 1,
     })
     expect(analysis.coverage).toEqual([{ side: 0, known: 3, withLog: 2 }, { side: 1, known: 2, withLog: 1 }])
     expect(analysis.interactions.find(({ kind }) => kind === 'repair')?.repairType).toBe('armor')
