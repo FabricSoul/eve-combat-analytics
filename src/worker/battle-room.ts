@@ -4,7 +4,7 @@ import { sideOf } from '../core/br/normalize'
 import { GamelogFormatError } from '../core/contract'
 import type {
   Analysis, ApiError, BattleMeta, FitEntry, KillmailParticipant, LogEvent, NameIndex, ServerMessage,
-  SideOverride, SideSubject, UploadedLogSummary,
+  SideOverride, SideSubject,
 } from '../core/contract'
 import { analysisJson } from './analysis-json'
 import { ApiFailure, battlePath, errorResponse, readText, upstreamFailure } from './http'
@@ -258,12 +258,9 @@ export class BattleRoom extends DurableObject<Env> {
         parsed: { ...parsed, events, unparsed: parsed.unparsed.slice(0, 500) },
         unparsedCount: parsed.unparsed.length,
       }
-      const summary = {
-        id, charId, charName, ...assignment, events: events.length, uploadedAt: log.uploadedAt,
-      } satisfies UploadedLogSummary
       const packed = await packJson(log.parsed)
       await this.scheduleAnalysis()
-      this.store.saveLog(log, packed, resolution)
+      const summary = this.store.saveLog(log, packed, resolution)
       this.broadcast({ type: 'log_added', log: summary, names: resolution.names })
       return Response.json(summary)
     } finally {

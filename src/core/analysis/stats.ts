@@ -89,6 +89,7 @@ export function collectStats(
   damageBySide: Interaction[][],
   primaries: PrimaryHitRange[][],
   killmailTotals: ReadonlyMap<EntityKey, { damage: number; count: number }>,
+  { from: rangeStart, to: rangeEnd } = { from: -Infinity, to: Infinity },
 ): PilotStats[] {
   const stats: PilotStats[] = []
   const pilots = new Map<EntityKey, PilotAccumulator>()
@@ -194,7 +195,7 @@ export function collectStats(
   for (const { from, ewar, start, end } of ewarSpans) {
     if (ewar !== 'warp_scramble' && ewar !== 'warp_disrupt') continue
     const pilot = pilots.get(from)
-    if (pilot) pilot.stats.pointSeconds += (end - start) / 1000
+    if (pilot) pilot.stats.pointSeconds += Math.max(0, Math.min(end, rangeEnd) - Math.max(start, rangeStart)) / 1000
   }
   collectRepairs(needsRepair, repairedBy)
   for (const ranges of primaries) attributePrimaryHits(ranges, pilots)

@@ -1,0 +1,40 @@
+import type { KillmailFit } from '../core/contract'
+import typeNames from '../core/data/killmail-types.json'
+import { ESI_BASE, USER_AGENT } from '../core/esi/client'
+import { killmailToEft, type EsiKillmail } from '../core/fit/killmail-eft'
+import { ApiFailure } from './http'
+
+export const killmailFitPath = /^\/api\/killmails\/(\d{1,15})\/([a-f0-9]{40})\/fit$/i
+
+const cacheControl = 'public, max-age=31536000, immutable'
+
+export async function readKillmailFit(
+  origin: string, id: number, hash: string, esiFetch: typeof fetch,
+): Promise<Response> {
+  const url = `${origin}/api/killmails/${id}/${hash}/fit`
+  const cache = await caches.open('killmail-fits-v1')
+  const cached = await cache.match(url)
+  if (cached) return cached
+
+  let fit: KillmailFit
+  try {
+    const response = await esiFetch(`${ESI_BASE}/killmails/${id}/${hash}/`, {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+    })
+    if (response.status === 404) {
+      throw new ApiFailure('killmail_unavailable', 'ESI killmail not found', 404)
+    }
+    if (!response.ok) throw new Error(`ESI status ${response.status}`)
+    const killmail = await response.json<EsiKillmail>()
+    if (killmail.killmail_id !== id) throw new Error('Unexpected killmail ID')
+    fit = killmailToEft(killmail, typeNames)
+  } catch (error) {
+    if (error instanceof ApiFailure) throw error
+    throw new ApiFailure('killmail_unavailable', 'Could not import the ESI killmail')
+  }
+
+  const response = Response.json(fit, { headers: { 'Cache-Control': cacheControl } })
+  // A cache write failure should not discard a successfully imported fit.
+  await cache.put(url, response.clone()).catch(() => {})
+  return response
+}

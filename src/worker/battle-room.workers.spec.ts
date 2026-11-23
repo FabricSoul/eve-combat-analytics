@@ -190,13 +190,15 @@ it('broadcasts only new uploads to both hibernating viewers and snapshots curren
     expect(result.status).toBe(200)
     expect(duplicate.status).toBe(200)
     const initial = await result.json<UploadedLogSummary>()
+    expect(initial).toMatchObject({ first: start, last: end, language: 'en' })
     expect(await duplicate.json()).toEqual(initial)
-    const added = { type: 'log_added', log: (await state(id)).logs[0], names: { Target: { charId: 101, side: 3, corpId: 12345, allyId: null }, NPC: null } }
+    expect((await state(id)).logs).toEqual([initial])
+    const added = { type: 'log_added', log: initial, names: { Target: { charId: 101, side: 3, corpId: 12345, allyId: null }, NPC: null } }
     expect(await first.next()).toEqual(added)
     expect(await second.next()).toEqual(added)
     expect(await (await upload(id, 'valid log')).json()).toEqual(initial)
     const followup = await (await upload(id, 'replacement')).json<UploadedLogSummary>()
-    expect(followup).toMatchObject({ charId: 100, events: 2 })
+    expect(followup).toMatchObject({ charId: 100, events: 2, first: start, last: end, language: 'en' })
     expect(followup.id).not.toBe(initial.id)
     const current = await state(id)
     expect(current.logs).toHaveLength(2)

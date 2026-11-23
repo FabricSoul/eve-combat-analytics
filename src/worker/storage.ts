@@ -4,8 +4,10 @@ import type {
 } from '../core/contract'
 
 export type StoredAffiliation = Pick<UploadedLog, 'corpId' | 'allyId'>
-type LogSummary = Pick<UploadedLogSummary, keyof UploadedLogSummary> & StoredAffiliation
-type LogRow = Pick<UploadedLogSummary, keyof UploadedLogSummary> & {
+type LogSummary = UploadedLogSummary & StoredAffiliation
+type LogEventSummary = Pick<UploadedLogSummary, 'first' | 'last' | 'language'>
+type LogRow = Omit<UploadedLogSummary, keyof LogEventSummary> & {
+  eventSummary: string | null
   unparsedCount: number | null
   affiliation: string | null
 }
@@ -112,23 +114,25 @@ export class BattleStorage {
     })
   }
 
-  private hasAffiliation(table: 'logs' | 'names'): boolean {
+  private hasColumn(table: 'logs' | 'names', column: string): boolean {
     return this.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray()
-      .some(({ name }) => name === 'affiliation')
+      .some(({ name }) => name === column)
   }
 
   private logRows(id?: string): LogRow[] {
     const columns = 'id, charId, charName, side, uploadedAt, events'
     const count = this.legacy ? 'NULL AS unparsedCount' : 'unparsedCount'
-    const affiliation = this.hasAffiliation('logs') ? 'affiliation' : 'NULL AS affiliation'
+    const affiliation = this.hasColumn('logs', 'affiliation') ? 'affiliation' : 'NULL AS affiliation'
+    const eventSummary = this.hasColumn('logs', 'eventSummary') ? 'eventSummary' : 'NULL AS eventSummary'
     const where = id === undefined ? '' : 'WHERE id = ?'
     return this.sql.exec<LogRow>(
-      `SELECT ${columns}, ${count}, ${affiliation} FROM logs ${where} ORDER BY charId, uploadedAt, id`, ...(id === undefined ? [] : [id]),
+      `SELECT ${columns}, ${count}, ${affiliation}, ${eventSummary} FROM logs ${where} ORDER BY charId, uploadedAt, id`, ...(id === undefined ? [] : [id]),
     ).toArray()
   }
 
-  private summarizeLog({ id, charId, charName, side, events, uploadedAt, affiliation }: LogRow): LogSummary {
-    return { id, charId, charName, side, events, uploadedAt, ...unpackAffiliation(affiliation) }
+  private summarizeLog({ id, charId, charName, side, events, uploadedAt, affiliation, eventSummary }: LogRow): LogSummary {
+    const details: LogEventSummary = eventSummary === null ? {} : JSON.parse(eventSummary)
+    return { id, charId, charName, side, events, uploadedAt, ...unpackAffiliation(affiliation), ...details }
   }
 
   logById(id: string): LogSummary | undefined {
@@ -174,7 +178,7 @@ export class BattleStorage {
 
   private fitsAndNames(): Pick<BattleState, 'fits' | 'names'> {
     const fits = this.sql.exec<FitEntry & Record<string, SqlStorageValue>>('SELECT * FROM fits ORDER BY charId').toArray()
-    const affiliation = this.hasAffiliation('names') ? 'affiliation' : 'NULL AS affiliation'
+    const affiliation = this.hasColumn('names', 'affiliation') ? 'affiliation' : 'NULL AS affiliation'
     const rows = this.sql.exec<{ name: string; charId: number | null; side: number | null; affiliation: string | null }>(
       `SELECT name, charId, side, ${affiliation} FROM names`,
     ).toArray()
@@ -281,14 +285,18 @@ export class BattleStorage {
     log: StoredLog,
     packed: PackedJson,
     resolution: { names: NameIndex; currentOffset: number | null; pending?: { id: string; offset: number | null } },
-  ): void {
-    const { charId, id, charName, side, uploadedAt, unparsedCount, parsed } = log
+  ): LogSummary {
+    const { charId, id, charName, side, uploadedAt, unparsedCount, parsed, corpId, allyId } = log
+    const details: LogEventSummary = { first: parsed.events[0]?.t, last: parsed.events.at(-1)?.t, language: parsed.language }
     this.storage.transactionSync(() => {
-      if (!this.hasAffiliation('logs')) this.sql.exec('ALTER TABLE logs ADD COLUMN affiliation TEXT')
-      if (!this.hasAffiliation('names')) this.sql.exec('ALTER TABLE names ADD COLUMN affiliation TEXT')
+      if (!this.hasColumn('logs', 'affiliation')) this.sql.exec('ALTER TABLE logs ADD COLUMN affiliation TEXT')
+      if (!this.hasColumn('names', 'affiliation')) this.sql.exec('ALTER TABLE names ADD COLUMN affiliation TEXT')
+      if (!this.hasColumn('logs', 'eventSummary')) this.sql.exec('ALTER TABLE logs ADD COLUMN eventSummary TEXT')
       this.sql.exec(
-        'INSERT INTO logs (id, charId, charName, side, uploadedAt, events, unparsedCount, nameOffset, affiliation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        id, charId, charName, side, uploadedAt, parsed.events.length, unparsedCount, resolution.currentOffset, packAffiliation(log),
+        `INSERT INTO logs (id, charId, charName, side, uploadedAt, events, unparsedCount, nameOffset, affiliation, eventSummary)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, charId, charName, side, uploadedAt, parsed.events.length, unparsedCount, resolution.currentOffset,
+        packAffiliation(log), JSON.stringify(details),
       )
       packed.forEach((chunk, seq) => this.sql.exec('INSERT INTO log_chunks VALUES (?, ?, ?)', id, seq, chunk))
       if (resolution.pending) {
@@ -302,6 +310,7 @@ export class BattleStorage {
       }
       this.markAnalysisDirty()
     })
+    return { id, charId, charName, side, corpId, allyId, events: parsed.events.length, uploadedAt, ...details }
   }
 
   setFit({ charId, eft, setAt }: FitEntry): void {
