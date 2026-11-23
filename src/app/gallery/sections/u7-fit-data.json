@@ -1,0 +1,35 @@
+{
+  "source": "J125990 approved c7 board, pages/data/fits.js. ESI fitted items, pinned pyfa baseline. Generic abyssal IDs resolve to base EFT names through killmail-types.json.",
+  "killmailId": 128067587,
+  "shipTypeId": 47271,
+  "stats": {
+    "shipTypeName": "Leshak",
+    "dps": {
+      "total": 834.359837962963,
+      "turret": 466.32233796296293,
+      "missile": 0,
+      "drone": 318.0375
+    },
+    "volley": 3661.6625000000004,
+    "remoteRepair": {
+      "armor": 233.33333333333331,
+      "shield": 0,
+      "hull": 0,
+      "capacitor": 0
+    },
+    "ehp": 176589.14269036028,
+    "maxVelocity": 1294.102095750817,
+    "ranges": {
+      "Imperial Navy Large EMP Smartbomb": {
+        "optimal": 7500,
+        "falloff": 1
+      },
+      "Veles Supratidal Entropic Disintegrator": {
+        "optimal": 21825,
+        "falloff": 1.25
+      }
+    }
+  },
+  "eft": "[Leshak, Killmail 128067587]\n\nCoreli A-Type Multispectrum Coating\nDamage Control II\nCentum B-Type Multispectrum Energized Membrane\nEntropic Radiation Sink II\nEntropic Radiation Sink II\nCentii A-Type Multispectrum Coating\nImperial Navy 1600mm Steel Plates\nEntropic Radiation Sink II\n\n500MN Cold-Gas Enduring Microwarpdrive\nWarp Scrambler II\nSensor Booster II, Scan Resolution Script\nHeavy F-RX Compact Capacitor Booster, Navy Cap Booster 3200\n\nVeles Supratidal Entropic Disintegrator, Mystic L\nLarge Remote Armor Repairer II\nImperial Navy Large EMP Smartbomb\nLarge Remote Armor Repairer II\nCentum A-Type Medium Remote Armor Repairer\n\nLarge Trimark Armor Pump I\nLarge Trimark Armor Pump I\nLarge EM Armor Reinforcer I\n\nWasp II x3\nWasp II x1\nWarrior II x1\nWarrior II x4",
+  "setAt": 1750608832000
+}

@@ -1,0 +1,8 @@
+.u7-gallery-drawer {
+  width: min(420px, 100%);
+  max-height: 680px;
+  overflow: auto;
+  border: 1px solid var(--color-hair);
+}
+
+.u7-gallery-drawer:has(.u7-person[data-expanded="true"]) { width: 100%; }
