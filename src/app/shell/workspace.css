@@ -5,6 +5,14 @@
 
 .app-shell .upload-tray { box-shadow: none; }
 
+.app-topbar-connection {
+  flex: none;
+  color: var(--color-text-2);
+  font-size: var(--fs-s);
+  white-space: nowrap;
+}
+.app-topbar-connection:empty { display: none; }
+
 .app-side-picker { position: relative; min-width: 0; }
 .app-side-picker-trigger.app-button {
   width: max-content;

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type CSSProperties } from 'react'
+import { useId, useMemo, useState, type CSSProperties } from 'react'
 import type { Analysis, Entity } from '@/core/contract'
 import { fmtHms, fmtNum } from '../lib/format'
 import { sideColor, sideLetter, sideOrder } from '../lib/sides'
@@ -22,19 +22,8 @@ const tabs: readonly TabOption<DrawerTab>[] = [
 
 export function PersonDrawer(_props: PersonDrawerProps) {
   const { analysis } = useBattleContext()
-  const { selected, select, range } = useView()
+  const { selected, select } = useView()
   const pilot = selected ? analysis?.entities[selected] : undefined
-
-  useEffect(() => {
-    if (!selected) return
-    function dismiss(event: KeyboardEvent) {
-      if (event.key !== 'Escape' || event.defaultPrevented || range) return
-      event.preventDefault()
-      select(null)
-    }
-    window.addEventListener('keydown', dismiss)
-    return () => window.removeEventListener('keydown', dismiss)
-  }, [selected, select, range])
 
   if (!selected) return null
   if (!analysis || !pilot) {

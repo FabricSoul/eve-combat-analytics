@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type Ref } from 'react'
 import type { Analysis, BattleSummary } from '@/core/contract'
 import { Icon } from '../battle/upload/icons'
 import { fmtDate, fmtIsk, fmtNum } from '../lib/format'
 import { sideColor, sideLetter, sideName, sideOrder } from '../lib/sides'
 import { Button } from '../ui/Button'
 import type { Appearance } from './AppShell'
+import { battleTitle } from './battle-title'
 import { SidePicker } from './SidePicker'
 
 export interface TopBarProps {
@@ -15,19 +16,25 @@ export interface TopBarProps {
   oursSide?: number
   onOursSideChange?(side: number): void
   onUpload?(): void
-  onOpenSides?(): void
+  onOpenSides?(trigger: HTMLButtonElement): void
+  live?: boolean
+  reconnecting?: boolean
+  menuOpen?: boolean
+  onMenuOpenChange?(open: boolean): void
+  menuTrigger?: Ref<HTMLButtonElement>
   shareUrl?(): string
 }
 
 export function TopBar({
   appearance, onToggleAppearance, summary, analysis, oursSide, onOursSideChange, onUpload, onOpenSides, shareUrl,
+  live, reconnecting, menuOpen = false, onMenuOpenChange, menuTrigger,
 }: TopBarProps) {
   const [share, setShare] = useState('')
   const [copied, setCopied] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
   const system = summary?.meta.windows[0]
   const date = system ? fmtDate(system.start) : ''
-  const title = system ? `${system.systemName} · ${date}` : 'EVE Combat Analytics'
+  const name = summary ? battleTitle(summary.meta) : 'EVE Combat Analytics'
+  const title = date ? `${name} · ${date}` : name
   const sides = useMemo(() => {
     if (!summary || !analysis) return []
     const indices = [...new Set([
@@ -40,9 +47,10 @@ export function TopBar({
     }))
   }, [summary, analysis, oursSide])
   const totalIsk = summary?.meta.killmails.reduce((sum, { value }) => sum + value, 0)
+  const isk = fmtIsk(totalIsk, 0)
   const stats = summary && <>
     <span className="app-number">{fmtNum(summary.meta.killmails.length)}</span> 次击毁
-    <span className="app-topbar-isk"> · <span className="app-number">{fmtIsk(totalIsk, 0)}</span> ISK</span>
+    <span className="app-topbar-isk"> · <span className="app-number">{isk}</span>{isk.endsWith(' ISK') ? '' : ' ISK'}</span>
     {' · 日志 '}
     <span className="app-number">{fmtNum(summary.logs.length)}</span> 份
   </>
@@ -62,24 +70,23 @@ export function TopBar({
 
   return (
     <header className="app-topbar" onBlur={(event) => {
-      if (!event.currentTarget.contains(event.relatedTarget)) setMenuOpen(false)
-    }} onKeyDown={(event) => {
-      if (event.defaultPrevented || event.key !== 'Escape' || !menuOpen) return
-      event.preventDefault()
-      setMenuOpen(false)
-      event.currentTarget.querySelector<HTMLButtonElement>('.app-topbar-menu-toggle')?.focus()
+      if (!event.currentTarget.contains(event.relatedTarget)) onMenuOpenChange?.(false)
     }}>
-      <a className="app-topbar-title" href="/">{system && <span className="app-topbar-short-title">{system.systemName} · {date.slice(5)}</span>}
+      <a className="app-topbar-title" href="/" title={title}>
+        {date && <span className="app-topbar-short-title">{name} · {date.slice(5)}</span>}
         <span className="app-topbar-full-title">{title}</span>
       </a>
+      {summary && live !== undefined && <span className="app-topbar-connection" role="status">
+        {live ? '' : reconnecting ? '重连中…' : '离线'}
+      </span>}
       {stats && <span className="app-topbar-meta">{stats}</span>}
       {onUpload && <Button className="app-topbar-upload-mobile" onClick={onUpload} aria-label="上传日志"><Icon name="upload" size={18} /></Button>}
-      {summary && <Button className="app-topbar-menu-toggle" variant="ghost" aria-label="更多战斗操作"
-        aria-expanded={menuOpen} aria-controls="battle-topbar-actions" onClick={() => setMenuOpen(!menuOpen)}>⋯</Button>}
+      {summary && <Button ref={menuTrigger} className="app-topbar-menu-toggle" variant="ghost" aria-label="更多战斗操作"
+        aria-expanded={menuOpen} aria-controls="battle-topbar-actions" onClick={() => onMenuOpenChange?.(!menuOpen)}>⋯</Button>}
       <div className="app-topbar-actions" id={summary ? 'battle-topbar-actions' : undefined} data-menu-open={menuOpen}>
         {stats && <span className="app-topbar-menu-meta">{stats}</span>}
         {onOursSideChange && sides.length > 1 && <SidePicker choices={sides} value={oursSide} onChange={onOursSideChange} />}
-        {onOpenSides && <Button variant="ghost" onClick={() => { setMenuOpen(false); onOpenSides() }}>排边</Button>}
+        {onOpenSides && <Button variant="ghost" onClick={(event) => onOpenSides(event.currentTarget)}>排边</Button>}
         {onUpload && <Button className="app-topbar-upload-desktop" onClick={onUpload}>上传日志</Button>}
         {shareUrl && (
           <div className="app-topbar-share">

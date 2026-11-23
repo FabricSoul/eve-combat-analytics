@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { recordRecent } from '../home/recent'
 import { defaultOursSide } from '../lib/sides'
 import { AppShell } from '../shell/AppShell'
+import { battleTitle } from '../shell/battle-title'
 import { PhonePersonPage } from '../shell/PhonePersonPage'
 import { RosterRail } from '../shell/RosterRail'
 import { useBattleLayout } from '../shell/useBattleLayout'
 import { BattleProvider, useBattleContext } from '../state/battle-store'
 import { ViewProvider, useView, type PanelTab } from '../state/view-store'
 import { BottomSheet } from '../ui/BottomSheet'
+import { Button } from '../ui/Button'
 import { Tabs, type TabOption } from '../ui/Tabs'
 import { CompareTable } from './CompareTable'
 import { EmptyBattle } from './EmptyBattle'
@@ -36,12 +38,19 @@ const panels = { roster: Roster, compare: CompareTable, kills: KillsList, fit: F
 const panelId = 'battle-panel'
 
 function BattleWorkspace() {
-  const { summary, analysis, status, error } = useBattleContext()
+  const battle = useBattleContext()
+  const { summary, analysis, status, error, live } = battle
+  const reconnecting = 'reconnecting' in battle && battle.reconnecting === true
   const view = useView()
   const layout = useBattleLayout()
   const [phoneTab, setPhoneTab] = useState<PhoneTab>('events')
   const PhonePanel = phonePanels[phoneTab]
   const [sidesOpen, setSidesOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuTrigger = useRef<HTMLButtonElement>(null)
+  const sidesTrigger = useRef<HTMLButtonElement | null>(null)
+  const desktopDrawer = useRef<HTMLElement>(null)
+  const desktopDrawerOpen = Boolean(summary && view.selected && layout !== 'phone')
   const picker = useRef<HTMLInputElement>(null)
   const openPicker = () => picker.current?.click()
   const Panel = panels[view.panelTab]
@@ -52,11 +61,9 @@ function BattleWorkspace() {
   useEffect(() => {
     if (!meta || logCount === undefined || opened.current === meta.brId) return
     opened.current = meta.brId
-    const systems = [...new Set(meta.windows.map(({ systemName }) => systemName))]
-    const first = systems[0]
     recordRecent({
       brId: meta.brId,
-      title: first === undefined ? meta.brId : systems.length > 1 ? `${first} 等 ${systems.length} 个星系` : first,
+      title: battleTitle(meta),
       start: meta.windows.length ? Math.min(...meta.windows.map(({ start }) => start)) : undefined,
       end: meta.windows.length ? Math.max(...meta.windows.map(({ end }) => end)) : undefined,
       kills: meta.killmails.length,
@@ -65,16 +72,53 @@ function BattleWorkspace() {
     })
   }, [meta, logCount])
 
+  function openSides(trigger: HTMLButtonElement) {
+    sidesTrigger.current = trigger
+    setMenuOpen(false)
+    setSidesOpen(true)
+  }
+
+  const closeSides = useCallback(() => {
+    if (layout === 'phone') setMenuOpen(true)
+    setSidesOpen(false)
+  }, [layout])
+
+  useLayoutEffect(() => {
+    if (sidesOpen || !sidesTrigger.current) return
+    sidesTrigger.current.focus({ preventScroll: true })
+    sidesTrigger.current = null
+  }, [sidesOpen])
+
+  useLayoutEffect(() => {
+    if (!desktopDrawerOpen) return
+    const opener = document.activeElement
+    desktopDrawer.current?.querySelector<HTMLElement>('button[aria-label="关闭个人详情"], button[aria-label="关闭"]')
+      ?.focus({ preventScroll: true })
+    return () => {
+      if (opener instanceof HTMLElement && opener.isConnected && opener !== document.body) {
+        opener.focus({ preventScroll: true })
+      } else {
+        document.querySelector<HTMLElement>(`.battle-panel [id^="${panelId}-tab-"][aria-selected="true"]`)
+          ?.focus({ preventScroll: true })
+      }
+    }
+  }, [desktopDrawerOpen])
+
   useEffect(() => {
     function closeOrClear(event: KeyboardEvent) {
       if (event.key !== 'Escape' || event.defaultPrevented) return
-      if (sidesOpen) setSidesOpen(false)
-      else if (view.range) view.setRange(null)
+      if (sidesOpen) closeSides()
+      else if (menuOpen) {
+        setMenuOpen(false)
+        menuTrigger.current?.focus()
+      } else if (view.range) view.setRange(null)
       else if (view.selected) view.select(null)
+      else return
+      event.preventDefault()
     }
     window.addEventListener('keydown', closeOrClear)
     return () => window.removeEventListener('keydown', closeOrClear)
-  }, [sidesOpen, view.range, view.selected, view.select, view.setRange])
+  }, [sidesOpen, closeSides, menuOpen, view.range, view.selected, view.select, view.setRange])
 
   function shareUrl() {
     const url = new URL(window.location.href)
@@ -89,10 +133,15 @@ function BattleWorkspace() {
     <AppShell battle topBar={{
       summary,
       analysis,
+      live,
+      reconnecting,
+      menuOpen,
+      onMenuOpenChange: setMenuOpen,
+      menuTrigger,
       oursSide: view.oursSide,
       onOursSideChange: view.setOursSide,
       onUpload: summary ? openPicker : undefined,
-      onOpenSides: summary ? () => setSidesOpen(true) : undefined,
+      onOpenSides: summary ? openSides : undefined,
       shareUrl: summary ? shareUrl : undefined,
     }}>
       {summary ? (
@@ -110,7 +159,12 @@ function BattleWorkspace() {
               {(layout === 'desktop' || view.panelTab !== 'roster') && (
                 <div className="battle-panel-content" role="tabpanel" id={`${panelId}-panel-${view.panelTab}`}
                   aria-labelledby={`${panelId}-tab-${view.panelTab}`} data-overlay={layout === 'tablet'}>
-                  <Panel />
+                  {view.panelTab === 'fit' && view.selected
+                    ? <Button variant="ghost" onClick={() => {
+                      view.setDrawerTab('fit')
+                      desktopDrawer.current?.focus({ preventScroll: true })
+                    }}>在个人详情中编辑配装</Button>
+                    : <Panel />}
                 </div>
               )}
             </aside>
@@ -129,8 +183,8 @@ function BattleWorkspace() {
           )}
           {view.selected && (layout === 'phone'
             ? <PhonePersonPage><PersonDrawer /></PhonePersonPage>
-            : <aside className="battle-drawer" aria-label="个人详情"><PersonDrawer /></aside>)}
-          {sidesOpen && <div className="battle-sides"><SidesPanel onClose={() => setSidesOpen(false)} /></div>}
+            : <aside ref={desktopDrawer} tabIndex={-1} className="battle-drawer" aria-label="个人详情"><PersonDrawer /></aside>)}
+          {sidesOpen && <div className="battle-sides"><SidesPanel onClose={closeSides} /></div>}
           <div className="battle-upload"><UploadDock pickerRef={picker} /></div>
         </div>
       ) : (

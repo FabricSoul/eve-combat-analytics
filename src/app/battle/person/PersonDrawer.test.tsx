@@ -9,7 +9,7 @@ import { PersonDrawer } from '../PersonDrawer'
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-it('opens a selected pilot, toggles replay focus, expands, and closes on Escape', () => {
+it('opens a selected pilot, toggles replay focus, expands, and closes with its button', () => {
   const fixture = loadUiFixture()
   const pilot = Object.values(fixture.analysis.entities).find(({ name }) => name === 'MoQingXL moqing')!
   const host = document.createElement('div')
@@ -29,7 +29,7 @@ it('opens a selected pilot, toggles replay focus, expands, and closes on Escape'
     expect(host.querySelector('output')?.textContent).toBe('true')
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="展开整页"]')!.click())
     expect(host.querySelector('button[aria-label="还原抽屉"]')).not.toBeNull()
-    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })) })
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="关闭个人详情"]')!.click())
     expect(host.querySelector('h2')).toBeNull()
   } finally {
     act(() => root.unmount())

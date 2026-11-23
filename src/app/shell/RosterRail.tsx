@@ -39,7 +39,9 @@ export function RosterRail() {
             </div>
             {rows.map((row) => (
               <button type="button" className="battle-rail-pilot" key={row.key} aria-pressed={row.key === selected}
-                aria-label={`${row.name} · ${row.hasLog ? '有日志' : '没有日志'}`}
+                aria-label={[
+                  row.name, row.hasLog ? '有日志' : '没有日志', row.dead ? '已击毁' : null, row.ship ?? '未知舰船',
+                ].filter(Boolean).join(' · ')}
                 data-dead={row.dead || undefined} data-has-log={row.hasLog}
                 onMouseEnter={(event) => showName(event, row.name)}
                 onMouseLeave={(event) => { if (document.activeElement !== event.currentTarget) setTooltip(null) }}
