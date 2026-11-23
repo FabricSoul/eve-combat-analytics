@@ -7,6 +7,7 @@ import { ViewProvider, useView } from '@/app/state/view-store'
 import { fmtNum } from '@/app/lib/format'
 import { loadUiFixture } from '@/app/test/ui-fixture'
 import { Timeline } from '../Timeline'
+import { Plot } from './Plot'
 
 const fixture = loadUiFixture()
 const start = fixture.analysis.timeline.start
@@ -108,6 +109,42 @@ describe('timeline', () => {
     await click('C 方伤害')
     expect(curve(2)).toBeNull()
     expect(curve(0)).not.toBeNull()
+  })
+
+  it('renders primary groups for different sides at the same target and time without a key warning', async () => {
+    const primary = fixture.analysis.primaries[0]!
+    // Synthetic second side with the same target and bounds as the real span.
+    const otherSide = { ...primary, bySide: primary.bySide === 0 ? 1 : 0 }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await act(() => root.render(
+        <svg>
+          <Plot width={1000} height={124} left={72} right={12} start={start} end={end} bucketStart={start}
+            lanes={[{ id: 'primary', top: 6, height: 14, label: '主目标' }]} compact={false} zoomed={false}
+            killIcons={false} summary={fixture.summary} analysis={fixture.analysis} order={[1, 0]}
+            damage={[]} repair={[]} point={[]} primaries={[primary, otherSide]} />
+        </svg>,
+      ))
+      expect(host.querySelectorAll('[data-lane="primary"] g > title')).toHaveLength(2)
+      expect(consoleError).not.toHaveBeenCalled()
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('renders both overlapping J125990 primaries after switching perspective without a key warning', async () => {
+    await render()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await act(() => view.setOursSide(0))
+      const name = fixture.analysis.entities['char:2115160605']!.name
+      const titles = [...chart().querySelectorAll('[data-lane="primary"] title')].map((title) => title.textContent)
+      expect(titles).toContain(`主目标 ${name} · 2 人`)
+      expect(titles).toContain(`主目标 ${name} · 3 人`)
+      expect(consoleError).not.toHaveBeenCalled()
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('seeks on click, scrubs on drag, and publishes an ordered range cleared by Escape', async () => {

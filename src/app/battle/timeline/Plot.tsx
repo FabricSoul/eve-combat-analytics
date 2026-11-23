@@ -84,7 +84,7 @@ function Primaries({ lane, props, x }: { lane: Lane; props: PlotProps; x: XScale
     const from = x(Math.max(props.start, primary.start))
     const width = Math.max(1.5, x(Math.min(props.end, primary.end + second)) - from)
     const showName = props.zoomed && width >= 42
-    return <g key={`${primary.target}-${primary.start}`}>
+    return <g key={`${primary.bySide}-${primary.target}-${primary.start}-${primary.end}`}>
       <title>{`主目标 ${name} · ${primary.shooters.length} 人`}</title>
       <rect x={from} y={lane.top + (showName ? 0 : 2)} width={width} height={showName ? 13 : 8}
         rx="2" fill={color.raised} stroke={color.hair} />
