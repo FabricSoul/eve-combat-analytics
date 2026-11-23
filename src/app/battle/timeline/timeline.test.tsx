@@ -1,0 +1,183 @@
+// @vitest-environment jsdom
+import { act, useEffect } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { BattleProvider } from '@/app/state/battle-store'
+import { ViewProvider, useView } from '@/app/state/view-store'
+import { fmtNum } from '@/app/lib/format'
+import { loadUiFixture } from '@/app/test/ui-fixture'
+import { Timeline } from '../Timeline'
+
+const fixture = loadUiFixture()
+const start = fixture.analysis.timeline.start
+const end = Math.max(...fixture.summary.meta.killmails.map(({ t }) => t))
+const bounds = { x: 0, left: 0, width: 1000, top: 0, y: 0, right: 1000, bottom: 124, height: 124, toJSON() {} }
+
+let host: HTMLDivElement
+let root: Root
+let view: ReturnType<typeof useView>
+let restore: ReturnType<typeof vi.spyOn>
+
+function Probe() {
+  const current = useView()
+  useEffect(() => { view = current }, [current])
+  return null
+}
+
+async function render(compact = false, data = fixture) {
+  await act(() => root.render(
+    <BattleProvider static={data}>
+      <ViewProvider initialTime={start} endTime={end} defaultSide={1} syncUrl={false}>
+        <Timeline compact={compact} />
+        <Probe />
+      </ViewProvider>
+    </BattleProvider>,
+  ))
+}
+
+const chart = () => host.querySelector<SVGSVGElement>('svg[data-timeline-chart]')!
+const height = () => Number(chart().getAttribute('height'))
+const lanes = () => [...chart().querySelectorAll('[data-lane]')].map((lane) => lane.getAttribute('data-lane'))
+const button = (label: string) => [...host.querySelectorAll('button')]
+  .find((item) => (item.getAttribute('aria-label') ?? item.textContent?.trim()) === label)!
+const click = (label: string) => act(() => button(label).click())
+const xAt = (t: number) => 72 + (bounds.width - 72 - 12) * (t - start) / (end - start)
+function pointer(type: string, clientX: number, shiftKey = false, pointerId = 1, pointerType = 'mouse') {
+  return act(() => chart().dispatchEvent(new PointerEvent(type, {
+    bubbles: true, clientX, pointerId, shiftKey, pointerType,
+  })))
+}
+
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  restore = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(bounds)
+  host = document.createElement('div')
+  document.body.appendChild(host)
+  root = createRoot(host)
+})
+
+afterEach(async () => {
+  await act(() => root.unmount())
+  host.remove()
+  restore.mockRestore()
+  vi.unstubAllGlobals()
+})
+
+describe('timeline', () => {
+  it('sizes each enabled lane and disables icon mode when kills are off', async () => {
+    await render()
+    expect(height()).toBe(124)
+    expect(lanes()).toEqual(['primary', 'damage', 'kills'])
+    await click('我方维修')
+    expect(height()).toBe(170)
+    await click('点人')
+    expect(lanes()).toEqual(['primary', 'damage', 'repair', 'point', 'kills'])
+    expect(height()).toBe(204)
+    await click('击毁用舰船图标')
+    expect(height()).toBe(246)
+    expect(chart().querySelector('[data-lane="kills"] image')).not.toBeNull()
+    await click('击毁')
+    expect(height()).toBe(186)
+    expect(button('击毁用舰船图标').disabled).toBe(true)
+    await click('我方伤害')
+    await click('敌方伤害')
+    expect(lanes()).toEqual(['primary', 'repair', 'point'])
+    expect(height()).toBe(116)
+  })
+
+  it('uses only damage and kill ticks on a 64 px compact plot', async () => {
+    await render(true)
+    expect(height()).toBe(64)
+    expect(lanes()).toEqual(['damage', 'kills'])
+    expect(chart().querySelector('[data-lane="kills"] image')).toBeNull()
+    expect(button('我方维修')).toBeUndefined()
+  })
+
+  it('gives each reported side its own damage curve and layer switch', async () => {
+    // Synthetic third side for wiring coverage. J125990 itself has two sides.
+    const analysis = {
+      ...fixture.analysis,
+      coverage: [...fixture.analysis.coverage, { side: 2, known: 1, withLog: 0 }],
+      timeline: { ...fixture.analysis.timeline, damageBySide: { ...fixture.analysis.timeline.damageBySide, 2: [1] } },
+    }
+    await render(false, { ...fixture, analysis })
+    const curve = (side: number) => chart().querySelector(`[data-damage-side="${side}"]`)
+    expect(curve(1)?.getAttribute('stroke')).toBe('var(--color-side-0)')
+    expect(curve(0)?.getAttribute('stroke')).toBe('var(--color-side-1)')
+    expect(curve(2)?.getAttribute('stroke')).toBe('var(--color-side-2)')
+    await click('C 方伤害')
+    expect(curve(2)).toBeNull()
+    expect(curve(0)).not.toBeNull()
+  })
+
+  it('seeks on click, scrubs on drag, and publishes an ordered range cleared by Escape', async () => {
+    await render()
+    await pointer('pointerdown', xAt(start + 30_000))
+    await pointer('pointerup', xAt(start + 30_000))
+    expect(view.t).toBe(start + 30_000)
+    await pointer('pointerdown', xAt(start + 35_000))
+    await pointer('pointermove', xAt(start + 60_000))
+    expect(view.t).toBe(start + 60_000)
+    await pointer('pointerup', xAt(start + 65_000))
+    expect(view.t).toBe(start + 65_000)
+    await pointer('pointerdown', xAt(start + 120_000), true)
+    await pointer('pointermove', xAt(start + 80_000), true)
+    await pointer('pointerup', xAt(start + 80_000), true)
+    expect(view.range).toEqual([start + 80_000, start + 120_000])
+    expect(chart().querySelector('[stroke-dasharray="3 3"]')).not.toBeNull()
+    expect(view.t).toBe(start + 65_000)
+    await act(() => chart().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    expect(view.range).toBeNull()
+  })
+
+  it('zooms around the wheel and pinch anchors', async () => {
+    await render()
+    const center = xAt(start + (end - start) / 2)
+    const span = () => Number(chart().dataset.domainEnd) - Number(chart().dataset.domainStart)
+    const wheel = new WheelEvent('wheel', { deltaY: -300, clientX: center, bubbles: true, cancelable: true })
+    await act(() => chart().dispatchEvent(wheel))
+    expect(wheel.defaultPrevented).toBe(true)
+    expect(span()).toBeLessThan(end - start)
+    expect((Number(chart().dataset.domainStart) + Number(chart().dataset.domainEnd)) / 2).toBeCloseTo((start + end) / 2)
+    const afterWheel = span()
+    await pointer('pointerdown', center - 51, false, 1, 'touch')
+    await pointer('pointermove', center - 50, false, 1, 'touch')
+    await pointer('pointerdown', center + 50, false, 2, 'touch')
+    await pointer('pointermove', center + 150, false, 2, 'touch')
+    expect(span()).toBeCloseTo(afterWheel / 2)
+    await pointer('pointerup', center - 50, false, 1, 'touch')
+    await pointer('pointerup', center + 150, false, 2, 'touch')
+    expect(view.t).toBe(start)
+  })
+
+  it('reads the real plotted damage and current primary at the hovered second', async () => {
+    await render()
+    const primary = fixture.analysis.primaries.find(({ bySide, start: t }) => bySide === 1 && t > start)!
+    const i = (primary.start - start) / 1000
+    await pointer('pointermove', xAt(primary.start))
+    const tip = host.querySelector('[role="tooltip"]')!
+    for (const side of [1, 0]) {
+      const sample = fixture.analysis.timeline.damageBySide[side]!.slice(Math.max(0, i - 9), i + 1)
+      const value = Math.round(sample.reduce((sum, n) => sum + n, 0) / 10)
+      expect(tip.querySelector(`[data-readout-side="${side}"] .app-number`)?.textContent).toBe(fmtNum(value))
+    }
+    expect(tip.textContent).toContain(fixture.analysis.entities[primary.target]!.name)
+    expect(tip.textContent).toContain(String(primary.shooters.length))
+  })
+
+  it('skips to the next recorded event and cycles the shared playback speed', async () => {
+    await render()
+    const next = fixture.analysis.interactions.find(({ t }) => t > view.t)!
+    await click('下一事件')
+    expect(view.t).toBe(next.t)
+    for (const speed of [1, 2, 4, 8]) {
+      expect(view.speed).toBe(speed)
+      await click(`${speed}×`)
+    }
+    expect(view.speed).toBe(1)
+    await click('播放')
+    expect(view.playing).toBe(true)
+    await click('暂停')
+    expect(view.playing).toBe(false)
+  })
+})
