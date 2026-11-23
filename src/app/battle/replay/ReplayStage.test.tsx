@@ -99,3 +99,71 @@ describe('replay analysis refresh', () => {
     expect(marker(newcomer.name).style.transform).toBeTruthy()
   })
 })
+
+describe('replay keyboard navigation', () => {
+  const tabStops = () => [...host.querySelectorAll<HTMLButtonElement>('.replay-pilot')]
+    .filter((pilot) => pilot.tabIndex === 0)
+
+  async function press(key: string) {
+    await act(() => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', {
+      key, bubbles: true, cancelable: true,
+    })))
+    await refresh()
+  }
+
+  function expectBracketAt(name: string) {
+    function xy(element: HTMLElement) {
+      return element.style.transform.match(/translate3d\(([^,]+), ([^,]+)/)!.slice(1).map(parseFloat)
+    }
+    const bracket = host.querySelector<HTMLElement>('.replay-lock[data-positioned]')!
+    const [x, y] = xy(marker(name))
+    const [left, top] = xy(bracket)
+    const inset = parseFloat(bracket.style.getPropertyValue('--replay-lock-size')) / 2
+    expect(left! + inset).toBeCloseTo(x!)
+    expect(top! + inset).toBeCloseTo(y!)
+  }
+
+  it('offers one tab stop, moves the bracket with focus, and selects with Enter', async () => {
+    const initial = analysis()
+    await render(initial)
+    expect(tabStops()).toEqual([button(alpha.name)])
+    expect(host.querySelector('[role="toolbar"]')?.getAttribute('aria-label')).toBeTruthy()
+
+    await act(() => button(alpha.name).focus())
+    await refresh()
+    expectBracketAt(alpha.name)
+    await press('ArrowRight')
+    expect(document.activeElement).toBe(button(beta.name))
+    expect(tabStops()).toEqual([button(beta.name)])
+    expectBracketAt(beta.name)
+    expect(select).not.toHaveBeenCalled()
+
+    await press('Enter')
+    expect(select).toHaveBeenCalledExactlyOnceWith(beta.key)
+    await render(initial, time, beta.key)
+    await press('ArrowDown')
+    expect(document.activeElement).toBe(button(neutral.name))
+    expectBracketAt(neutral.name)
+    expect(host.querySelector('[aria-pressed="true"]')).toBe(button(beta.name))
+  })
+
+  it('keeps the pointer tooltip available while the bracket follows focus', async () => {
+    await render(analysis())
+    await act(() => button(alpha.name).focus())
+    await act(() => button(beta.name).dispatchEvent(new PointerEvent('pointerover', { bubbles: true })))
+    await refresh()
+    expect(host.querySelector('[role="tooltip"] strong')?.textContent).toBe(beta.name)
+    expectBracketAt(alpha.name)
+  })
+
+  it('moves focus to a present pilot when playback hides the focused ship', async () => {
+    const initial = analysis()
+    await render(initial)
+    await act(() => button(beta.name).focus())
+    await render(initial, time + 60_001)
+    await refresh()
+    expect(document.activeElement).toBe(button(alpha.name))
+    expect(tabStops()).toEqual([button(alpha.name)])
+    expectBracketAt(alpha.name)
+  })
+})

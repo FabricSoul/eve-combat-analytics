@@ -5,6 +5,7 @@ import { typeRenderUrl } from '@/app/lib/images'
 import { sideColor, sideLetter } from '@/app/lib/sides'
 import { Bracket } from '@/app/ui/Bracket'
 import { Portrait } from '@/app/ui/Portrait'
+import { useReplayKeyboard, type ReplayFocusTarget } from './keyboard'
 import { makePainter } from './paint'
 import type { ReplayFrame } from './paint'
 import { placePilotLabel } from './placement'
@@ -37,11 +38,9 @@ const PilotMarker = memo(function PilotMarker({ node, selected, inspected, regis
     <div ref={(element) => { register(key, element) }} className="replay-marker" data-selected={selected} inert
       data-unassigned={side === -1 || undefined}
       style={{ '--replay-side': color, '--replay-diameter': `${radius * 2}px` } as CSSProperties}>
-      <button type="button" className="replay-pilot" data-log={hasLog} aria-pressed={selected}
+      <button type="button" tabIndex={-1} className="replay-pilot" data-log={hasLog} aria-pressed={selected}
         aria-label={ship ? `${name} · ${ship}` : name}
-        onPointerEnter={() => onInspect(key)} onPointerLeave={() => onInspect(null)}
-        onFocus={(event) => { if (event.currentTarget.matches(':focus-visible')) onInspect(key) }}
-        onBlur={() => onInspect(null)} onClick={() => onSelect(key)}>
+        onPointerEnter={() => onInspect(key)} onPointerLeave={() => onInspect(null)} onClick={() => onSelect(key)}>
         {shipId !== null && (
           <img key={shipId} data-src={typeRenderUrl(shipId, radius * 2)} alt="" draggable={false}
             onLoad={(event) => { event.currentTarget.dataset.loaded = '' }}
@@ -94,12 +93,15 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
   const [size, setSize] = useState({ width: 0, height: 0, dpr: 1 })
   const { width, height, dpr } = size
   const [inspected, inspect] = useState<EntityKey | null>(null)
+  const { toolbar, focused, updateTargets, onFocus, onBlur, onKeyDown } = useReplayKeyboard()
   const scene = useMemo(() => buildScene(analysis, killmails, order), [analysis, killmails, order])
   const layout = useMemo(() => (
     width && height ? makeLayout(scene.pilots, order, width, height) : null
   ), [scene, order, width, height])
-  const detail = (inspected ? layout?.byKey.get(inspected) : undefined) ?? (selected ? layout?.byKey.get(selected) : undefined)
-  const frame = useRef({ t, playing, selected, focusOnly, detailKey: detail?.entity.key })
+  const lockedKey = focused ?? selected
+  const detailKey = inspected ?? focused ?? selected
+  const detail = detailKey ? layout?.byKey.get(detailKey) : undefined
+  const frame = useRef({ t, playing, selected, focusOnly, detailKey, lockedKey })
 
   const register = useCallback((key: EntityKey, element: HTMLDivElement | null) => {
     if (element) markers.current.set(key, element)
@@ -141,7 +143,7 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
     let lastLayoutTime: number | null = null
     let lastLayoutSelection: EntityKey | null = null
     let lastFocusOnly = false
-    let tooltipKey: EntityKey | undefined
+    let tooltipKey: EntityKey | null | undefined
     let tooltipWidth = 0
     let tooltipHeight = 0
     let labelSizes = new WeakMap<HTMLElement, Pick<Rect, 'width' | 'height'>>()
@@ -168,7 +170,7 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
     function draw() {
       animation = null
       if (!layout) return
-      const { detailKey, ...current } = frame.current
+      const { detailKey, lockedKey, ...current } = frame.current
       const { t, playing, selected, focusOnly } = current
       const reducedMotion = reduced.matches
       const present = scene.visibleAt(t, selected)
@@ -199,6 +201,8 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
         layout, live, scene.pointSpans, present, { ...current, reducedMotion }, width, height,
       )
       const labels: { element: HTMLElement; node: ReplayNode; priority: number }[] = []
+      const focusTargets: ReplayFocusTarget[] = []
+      const previouslyFocused = document.activeElement
       for (const node of layout.nodes) {
         const { key, side } = node.entity
         const marker = markers.current.get(key)
@@ -215,6 +219,8 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
           if (image?.dataset.src) image.src = image.dataset.src
         }
 
+        const button = marker.firstElementChild
+        if (button instanceof HTMLButtonElement) focusTargets.push({ key, button })
         const { x, y } = position
         const lastLoss = deathAt(node.deaths, t)
         const keep = selected === null || selected === key || related.has(key)
@@ -224,7 +230,7 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
         marker.toggleAttribute('data-dim', !keep)
         if (lastLoss && t - lastLoss.t < 920) burst?.(position, node.radius, t - lastLoss.t)
 
-        if (key === selected && bracket.current) {
+        if (key === lockedKey && bracket.current) {
           const inset = node.radius + 7
           bracket.current.style.setProperty('--replay-lock-size', `${2 * inset}px`)
           bracket.current.style.transform = `translate3d(${x - inset}px, ${y - inset}px, 0)`
@@ -237,6 +243,10 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
         const label = marker.querySelector<HTMLElement>('.replay-pilot-label')
         if (label) labels.push({ element: label, node, priority: key === selected ? 2 : key === detailKey ? 1 : 0 })
       }
+
+      updateTargets(focusTargets, selected, previouslyFocused)
+      const lockedNode = lockedKey ? layout.byKey.get(lockedKey) : undefined
+      if (!lockedNode || !positions.has(lockedNode)) bracket.current?.removeAttribute('data-positioned')
 
       const detailNode = detailKey ? layout.byKey.get(detailKey) : undefined
       const detailPosition = detailNode && positions.get(detailNode)
@@ -274,22 +284,25 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
       appearanceObserver.disconnect()
       reduced.removeEventListener('change', schedule)
     }
-  }, [layout, scene, width, height, dpr])
+  }, [layout, scene, width, height, dpr, updateTargets])
 
   useLayoutEffect(() => {
-    frame.current = { t, playing, selected, focusOnly, detailKey: detail?.entity.key }
+    frame.current = { t, playing, selected, focusOnly, detailKey, lockedKey }
     invalidate.current()
-  }, [t, playing, selected, focusOnly, detail])
+  }, [t, playing, selected, focusOnly, detailKey, lockedKey])
 
-  const locked = selected ? layout?.byKey.get(selected) : undefined
+  const locked = lockedKey ? layout?.byKey.get(lockedKey) : undefined
 
   return (
     <div ref={host} className="replay-stage">
       <canvas ref={under} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer" aria-hidden="true" />
-      {layout?.nodes.map((node) => (
-        <PilotMarker key={node.entity.key} node={node} selected={selected === node.entity.key} inspected={inspected === node.entity.key}
-          register={register} onInspect={inspect} onSelect={select} />
-      ))}
+      <div ref={toolbar} role="toolbar" aria-label="回放飞行员" tabIndex={-1}
+        onFocus={onFocus} onBlur={onBlur} onKeyDown={onKeyDown}>
+        {layout?.nodes.map((node) => (
+          <PilotMarker key={node.entity.key} node={node} selected={selected === node.entity.key} inspected={detailKey === node.entity.key}
+            register={register} onInspect={inspect} onSelect={select} />
+        ))}
+      </div>
       <canvas ref={over} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer replay-effects" aria-hidden="true" />
       {locked && (
         <div ref={bracket} className="replay-lock">
