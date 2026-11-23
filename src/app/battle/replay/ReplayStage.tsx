@@ -246,7 +246,7 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
         const label = marker.querySelector<HTMLElement>('.replay-pilot-label')
         if (label) {
           if (key === selected || key === detailKey || (height >= 420 && (node.entity.hasLog || opponents.has(key)))) {
-            labels.push({ element: label, node, priority: key === selected ? 2 : key === detailKey ? 1 : 0 })
+            labels.push({ element: label, node, priority: node.entity.hasLog ? 3 : key === selected ? 2 : key === detailKey ? 1 : 0 })
           } else label.removeAttribute('data-positioned')
         }
       }

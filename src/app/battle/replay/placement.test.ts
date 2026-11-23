@@ -29,7 +29,8 @@ describe('pilot label placement', () => {
   it('hides a blocked label unless the pilot is selected or inspected', () => {
     const occupied = [below, above, right, left]
     expect(placePilotLabel(center, 10, size, bounds, occupied)).toBeNull()
-    expect(placePilotLabel(center, 10, size, bounds, occupied, true)).toEqual(below)
+    expect(placePilotLabel(center, 10, size, bounds, occupied, true)).not.toBeNull()
+    expect(placePilotLabel(center, 10, size, bounds, [bounds], true)).toEqual(below)
   })
 })
 

@@ -31,10 +31,27 @@ export function placePilotLabel(center: Point, radius: number, size: Size, bound
   const gap = radius + 5
   const left = x - size.width / 2
   const top = y - size.height / 2
-  return placeAnnotation([
+  const nearby = [
     { ...size, x: left, y: y + gap },
     { ...size, x: left, y: y - gap - size.height },
     { ...size, x: x + gap, y: top },
     { ...size, x: x - gap - size.width, y: top },
-  ], bounds, occupied, required)
+  ]
+  const closest = placeAnnotation(nearby, bounds, occupied)
+  if (closest || !required) return closest
+
+  const farther: Rect[] = []
+  const spacing = size.height + 4
+  for (let step = 1; step <= 4; step++) {
+    const distance = step * spacing
+    for (const direction of [-1, 1]) {
+      farther.push(
+        { ...nearby[0]!, x: left + direction * distance },
+        { ...nearby[1]!, x: left + direction * distance },
+        { ...nearby[2]!, y: top + direction * distance },
+        { ...nearby[3]!, y: top + direction * distance },
+      )
+    }
+  }
+  return placeAnnotation(farther, bounds, occupied) ?? placeAnnotation(nearby, bounds, occupied, true)
 }

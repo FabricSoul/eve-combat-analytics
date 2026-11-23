@@ -2,8 +2,9 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Analysis, Entity, EntityKey, Interaction } from '@/core/contract'
+import type { Analysis, Entity, EntityKey, Interaction, Killmail } from '@/core/contract'
 import { ReplayStage } from './ReplayStage'
+import { loadUiFixture } from '@/app/test/ui-fixture'
 
 const order = [0, 1]
 const killmails = [] as const
@@ -42,9 +43,12 @@ async function refresh() {
   })
 }
 
-async function render(result: Analysis, t = time, selected: EntityKey | null = null) {
+async function render(
+  result: Analysis, t = time, selected: EntityKey | null = null,
+  battle: { killmails: readonly Killmail[]; order: readonly number[] } = { killmails, order },
+) {
   await act(() => root.render(
-    <ReplayStage analysis={result} killmails={killmails} order={order} t={t} playing={false}
+    <ReplayStage analysis={result} killmails={battle.killmails} order={battle.order} t={t} playing={false}
       selected={selected} focusOnly={false} select={select} />,
   ))
   await refresh()
@@ -72,6 +76,7 @@ beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ({
     setTransform: noOp, clearRect: noOp, setLineDash: noOp, beginPath: noOp,
     stroke: noOp, fill: noOp, moveTo: noOp, lineTo: noOp, arc: noOp,
+    strokeText: noOp, fillText: noOp, measureText: () => ({ width: 38 }),
   }) as unknown as CanvasRenderingContext2D)
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -166,4 +171,22 @@ describe('replay keyboard navigation', () => {
     expect(tabStops()).toEqual([button(alpha.name)])
     expectBracketAt(alpha.name)
   })
+})
+
+
+it('positions every present uploader label in the 1280 × 800 desktop canvas', async () => {
+  const fixture = loadUiFixture()
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  // The desktop shell takes 620 × 221 pixels for its side panels, top bar and timeline.
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(660)
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(579)
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return Math.min(94, (this.textContent?.length ?? 0) * 6)
+  })
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(16)
+  await render(fixture.analysis, Date.UTC(2025, 5, 22, 15, 43, 2), null, { killmails: fixture.summary.meta.killmails, order: [1, 0] })
+  const uploaders = [...host.querySelectorAll('.replay-marker[data-present] [data-log="true"]')]
+  expect(uploaders).toHaveLength(17)
+  expect(uploaders.filter((pilot) => !pilot.parentElement?.querySelector('.replay-pilot-label[data-positioned]'))
+    .map((pilot) => pilot.getAttribute('aria-label'))).toEqual([])
 })
