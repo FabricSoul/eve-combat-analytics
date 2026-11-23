@@ -14,6 +14,10 @@ export interface UploadItem {
   /** Name (or pilot) of the file this one is identical to. */
   duplicateOf?: string
   message?: string
+  /** Gallery rows built to show a state rather than a real upload. */
+  demo?: boolean
+  /** The file to upload, kept with its row so a row can never be paired with another batch's file. */
+  file?: File
 }
 
 export interface QueueState {
@@ -22,7 +26,9 @@ export interface QueueState {
 }
 
 export type QueueAction =
-  | { type: 'add'; files: readonly { name: string; size: number }[] }
+  | { type: 'add'; files: readonly { name: string; size: number; file?: File }[] }
+  /** A dropped entry that could not be read: shown as a failed row with 移除. */
+  | { type: 'reject'; problems: readonly { name: string; message: string }[] }
   | { type: 'start'; id: number }
   | { type: 'progress'; id: number; fraction: number }
   | { type: 'done'; id: number; log: UploadedLogSummary }
@@ -46,8 +52,14 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
   switch (action.type) {
     case 'add': {
       if (action.files.length === 0) return state
-      const added = action.files.map(({ name, size }, index): UploadItem =>
-        ({ id: state.nextId + index, name, size, status: 'queued', progress: 0 }))
+      const added = action.files.map(({ name, size, file }, index): UploadItem =>
+        ({ id: state.nextId + index, name, size, status: 'queued', progress: 0, file }))
+      return { items: [...state.items, ...added], nextId: state.nextId + added.length }
+    }
+    case 'reject': {
+      if (action.problems.length === 0) return state
+      const added = action.problems.map(({ name, message }, index): UploadItem =>
+        ({ id: state.nextId + index, name, size: 0, status: 'failed', progress: 0, message }))
       return { items: [...state.items, ...added], nextId: state.nextId + added.length }
     }
     case 'start':

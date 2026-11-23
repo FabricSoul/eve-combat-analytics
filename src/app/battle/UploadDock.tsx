@@ -18,17 +18,14 @@ export function UploadDock({ pickerRef }: UploadDockProps) {
   const brId = summary?.meta.brId
   const [queue, dispatch] = useReducer(queueReducer, initialQueue)
   const [dragging, setDragging] = useState(false)
-  const files = useRef(new Map<number, File>())
   const latest = useRef({ queue, summary })
   latest.current = { queue, summary }
   const started = useRef(new Set<number>())
   const depth = useRef(0)
 
+  // The File travels inside the same reducer action as its row, so ids are allocated once, in order.
   const enqueue = useCallback((list: readonly File[]) => {
-    if (list.length === 0) return
-    const first = latest.current.queue.nextId
-    list.forEach((file, index) => files.current.set(first + index, file))
-    dispatch({ type: 'add', files: list.map(({ name, size }) => ({ name, size })) })
+    if (list.length > 0) dispatch({ type: 'add', files: list.map((file) => ({ name: file.name, size: file.size, file })) })
   }, [])
 
   useEffect(() => {
@@ -55,7 +52,10 @@ export function UploadDock({ pickerRef }: UploadDockProps) {
       event.preventDefault()
       depth.current = 0
       setDragging(false)
-      void collectFiles(event.dataTransfer).then(enqueue)
+      void collectFiles(event.dataTransfer).then(({ files, problems }) => {
+        enqueue(files)
+        if (problems.length > 0) dispatch({ type: 'reject', problems })
+      })
     }
     window.addEventListener('dragenter', enter)
     window.addEventListener('dragover', over)
@@ -74,10 +74,13 @@ export function UploadDock({ pickerRef }: UploadDockProps) {
   const busy = queue.items.some(({ status }) => status === 'uploading' || status === 'parsing')
   useEffect(() => {
     if (!next || busy || !brId || started.current.has(next.id)) return
-    const file = files.current.get(next.id)
-    if (!file) return
     started.current.add(next.id)
-    const { id, name, size } = next
+    const { id, name, size, file } = next
+    if (!file) {
+      dispatch({ type: 'start', id })
+      dispatch({ type: 'fail', id, status: 'failed', message: '找不到这个文件，请重新添加' })
+      return
+    }
     void runUpload({
       id, name, size,
       readText: () => file.text(),
@@ -90,7 +93,7 @@ export function UploadDock({ pickerRef }: UploadDockProps) {
       },
       uploadLog: (text, onProgress) => api.uploadLog(brId, text, onProgress),
       dispatch,
-    }).finally(() => files.current.delete(id))
+    })
   }, [next, busy, brId])
 
   function pick(event: ChangeEvent<HTMLInputElement>) {

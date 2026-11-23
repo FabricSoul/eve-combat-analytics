@@ -114,6 +114,54 @@ describe('UploadDock', () => {
     expect(row.textContent).toContain(known.charName)
   })
 
+  it('keeps two batches dropped in the same turn apart (R2a-1)', async () => {
+    mount()
+    const bodies: string[] = []
+    vi.spyOn(api, 'uploadLog').mockImplementation(async (_br, text) => {
+      bodies.push(text)
+      return newLog({ id: `id-${text}`, charName: `pilot-${text}` })
+    })
+    await act(async () => {
+      window.dispatchEvent(dragEvent('drop', [file('alpha.txt', 'alpha')]))
+      window.dispatchEvent(dragEvent('drop', [file('beta.txt', 'beta')]))
+    })
+    await settle()
+    await settle()
+    expect(bodies).toEqual(['alpha', 'beta'])
+    const rows = Array.from(host.querySelectorAll('.upload-row'))
+    expect(rows).toHaveLength(2)
+    expect(rows[0]!.textContent).toContain('alpha.txt')
+    expect(rows[0]!.textContent).toContain('pilot-alpha')
+    expect(rows[1]!.textContent).toContain('beta.txt')
+    expect(rows[1]!.textContent).toContain('pilot-beta')
+    expect(host.querySelectorAll('.upload-row[data-status="done"]')).toHaveLength(2)
+  })
+
+  it('reports unreadable folder entries and still uploads the readable ones (R2a-10)', async () => {
+    mount()
+    const bodies: string[] = []
+    vi.spyOn(api, 'uploadLog').mockImplementation(async (_br, text) => { bodies.push(text); return newLog({ id: text }) })
+    const good = file('good.txt', 'good')
+    const entry = (over: object) => ({ isFile: false, isDirectory: false, name: 'x', ...over })
+    const folder = entry({
+      isDirectory: true, name: 'Gamelogs',
+      createReader: () => {
+        let sent = false
+        return { readEntries: (done: (e: unknown[]) => void) => { done(sent ? [] : [
+          entry({ isFile: true, name: 'good.txt', file: (ok: (f: File) => void) => ok(good) }),
+          entry({ isFile: true, name: 'locked.txt', file: (_ok: unknown, fail: (e: unknown) => void) => fail(new Error('denied')) }),
+        ]); sent = true } }
+      },
+    })
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { files: [], types: ['Files'], items: [{ kind: 'file', webkitGetAsEntry: () => folder }] } })
+    await act(async () => { window.dispatchEvent(event) })
+    await settle()
+    expect(bodies).toEqual(['good'])
+    const failed = host.querySelector('.upload-row[data-status="failed"]')!
+    expect(failed.textContent).toContain('locked.txt')
+  })
+
   it('opens from the picker input too', async () => {
     mount()
     vi.spyOn(api, 'uploadLog').mockResolvedValue(newLog())
