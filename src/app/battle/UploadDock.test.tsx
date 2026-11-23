@@ -1,0 +1,126 @@
+// @vitest-environment jsdom
+import { act, createRef } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { UploadedLogSummary } from '@/core/contract'
+import { api, ApiFailure } from '../api/client'
+import { BattleProvider } from '../state/battle-store'
+import { ViewProvider } from '../state/view-store'
+import { loadUiFixture } from '../test/ui-fixture'
+import { UploadDock } from './UploadDock'
+
+let root: Root | undefined
+let host: HTMLElement
+beforeAll(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true })
+beforeEach(() => { vi.restoreAllMocks() })
+afterEach(() => { act(() => root?.unmount()); host?.remove() })
+
+const picker = createRef<HTMLInputElement>()
+
+function mount() {
+  const fixture = loadUiFixture()
+  host = document.createElement('div')
+  document.body.appendChild(host)
+  root = createRoot(host)
+  act(() => root!.render(
+    <BattleProvider static={fixture}>
+      <ViewProvider syncUrl={false}><UploadDock pickerRef={picker} /></ViewProvider>
+    </BattleProvider>,
+  ))
+  return fixture
+}
+
+const file = (name: string, text = 'Gamelog') => new File([text], name, { type: 'text/plain' })
+
+function dragEvent(type: string, files: File[]) {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'dataTransfer', { value: { files, types: ['Files'], items: [] } })
+  return event
+}
+
+const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+
+const newLog = (over: Partial<UploadedLogSummary> = {}): UploadedLogSummary =>
+  ({ id: 'n1', charId: 2117427381, charName: 'Lucinda HIly', side: 0, events: 7425, uploadedAt: 0, first: 1750606783000, last: 1750609081000, language: 'zh', ...over })
+
+describe('UploadDock', () => {
+  it('shows nothing but a hidden multi-file input until files arrive', () => {
+    mount()
+    expect(host.querySelector('.upload-tray')).toBeNull()
+    expect(picker.current?.multiple).toBe(true)
+  })
+
+  it('shows the whole-page overlay while files are dragged over the page, and hides it on leave', () => {
+    mount()
+    act(() => { window.dispatchEvent(dragEvent('dragenter', [])) })
+    expect(document.querySelector('.upload-overlay')).not.toBeNull()
+    act(() => { window.dispatchEvent(dragEvent('dragleave', [])) })
+    expect(document.querySelector('.upload-overlay')).toBeNull()
+  })
+
+  it('uploads dropped files one after another and reports the finished one', async () => {
+    mount()
+    let release: (() => void) | undefined
+    const calls: string[] = []
+    vi.spyOn(api, 'uploadLog').mockImplementation(async (_br, text, onProgress) => {
+      calls.push(text)
+      onProgress?.(0.5)
+      if (calls.length === 1) await new Promise<void>((resolve) => { release = resolve })
+      onProgress?.(1)
+      return newLog({ id: `n${calls.length}` })
+    })
+    await act(async () => { window.dispatchEvent(dragEvent('drop', [file('a.txt', 'one'), file('b.txt', 'two')])) })
+    await settle()
+    expect(calls).toEqual(['one'])
+    expect(host.querySelectorAll('.upload-row')).toHaveLength(2)
+    expect(host.querySelector('.upload-row[data-status="uploading"]')).not.toBeNull()
+    expect(host.querySelector('.upload-row[data-status="queued"]')).not.toBeNull()
+    await act(async () => { release!() })
+    await settle()
+    expect(calls).toEqual(['one', 'two'])
+    const done = host.querySelectorAll('.upload-row[data-status="done"]')
+    expect(done).toHaveLength(2)
+    expect(done[0]!.textContent).toContain('Lucinda HIly')
+    expect(done[0]!.textContent).toContain('7,425')
+    expect(done[0]!.textContent).toContain('中文客户端')
+  })
+
+  it.each([
+    ['no_overlap', '时间对不上'],
+    ['not_a_gamelog', '不是战斗日志'],
+    ['unknown_character', '查不到角色'],
+    ['too_large', '文件太大'],
+  ] as const)('shows %s with a remove button', async (code, label) => {
+    mount()
+    vi.spyOn(api, 'uploadLog').mockRejectedValue(new ApiFailure(code, '服务器的说明', 400))
+    await act(async () => { window.dispatchEvent(dragEvent('drop', [file('x.txt')])) })
+    await settle()
+    const row = host.querySelector(`.upload-row[data-status="${code}"]`)!
+    expect(row.textContent).toContain(label)
+    expect(row.textContent).toContain('服务器的说明')
+    act(() => row.querySelector<HTMLButtonElement>('button')!.click())
+    expect(host.querySelector('.upload-row')).toBeNull()
+  })
+
+  it('skips a file that is already in the battle and says which one it matches', async () => {
+    const fixture = mount()
+    const known = fixture.summary.logs[0]!
+    const upload = vi.spyOn(api, 'uploadLog').mockResolvedValue(known)
+    await act(async () => { window.dispatchEvent(dragEvent('drop', [file('again.txt')])) })
+    await settle()
+    const row = host.querySelector('.upload-row[data-status="duplicate"]')!
+    expect(upload).toHaveBeenCalledOnce()
+    expect(row.textContent).toContain('完全相同')
+    expect(row.textContent).toContain(known.charName)
+  })
+
+  it('opens from the picker input too', async () => {
+    mount()
+    vi.spyOn(api, 'uploadLog').mockResolvedValue(newLog())
+    const input = picker.current!
+    Object.defineProperty(input, 'files', { value: [file('p.txt')], configurable: true })
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+    await settle()
+    expect(host.querySelector('.upload-row[data-status="done"]')).not.toBeNull()
+  })
+})
