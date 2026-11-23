@@ -1,9 +1,9 @@
-import { useState, type FormEvent, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react'
 import { api } from '../api/client'
 import { fmtDate, fmtHms, fmtNum } from '../lib/format'
 import { Button } from '../ui/Button'
 import { brErrorMessage, validateBrInput } from './br-input'
-import { readRecent, recordRecent, type RecentBattle } from './recent'
+import { readRecent, recordRecent } from './recent'
 import './home.css'
 
 export interface HomePageProps {}
@@ -20,6 +20,9 @@ export function HomePage(_props: HomePageProps) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [recent] = useState(readRecent)
+  // Only the latest user intent may navigate: opening another battle or leaving the page cancels a pending create.
+  const intent = useRef(0)
+  useEffect(() => () => { intent.current += 1 }, [])
 
   async function open(event: FormEvent) {
     event.preventDefault()
@@ -28,12 +31,15 @@ export function HomePage(_props: HomePageProps) {
     if (!checked.ok) return setError(checked.message)
     setError('')
     setBusy(true)
+    const mine = ++intent.current
     try {
       const { brId } = await api.createBattle(value.trim())
-      const entry = await remember(brId)
-      recordRecent(entry)
+      if (mine !== intent.current) return
+      // The battle page records the summary it actually loaded (title, dates, counts).
+      recordRecent({ brId, openedAt: Date.now() })
       navigate(`/b/${encodeURIComponent(brId)}`)
     } catch (failure) {
+      if (mine !== intent.current) return
       setError(brErrorMessage(failure))
       setBusy(false)
     }
@@ -42,6 +48,7 @@ export function HomePage(_props: HomePageProps) {
   function follow(event: MouseEvent<HTMLAnchorElement>, brId: string) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     event.preventDefault()
+    intent.current += 1
     navigate(`/b/${encodeURIComponent(brId)}`)
   }
 
@@ -64,34 +71,20 @@ export function HomePage(_props: HomePageProps) {
           {recent.map((battle) => (
             <a key={battle.brId} className="home-recent-row" href={`/b/${encodeURIComponent(battle.brId)}`}
               onClick={(event) => follow(event, battle.brId)}>
-              <span className="home-recent-name">{battle.title}</span>
-              <span className="home-recent-meta">{fmtDate(battle.start)} {clock(battle.start)}–{clock(battle.end)}</span>
-              <span className="home-recent-count"><span className="app-number">{fmtNum(battle.kills)}</span> 次击毁</span>
-              <span className="home-recent-count">日志 <span className="app-number">{fmtNum(battle.logs)}</span></span>
+              <span className="home-recent-name">{battle.title ?? battle.brId}</span>
+              <span className="home-recent-meta">
+                {battle.start !== undefined && battle.end !== undefined && `${fmtDate(battle.start)} ${clock(battle.start)}–${clock(battle.end)}`}
+              </span>
+              <span className="home-recent-count">
+                {battle.kills !== undefined && <><span className="app-number">{fmtNum(battle.kills)}</span> 次击毁</>}
+              </span>
+              <span className="home-recent-count">
+                {battle.logs !== undefined && <>日志 <span className="app-number">{fmtNum(battle.logs)}</span></>}
+              </span>
             </a>
           ))}
         </section>
       )}
     </div>
   )
-}
-
-/** The list stores what the row shows. A failed summary fetch must not block opening the battle. */
-async function remember(brId: string): Promise<RecentBattle> {
-  const base: RecentBattle = { brId, title: brId, start: 0, end: 0, kills: 0, logs: 0, openedAt: Date.now() }
-  try {
-    const { meta, logs } = await api.getBattle(brId)
-    const systems = [...new Set(meta.windows.map(({ systemName }) => systemName))]
-    const first = systems[0]
-    return {
-      ...base,
-      title: first === undefined ? brId : systems.length > 1 ? `${first} 等 ${systems.length} 个星系` : first,
-      start: Math.min(...meta.windows.map(({ start }) => start)),
-      end: Math.max(...meta.windows.map(({ end }) => end)),
-      kills: meta.killmails.length,
-      logs: logs.length,
-    }
-  } catch {
-    return base
-  }
 }

@@ -3,7 +3,6 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, ApiFailure } from '../api/client'
-import { loadUiFixture } from '../test/ui-fixture'
 import { HomePage } from './HomePage'
 import { readRecent } from './recent'
 
@@ -38,29 +37,64 @@ describe('HomePage', () => {
     expect(host.querySelector('[role="alert"]')!.textContent).toMatch(/链接/)
   })
 
-  it('creates the battle, remembers it and navigates to /b/:brId', async () => {
-    const { summary } = loadUiFixture()
+  it('navigates as soon as createBattle succeeds, without waiting for a summary fetch (R2a-8)', async () => {
     vi.spyOn(api, 'createBattle').mockResolvedValue({ brId: id })
-    vi.spyOn(api, 'getBattle').mockResolvedValue(summary)
+    const summary = vi.spyOn(api, 'getBattle').mockReturnValue(new Promise(() => undefined))
     const navigated = vi.fn()
     window.addEventListener('popstate', navigated)
     mount()
     type(`https://br.evetools.org/br/${id}`)
     await submit()
     expect(api.createBattle).toHaveBeenCalledWith(`https://br.evetools.org/br/${id}`)
+    expect(summary).not.toHaveBeenCalled()
     expect(window.location.pathname).toBe(`/b/${id}`)
     expect(navigated).toHaveBeenCalled()
-    expect(readRecent()[0]).toMatchObject({ brId: id, kills: summary.meta.killmails.length })
     window.removeEventListener('popstate', navigated)
   })
 
-  it('still navigates when the follow-up summary fetch fails', async () => {
+  it('does not invent metadata for a battle it only knows by id (R2a-8)', async () => {
     vi.spyOn(api, 'createBattle').mockResolvedValue({ brId: id })
-    vi.spyOn(api, 'getBattle').mockRejectedValue(new ApiFailure('network', 'x'))
     mount()
     type(id)
     await submit()
-    expect(window.location.pathname).toBe(`/b/${id}`)
+    const entry = readRecent()[0]!
+    expect(entry.brId).toBe(id)
+    expect(entry.start).toBeUndefined()
+    expect(entry.kills).toBeUndefined()
+    act(() => root!.unmount())
+    host.remove()
+    mount()
+    const row = host.querySelector('a.home-recent-row')!
+    expect(row.textContent).not.toMatch(/1970|次击毁|日志/)
+  })
+
+  it('keeps known metadata when the same battle is opened again (R2a-8)', async () => {
+    localStorage.setItem('eve-combat-analytics:recent', JSON.stringify([
+      { brId: id, title: 'J125990', start: 1750606047000, end: 1750610857000, kills: 52, logs: 17, openedAt: 5 },
+    ]))
+    vi.spyOn(api, 'createBattle').mockResolvedValue({ brId: id })
+    mount()
+    type(id)
+    await submit()
+    expect(readRecent()[0]).toMatchObject({ title: 'J125990', kills: 52, logs: 17 })
+    expect(readRecent()[0]!.openedAt).toBeGreaterThan(5)
+  })
+
+  it('does not navigate from a stale create after the user clicked another recent battle (R2a-8)', async () => {
+    localStorage.setItem('eve-combat-analytics:recent', JSON.stringify([
+      { brId: 'other', title: 'Other', start: 1, end: 2, kills: 1, logs: 0, openedAt: 5 },
+    ]))
+    let resolve!: (value: { brId: string }) => void
+    vi.spyOn(api, 'createBattle').mockReturnValue(new Promise((done) => { resolve = done }))
+    mount()
+    type(id)
+    const pending = submit()
+    act(() => { host.querySelector<HTMLAnchorElement>('a.home-recent-row')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })) })
+    expect(window.location.pathname).toBe('/b/other')
+    await act(async () => { resolve({ brId: id }) })
+    await pending
+    expect(window.location.pathname).toBe('/b/other')
+    expect(readRecent().some(({ brId }) => brId === id)).toBe(false)
   })
 
   it.each([
