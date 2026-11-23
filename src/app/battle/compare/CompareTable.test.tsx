@@ -21,9 +21,9 @@ afterEach(() => {
   host.remove()
 })
 
-function render(children = <CompareTable />) {
+function render(children = <CompareTable />, data = fixture) {
   act(() => root.render(
-    <BattleProvider static={fixture}><ViewProvider syncUrl={false}>{children}</ViewProvider></BattleProvider>,
+    <BattleProvider static={data}><ViewProvider syncUrl={false}>{children}</ViewProvider></BattleProvider>,
   ))
 }
 
@@ -53,6 +53,7 @@ it('shows full and selected-range damage from the real fixture', () => {
   expect(cells()[0]?.textContent).toBe('442,358')
   expect(cells()[5]?.textContent).toBe('226,211')
   act(() => host.querySelector<HTMLButtonElement>('#range')!.click())
+  expect(host.querySelector('.u7-compare-note')?.textContent).toContain('选段 15:41:40–15:42:40')
   expect(cells()[0]?.textContent).toBe('41,222')
   expect(cells()[5]?.textContent).toBe('2,093')
 })
@@ -85,4 +86,9 @@ it('describes an unavailable value to assistive tech and reveals its reason on t
   expect(panel?.textContent).toBe(reason?.textContent)
   act(() => toggle.click())
   expect(missing.hasAttribute('open')).toBe(true)
+})
+
+it('labels the whole fight from the first interaction to the last killmail', () => {
+  render(<CompareTable />, loadUiFixture({ fullPilotEvents: true }))
+  expect(host.querySelector('.u7-compare-note')?.textContent).toContain('全场 15:39–16:42')
 })

@@ -56,10 +56,16 @@ export function CompareTable(_props: CompareTableProps) {
   const viewColumns = groups.map((group) => ({ group, columns: columns.filter(({ metric }) => metric.group === group) }))
     .filter((entry) => entry.columns.length)
   const activeCompact = visible.has(compactMetric) ? compactMetric : columns[0]?.metric.key
-  const windows = summary?.meta.windows ?? []
-  const bounds = range ?? (windows.length
-    ? [Math.min(...windows.map(({ start }) => start)), Math.max(...windows.map(({ end }) => end))]
-    : undefined)
+  const firstInteraction = analysis.interactions[0]?.t
+  const lastInteraction = analysis.interactions.at(-1)?.t
+  let fightStart = firstInteraction ?? Infinity
+  let fightEnd = lastInteraction ?? -Infinity
+  for (const { t } of summary?.meta.killmails ?? []) {
+    fightStart = Math.min(fightStart, t)
+    fightEnd = Math.max(fightEnd, t)
+  }
+  const bounds = range ?? (fightStart <= fightEnd ? [fightStart, fightEnd] as const : undefined)
+  const formatTime = range ? fmtHms : (time: number) => fmtHms(time).slice(0, 5)
 
   function toggle<K>(set: ReadonlySet<K>, key: K) {
     const next = new Set(set)
@@ -109,7 +115,7 @@ export function CompareTable(_props: CompareTableProps) {
     </header>
     <div className="u7-compare-note">
       <span>{mode === 'table' ? '勾选的人置顶 · 竖线是中位数' : mode === 'side-by-side' ? '每项一组条形 · 竖线是中位数' : '每项一条轴 · 虚线是中位数'}</span>
-      {bounds && <span>{range ? '选段' : '全场'} <span className="app-number">{fmtHms(bounds[0])}–{fmtHms(bounds[1])}</span></span>}
+      {bounds && <span>{range ? '选段' : '全场'} <span className="app-number">{formatTime(bounds[0])}–{formatTime(bounds[1])}</span></span>}
     </div>
     {mode !== 'table' && <details className="u7-compare-pick">
       <summary>选择飞行员 <span className="app-number">{pinned.size} / {maxPinned}</span></summary>
