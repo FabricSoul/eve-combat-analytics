@@ -35,3 +35,26 @@ describe('createServices wires the real core modules', () => {
     expect(log.listener).toBe('Some Pilot')
   })
 })
+
+it('cancels ESI fetches without starting another batch after the deadline', async () => {
+  const controller = new AbortController()
+  let calls = 0
+  let enteringFetch!: (signal: AbortSignal | null | undefined) => void
+  const started = new Promise<AbortSignal | null | undefined>((resolve) => { enteringFetch = resolve })
+  const fetch: typeof globalThis.fetch = async (_input, init) => {
+    calls++
+    enteringFetch(init?.signal)
+    if (calls > 1) return jsonResponse({ characters: [] })
+    return new Promise<Response>((_, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+    })
+  }
+  const services = createServices({} as never, { fetch, sleep: async () => {}, now: Date.now })
+  const result = services.namesToCharacters(Array.from({ length: 501 }, (_, i) => `Pilot ${i}`), controller.signal)
+  const rejection = expect(result).rejects.toThrow('ESI POST')
+  expect(await started).toBe(controller.signal)
+  controller.abort()
+  await rejection
+  expect(calls).toBe(1)
+  expect(await services.namesToCharacters(['Another Pilot'])).toEqual({ 'Another Pilot': null })
+})

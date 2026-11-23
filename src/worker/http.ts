@@ -9,6 +9,7 @@ const errorStatus: Record<ApiErrorCode, number> = {
   unknown_character: 422,
   bad_eft: 400,
   too_large: 413,
+  bad_request: 400,
 }
 
 export class ApiFailure extends Error {
@@ -43,25 +44,10 @@ export function errorResponse(error: unknown): Response {
 
 export const battlePath = /^\/api\/battles\/([a-f0-9]{24})(?:\/(.*))?$/i
 
-export function parseBrId(input: unknown): string | null {
-  if (typeof input !== 'string') return null
-  const text = input.trim()
-  if (/^[a-f0-9]{24}$/i.test(text)) return text.toLowerCase()
-  const url = URL.parse(text)
-  if (!url || !['https:', 'http:'].includes(url.protocol) || url.hostname !== 'br.evetools.org') {
-    return null
+export async function readText(request: Request, limit: number, message: string): Promise<string> {
+  if (Number(request.headers.get('Content-Length')) > limit) {
+    throw new ApiFailure('too_large', message)
   }
-  return /^\/br\/([a-f0-9]{24})\/?$/i.exec(url.pathname)?.[1]?.toLowerCase() ?? null
-}
-
-const LOG_LIMIT = 10 * 1024 * 1024
-
-function tooLarge(): ApiFailure {
-  return new ApiFailure('too_large', 'Gamelogs must be at most 10 MiB')
-}
-
-export async function readLog(request: Request): Promise<string> {
-  if (Number(request.headers.get('Content-Length')) > LOG_LIMIT) throw tooLarge()
   if (!request.body) return ''
   const reader = request.body.getReader()
   const decoder = new TextDecoder('utf-8', { ignoreBOM: true })
@@ -72,10 +58,10 @@ export async function readLog(request: Request): Promise<string> {
       const { done, value } = await reader.read()
       if (done) break
       bytes += value.byteLength
-      if (bytes > LOG_LIMIT) {
+      if (bytes > limit) {
         // Cancellation can wait for the sender. The HTTP rejection does not need to wait.
         void reader.cancel().catch(() => {})
-        throw tooLarge()
+        throw new ApiFailure('too_large', message)
       }
       text.push(decoder.decode(value, { stream: true }))
     }

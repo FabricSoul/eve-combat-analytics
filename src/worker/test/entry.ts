@@ -28,9 +28,31 @@ function event(t: number, line: number, name: string | null, raw = name ?? ''): 
   }
 }
 
+// Synthetic oversized metadata. Pseudorandom hashes keep its gzip payload above one chunk.
+export function largeMeta(id: string): BattleMeta {
+  const km = meta.killmails[0]!
+  let seed = 123456789
+  return {
+    ...meta, brId: id, teams,
+    killmails: Array.from({ length: 1100 }, (_, index) => {
+      const hash = Array.from({ length: 2048 }, () => {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+        return String.fromCharCode(33 + (seed >>> 16) % 90)
+      }).join('')
+      return { ...km, id: index + 1, hash, attackers: Array.from({ length: 30 }, () => km.attackers[0]!) }
+    }),
+  }
+}
+
 // Synthetic parser and ESI data exercise the storage and API independently of T1/T2.
 export function parseGamelog(text: string): ParsedLog {
   if (text === 'invalid') throw new GamelogFormatError('no_header', 'Missing header')
+  const indexed = /^pilot (\d+)$/.exec(text)
+  if (indexed) return {
+    listener: `Synthetic Pilot ${indexed[1]}`, sessionStart: start, language: 'en',
+    events: Array.from({ length: 3000 }, (_, i) => event(start + i, i + 1, 'Target')),
+    unparsed: [],
+  }
   const loggingEvents = [
     event(start - 1, 1, 'Outside'),
     event(start, 2, 'Target'),
@@ -39,20 +61,32 @@ export function parseGamelog(text: string): ParsedLog {
     event(end + 1, 5, 'Outside'),
   ]
   return {
-    listener: text === 'unknown' ? 'Unknown Pilot' : 'Logistics Pilot',
+    listener: text === 'historical' ? 'Zeikku Targaryen' : text === 'unknown' ? 'Unknown Pilot' : 'Logistics Pilot',
     sessionStart: start,
     language: 'en',
     events: text === 'no overlap' ? [event(end + 1, 1, 'Outside')]
       : text === 'long log' ? Array.from({ length: 3000 }, (_, i) => event(start + i, i + 1, 'Target'))
+      : text === 'historical' ? [event(start, 1, 'Zeikku Targaryen')]
+      : text === 'many names' ? [
+        event(start, 1, 'Fake [CORP]'),
+        event(start, 2, 'X'.repeat(38)),
+        event(start, 3, 'NPC*'),
+        ...Array.from({ length: 2001 }, (_, i) => event(start + i, i + 4, `Candidate ${i}`)),
+      ]
+      : text === 'budgeted names' ? Array.from({ length: 550 }, (_, i) => event(start + i, i + 1, `Budget Target ${i}`))
+      : text === 'slow names' ? [event(start, 1, 'Timed Target')]
       : text === 'replacement' ? [event(start, 1, 'Target'), event(end, 2, null, 'Second NPC')]
       : loggingEvents,
-    unparsed: [{ line: 6, text: 'Unrecognized combat line' }],
+    unparsed: Array.from({ length: text === 'many unknown' ? 550 : 1 }, (_, i) => ({ line: 6 + i, text: 'Unrecognized combat line' })),
   }
 }
 
 export class BattleRoom extends ProductionBattleRoom {
+  protected readonly uploadEsiTimeoutMs = 100
   protected override makeServices() {
     let fetched = false
+    let slow = true
+    let slowBatch = true
     return {
       parseGamelog,
       async fetchBattleMeta(id: string): Promise<BattleMeta> {
@@ -64,13 +98,37 @@ export class BattleRoom extends ProductionBattleRoom {
         if (id === '000000000000000000000502') {
           throw Object.assign(new Error('BR upstream unavailable'), { code: 'br_unavailable' })
         }
-        return { ...meta, brId: id, teams }
+        return id.endsWith('b16') ? largeMeta(id) : { ...meta, brId: id, teams }
       },
       async namesToCharacters(displayNames: string[]): Promise<Record<string, number | null>> {
+        if (displayNames.some((name) => name.startsWith('Budget Target '))) {
+          if (slowBatch && displayNames.includes('Budget Target 500')) {
+            slowBatch = false
+            await new Promise((resolve) => setTimeout(resolve, 400))
+          }
+          return Object.fromEntries(displayNames.map((name) => [name, null]))
+        }
+        if (displayNames.every((name) => /^Candidate \d+$/.test(name))) {
+          return Object.fromEntries(displayNames.map((name) => [name, null]))
+        }
+        if (displayNames.some((name) => /^Synthetic Pilot \d+$/.test(name))) {
+          return Object.fromEntries(displayNames.map((name) => [name, 10000 + Number(name.split(' ').at(-1))]))
+        }
+        if (displayNames.includes('Timed Target')) {
+          if (slow) {
+            slow = false
+            await new Promise((resolve) => setTimeout(resolve, 400))
+          }
+          return Object.fromEntries(displayNames.map((name) => [name, null]))
+        }
+        if (displayNames.includes('Candidate 2000')) {
+          return Object.fromEntries(displayNames.map((name) => [name, name === 'Target' ? 101 : null]))
+        }
         const batch = [...displayNames].sort().join(',')
         switch (batch) {
           case 'Logistics Pilot': return { 'Logistics Pilot': 100 }
           case 'Unknown Pilot': return { 'Unknown Pilot': null }
+          case 'Zeikku Targaryen': return { 'Zeikku Targaryen': 2113179297 }
           case 'Target': return { Target: 101 }
           case 'NPC,Target': return { NPC: null, Target: 101 }
           case 'Second NPC': return { 'Second NPC': null }
@@ -78,6 +136,9 @@ export class BattleRoom extends ProductionBattleRoom {
         }
       },
       async affiliations(ids: number[]) {
+        if (ids[0] === 2113179297 || (ids[0] ?? 0) >= 10000) {
+          return ids.map((charId) => ({ charId, corpId: 1, allyId: null }))
+        }
         if (ids.length !== 1 || (ids[0] !== 100 && ids[0] !== 101)) {
           throw new Error(`Unexpected affiliation lookup: ${ids.join(',')}`)
         }

@@ -2,9 +2,11 @@
 import { env, exports as worker } from 'cloudflare:workers'
 import { evictDurableObject, runInDurableObject } from 'cloudflare:test'
 import { expect, it } from 'vitest'
-import type { BattleState, ServerMessage, UploadedLogSummary } from '../core/contract'
+import { sideOf } from '../core/br/normalize'
+import type { BattleState, FitEntry, NameIndex, UploadedLog, UploadedLogSummary } from '../core/contract'
 import type { Env } from './index'
-import { brId, end, meta, now, parseGamelog, start, teams } from './test/entry'
+import { packJson } from './storage'
+import { brId, end, largeMeta, meta, now, parseGamelog, start, teams } from './test/entry'
 
 declare global {
   namespace Cloudflare {
@@ -61,15 +63,20 @@ async function state(id: string): Promise<BattleState> {
   return response.json()
 }
 
+type LiveMessage =
+  | { type: 'snapshot'; state: BattleState }
+  | { type: 'log_added'; log: UploadedLog; names: NameIndex }
+  | { type: 'fit_set'; fit: FitEntry }
+
 async function connect(id: string) {
   const response = await worker.default.fetch(`${battle(id)}/ws`, { headers: { Upgrade: 'websocket' } })
   expect(response.status).toBe(101)
   const ws = response.webSocket!
   expect(ws).toBeDefined()
-  const messages: ServerMessage[] = []
-  const listeners: Array<(message: ServerMessage) => void> = []
+  const messages: LiveMessage[] = []
+  const listeners: Array<(message: LiveMessage) => void> = []
   ws.addEventListener('message', (event) => {
-    const message = JSON.parse(String(event.data)) as ServerMessage
+    const message = JSON.parse(String(event.data)) as LiveMessage
     const listener = listeners.shift()
     if (listener) listener(message)
     else messages.push(message)
@@ -78,7 +85,7 @@ async function connect(id: string) {
   return {
     next: () => {
       const message = messages.shift()
-      return message ? Promise.resolve(message) : new Promise<ServerMessage>((resolve) => listeners.push(resolve))
+      return message ? Promise.resolve(message) : new Promise<LiveMessage>((resolve) => listeners.push(resolve))
     },
     close: () => ws.close(1000),
   }
@@ -109,8 +116,8 @@ it('stores only events within inclusive windows and resolves distinct visible na
   const expectedId = Array.from(new Uint8Array(await crypto.subtle.digest(
     'SHA-256', new TextEncoder().encode(text),
   )), (byte) => byte.toString(16).padStart(2, '0')).join('')
-  expect(await response.json()).toEqual({
-    id: expectedId, charId: 100, charName: 'Logistics Pilot', side: 1, events: 3, replaced: false,
+  expect(await response.json()).toMatchObject({
+    id: expectedId, charId: 100, charName: 'Logistics Pilot', side: 1, events: 3, uploadedAt: now,
   })
   const result = await state(id)
   expect(result.logs[0]).toMatchObject({ id: expectedId, charId: 100, uploadedAt: now, side: 1 })
@@ -155,21 +162,19 @@ it('broadcasts only new uploads to both hibernating viewers and snapshots curren
     expect(duplicate.status).toBe(200)
     const initial = await result.json<UploadedLogSummary>()
     expect(await duplicate.json()).toEqual(initial)
-    expect(initial.replaced).toBe(false)
     const added = { type: 'log_added', log: (await state(id)).logs[0], names: { Target: { charId: 101, side: 3 }, NPC: null } }
     expect(await first.next()).toEqual(added)
     expect(await second.next()).toEqual(added)
     expect(await (await upload(id, 'valid log')).json()).toEqual(initial)
-    const replacement = await (await upload(id, 'replacement')).json<UploadedLogSummary>()
-    expect(replacement).toMatchObject({ replaced: true, charId: 100, events: 2 })
-    expect(replacement.id).not.toBe(initial.id)
+    const followup = await (await upload(id, 'replacement')).json<UploadedLogSummary>()
+    expect(followup).toMatchObject({ charId: 100, events: 2 })
+    expect(followup.id).not.toBe(initial.id)
     const current = await state(id)
-    expect(current.logs).toHaveLength(1)
-    expect(current.logs[0]?.id).toBe(replacement.id)
+    expect(current.logs).toHaveLength(2)
     expect(current.names).toEqual({ ...added.names, 'Second NPC': null })
-    const replaced = { type: 'log_added', log: current.logs[0], names: { 'Second NPC': null } }
-    expect(await first.next()).toEqual(replaced)
-    expect(await second.next()).toEqual(replaced)
+    const appended = { type: 'log_added', log: current.logs.find(({ id }) => id === followup.id), names: { 'Second NPC': null } }
+    expect(await first.next()).toEqual(appended)
+    expect(await second.next()).toEqual(appended)
     const third = await connect(id)
     try {
       expect(await third.next()).toEqual({ type: 'snapshot', state: current })
@@ -214,4 +219,172 @@ it('stores fit text verbatim and broadcasts the fit', async () => {
   } finally {
     viewer.close()
   }
+})
+
+it('I1 uses battle-time affiliation for uploads and counterparties on killmails', async () => {
+  const id = await prepare(910)
+  const pilot = meta.killmails.flatMap((km) => [km.victim, ...km.attackers])
+    .find(({ charId }) => charId === 2113179297)!
+  const side = sideOf(pilot, teams)
+  expect(side).toBeGreaterThanOrEqual(0)
+  expect(await (await upload(id, 'historical')).json()).toMatchObject({ side })
+  expect((await state(id)).names['Zeikku Targaryen']).toEqual({ charId: 2113179297, side })
+})
+
+it('I5 stores a >3 MB BR in bounded gzip chunks and reads it back after eviction', async () => {
+  const id = testId(0x1b16)
+  const expected = largeMeta(id)
+  expect(new TextEncoder().encode(JSON.stringify(expected)).length).toBeGreaterThan(3 * 1024 * 1024)
+  expect(await (await create(id)).json()).toEqual({ brId: id })
+  const stub = env.BATTLE.getByName(id)
+  const lengths = await runInDurableObject(stub, (_, { storage }) => {
+    const tables = storage.sql.exec<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('meta', 'meta_chunks')",
+    ).toArray()
+    return tables.flatMap(({ name }) => storage.sql.exec(`SELECT * FROM "${name}"`).toArray()
+      .flatMap((row) => Object.values(row).flatMap((v) =>
+        typeof v === 'string' ? [new TextEncoder().encode(v).length] : v instanceof ArrayBuffer ? [v.byteLength] : [])))
+  })
+  expect(Math.max(...lengths)).toBeLessThanOrEqual(1024 * 1024)
+  expect(lengths.length).toBeGreaterThan(1)
+  await evictDurableObject(stub)
+  expect((await state(id)).meta).toEqual(expected)
+}, 15000)
+
+it('I6 rejects a streamed fit after 64 KiB', async () => {
+  const id = await prepare(913)
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('[Rifter, Fleet]\n'))
+      controller.enqueue(new Uint8Array(64 * 1024))
+      controller.close()
+    },
+  })
+  const response = await worker.default.fetch(`${battle(id)}/fits/100`, { method: 'PUT', body })
+  expect(response.status).toBe(413)
+  expect(await response.json()).toMatchObject({ error: 'too_large' })
+  expect((await state(id)).fits).toEqual([])
+})
+
+it('I7 skips implausible names and defers lookups over 2,000 until the next upload', async () => {
+  const id = await prepare(914)
+  const first = await upload(id, 'many names')
+  expect(first.status).toBe(200)
+  await first.json()
+  const names = (await state(id)).names
+  expect(Object.keys(names)).toHaveLength(2000)
+  expect(Object.keys(names).every((name) => /^Candidate \d+$/.test(name))).toBe(true)
+  expect(Object.hasOwn(names, 'Candidate 2000')).toBe(false)
+  await evictDurableObject(env.BATTLE.getByName(id))
+  const next = await upload(id, 'replacement')
+  expect(next.status).toBe(200)
+  expect((await state(id)).names).toHaveProperty('Candidate 2000', null)
+})
+
+it('I7 saves a log when counterparty ESI exceeds its budget and retries those names on the next upload', async () => {
+  const id = await prepare(915)
+  const response = await upload(id, 'slow names')
+  expect(response.status).toBe(200)
+  await response.json()
+  expect(Object.hasOwn((await state(id)).names, 'Timed Target')).toBe(false)
+  const next = await upload(id, 'replacement')
+  expect(next.status).toBe(200)
+  expect((await state(id)).names).toHaveProperty('Timed Target', null)
+})
+
+it('I7 preserves completed name batches when a later batch exceeds the ESI budget', async () => {
+  const id = await prepare(921)
+  const response = await upload(id, 'budgeted names')
+  expect(response.status).toBe(200)
+  await response.json()
+  expect(Object.keys((await state(id)).names)).toHaveLength(500)
+  const next = await upload(id, 'replacement')
+  expect(next.status).toBe(200)
+  await next.json()
+  expect((await state(id)).names).toHaveProperty('Budget Target 549', null)
+})
+
+it('I9 keeps multiple files for one pilot and treats an exact upload as a no-op', async () => {
+  const id = await prepare(917)
+  const first = await upload(id, 'valid log')
+  expect(first.status).toBe(200)
+  const initial = await first.json<UploadedLogSummary>()
+  expect(initial).not.toHaveProperty('uploaderToken')
+  expect(initial).not.toHaveProperty('replaced')
+  const second = await upload(id, 'replacement')
+  expect(second.status).toBe(200)
+  const next = await second.json<UploadedLogSummary>()
+  expect(next.charId).toBe(initial.charId)
+  expect(next.id).not.toBe(initial.id)
+  expect(await (await upload(id, 'valid log')).json()).toEqual(initial)
+  await evictDurableObject(env.BATTLE.getByName(id))
+  expect((await state(id)).logs.map(({ id }) => id).sort()).toEqual([initial.id, next.id].sort())
+  const response = await setFit(id, '[Rifter, Fleet]')
+  expect(await response.json()).toEqual({ charId: 100, eft: '[Rifter, Fleet]', setAt: now })
+})
+
+it('M3 limits stored unparsed diagnostics to 500 lines while retaining their total count', async () => {
+  const id = await prepare(918)
+  const response = await upload(id, 'many unknown')
+  const result = await response.json<UploadedLogSummary>()
+  const responseState = await (await worker.default.fetch(battle(id))).json<{
+    logs: Array<UploadedLog & { unparsedCount: number }>
+  }>()
+  const log = responseState.logs.find(({ id }) => id === result.id)!
+  expect(log.parsed.unparsed).toEqual(parseGamelog('many unknown').unparsed.slice(0, 500))
+  expect(log.unparsedCount).toBe(550)
+})
+
+it('M4 does not create SQLite tables when an unknown battle is read', async () => {
+  const id = testId(919)
+  expect((await worker.default.fetch(battle(id))).status).toBe(404)
+  const tables = await runInDurableObject(env.BATTLE.getByName(id), (_, { storage }) =>
+    storage.sql.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '_cf_%'").toArray(),
+  )
+  expect(tables).toEqual([])
+})
+
+it('M5 uses bad_request for an invalid fit character ID or missing WebSocket upgrade', async () => {
+  const id = await prepare(920)
+  const fit = await worker.default.fetch(`${battle(id)}/fits/NaN`, { method: 'PUT', body: '[Rifter, Fleet]' })
+  expect(fit.status).toBe(400)
+  expect(await fit.json()).toMatchObject({ error: 'bad_request' })
+  const ws = await worker.default.fetch(`${battle(id)}/ws`)
+  expect(ws.status).toBe(426)
+  expect(await ws.json()).toMatchObject({ error: 'bad_request' })
+})
+
+it('keeps files from the old one-log schema readable and migrates them on append', async () => {
+  const id = testId(922)
+  const originalId = 'a'.repeat(64)
+  const parsed = parseGamelog('replacement')
+  const [packed] = await packJson(parsed)
+  const stub = env.BATTLE.getByName(id)
+  await runInDurableObject(stub, (_, { storage }) => {
+    storage.sql.exec(`
+      CREATE TABLE meta (id INTEGER PRIMARY KEY, data TEXT NOT NULL);
+      CREATE TABLE logs (
+        charId INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, charName TEXT NOT NULL,
+        side INTEGER NOT NULL, uploadedAt INTEGER NOT NULL, events INTEGER NOT NULL
+      );
+      CREATE TABLE log_chunks (
+        charId INTEGER NOT NULL REFERENCES logs(charId) ON DELETE CASCADE,
+        seq INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (charId, seq)
+      );
+      CREATE TABLE fits (charId INTEGER PRIMARY KEY, eft TEXT NOT NULL, setAt INTEGER NOT NULL);
+      CREATE TABLE names (name TEXT PRIMARY KEY, charId INTEGER, side INTEGER);
+    `)
+    storage.sql.exec('INSERT INTO meta VALUES (1, ?)', JSON.stringify({ ...meta, brId: id, teams }))
+    storage.sql.exec('INSERT INTO logs VALUES (100, ?, ?, 1, ?, ?)', originalId, parsed.listener, now, parsed.events.length)
+    storage.sql.exec('INSERT INTO log_chunks VALUES (100, 0, ?)', packed!)
+  })
+  expect((await state(id)).logs[0]).toMatchObject({ id: originalId, parsed })
+  const uploaded = await upload(id, 'valid log')
+  expect(uploaded.status).toBe(200)
+  const next = await uploaded.json<UploadedLogSummary>()
+  await evictDurableObject(stub)
+  const current = await state(id)
+  expect(current.meta.brId).toBe(id)
+  expect(current.logs.map(({ id: logId }) => logId).sort()).toEqual([originalId, next.id].sort())
+  expect(current.logs.find((log) => log.id === originalId)?.parsed).toEqual(parsed)
 })

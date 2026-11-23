@@ -227,7 +227,7 @@ export type NameIndex = Record<string, { charId: number; side: number } | null>
 
 export interface BattleState {
   meta: BattleMeta
-  /** One per character; a newer upload for the same charId replaces the older. */
+  /** Several logs per character are allowed and merged. */
   logs: UploadedLog[]
   fits: FitEntry[]
   names: NameIndex
@@ -244,8 +244,6 @@ export type ApiErrorCode =
   | 'unknown_character'
   | 'bad_eft'
   | 'too_large'
-  /** A log or fit for this character exists and the request lacks that uploader's token. */
-  | 'log_exists'
   | 'bad_request'
 
 export interface ApiError {
@@ -257,13 +255,11 @@ export interface ApiError {
  * POST /api/battles                 body { brUrl }          → { brId }   (idempotent)
  * GET  /api/battles/:brId                                   → BattleSummary  (no parsed events)
  * GET  /api/battles/:brId/logs/:logId                       → UploadedLog    (immutable: cache forever)
- * POST /api/battles/:brId/logs      body: raw Gamelog text  → UploadResult
+ * POST /api/battles/:brId/logs      body: raw Gamelog text  → UploadedLogSummary
  * PUT  /api/battles/:brId/fits/:charId body: EFT text (≤ 64 KiB) → FitEntry
  * GET  /api/battles/:brId/ws        (WebSocket upgrade)     → ServerMessage stream
  *
- * Ownership without login: the first upload of a character's log (or fit) returns an uploader token. Replacing that
- * character's log or fit requires header `X-Uploader-Token: <token>`; otherwise 409 `log_exists`. Superseded logs are
- * kept in storage (not served). The client keeps its tokens per battle in localStorage.
+ * Log uploads are append-only. A character can have several files, and an exact file re-upload is a no-op.
  */
 export interface UploadedLogSummary {
   id: string
@@ -272,11 +268,6 @@ export interface UploadedLogSummary {
   side: number
   events: number
   uploadedAt: number
-  replaced: boolean
-}
-
-export interface UploadResult extends UploadedLogSummary {
-  uploaderToken: string
 }
 
 /** BattleState without parsed events; the client GETs each log by id and assembles a BattleState for analyze(). */
