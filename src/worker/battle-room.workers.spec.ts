@@ -4,7 +4,7 @@ import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from 'c
 import { expect, it, vi } from 'vitest'
 import * as battleAnalysis from '../core/analysis/analyze'
 import { sideOf } from '../core/br/normalize'
-import type { Analysis, BattleSummary, ServerMessage, SideOverride, UploadedLog, UploadedLogSummary } from '../core/contract'
+import type { Analysis, BattleSummary, ServerMessage, SideOverride, UploadedLog, UploadedLogSummary, UploadResult } from '../core/contract'
 import router from './index'
 import type { Env } from './index'
 import { packJson } from './storage'
@@ -189,14 +189,17 @@ it('broadcasts only new uploads to both hibernating viewers and snapshots curren
     const [result, duplicate] = await Promise.all([upload(id, 'valid log'), upload(id, 'valid log')])
     expect(result.status).toBe(200)
     expect(duplicate.status).toBe(200)
-    const initial = await result.json<UploadedLogSummary>()
+    const replies = [await result.json<UploadResult>(), await duplicate.json<UploadResult>()]
+    // Exactly one of two simultaneous uploads of the same file adds it; the other is told it was a duplicate.
+    expect(replies.filter((reply) => reply.duplicate === true)).toHaveLength(1)
+    const { duplicate: _added, ...initial } = replies.find((reply) => reply.duplicate !== true)!
     expect(initial).toMatchObject({ first: start, last: end, language: 'en' })
-    expect(await duplicate.json()).toEqual(initial)
+    expect(replies.find((reply) => reply.duplicate === true)).toEqual({ ...initial, duplicate: true })
     expect((await state(id)).logs).toEqual([initial])
     const added = { type: 'log_added', log: initial, names: { Target: { charId: 101, side: 3, corpId: 12345, allyId: null }, NPC: null } }
     expect(await first.next()).toEqual(added)
     expect(await second.next()).toEqual(added)
-    expect(await (await upload(id, 'valid log')).json()).toEqual(initial)
+    expect(await (await upload(id, 'valid log')).json()).toEqual({ ...initial, duplicate: true })
     const followup = await (await upload(id, 'replacement')).json<UploadedLogSummary>()
     expect(followup).toMatchObject({ charId: 100, events: 2, first: start, last: end, language: 'en' })
     expect(followup.id).not.toBe(initial.id)
@@ -351,7 +354,7 @@ it('I9 keeps multiple files for one pilot and treats an exact upload as a no-op'
   const next = await second.json<UploadedLogSummary>()
   expect(next.charId).toBe(initial.charId)
   expect(next.id).not.toBe(initial.id)
-  expect(await (await upload(id, 'valid log')).json()).toEqual(initial)
+  expect(await (await upload(id, 'valid log')).json()).toEqual({ ...initial, duplicate: true })
   await evictDurableObject(env.BATTLE.getByName(id))
   expect((await state(id)).logs.map(({ id }) => id).sort()).toEqual([initial.id, next.id].sort())
   const response = await setFit(id, '[Rifter, Fleet]')
@@ -729,7 +732,7 @@ it('F6b persists ESI affiliations for uploaders and names absent from killmails'
   expect((await state(id)).logs).toEqual([summary])
   expect(await readLogDetail(id, summary.id)).toMatchObject(affiliation)
   expect((await state(id)).names.Target).toEqual({ charId: 101, side: 3, corpId: 12345, allyId: null })
-  expect(await (await upload(id, 'valid log')).json()).toEqual(summary)
+  expect(await (await upload(id, 'valid log')).json()).toEqual({ ...summary, duplicate: true })
 })
 
 it('F6b persists battle-time affiliations for historical uploaders and names', async () => {

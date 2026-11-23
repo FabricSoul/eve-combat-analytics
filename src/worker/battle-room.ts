@@ -5,7 +5,7 @@ import { sideOf } from '../core/br/normalize'
 import { GamelogFormatError } from '../core/contract'
 import type {
   Analysis, ApiError, BattleMeta, FitEntry, KillmailParticipant, LogEvent, NameIndex, ServerMessage,
-  SideOverride, SideSubject,
+  SideOverride, SideSubject, UploadResult,
 } from '../core/contract'
 import { analysisJson } from './analysis-json'
 import { ApiFailure, battlePath, errorResponse, readText, upstreamFailure } from './http'
@@ -227,7 +227,8 @@ export class BattleRoom extends DurableObject<Env> {
 
   private async upload(id: string, text: string): Promise<Response> {
     const existing = this.store.logById(id)
-    if (existing) return Response.json(existing)
+    // Uploads run in order (inOrder), so a teammate's simultaneous copy of the same file lands here as a duplicate.
+    if (existing) return Response.json({ ...existing, duplicate: true } satisfies UploadResult)
 
     const battle = await this.battle()
     let parsed

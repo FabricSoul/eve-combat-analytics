@@ -114,6 +114,19 @@ describe('UploadDock', () => {
     expect(row.textContent).toContain(known.charName)
   })
 
+  it('reports a duplicate the server caught that this page has not seen yet (a teammate uploaded it at the same moment)', async () => {
+    mount()
+    const teammates = newLog({ id: 'f'.repeat(64), charName: 'Teammate Pilot' })
+    vi.spyOn(api, 'uploadLog').mockResolvedValue({ ...teammates, duplicate: true })
+    await act(async () => { window.dispatchEvent(dragEvent('drop', [file('same-moment.txt', 'teammate copy')])) })
+    await settle()
+    const row = host.querySelector('.upload-row[data-status="duplicate"]')
+    expect(row).not.toBeNull()
+    expect(row!.textContent).toContain('完全相同')
+    expect(row!.textContent).toContain('Teammate Pilot')
+    expect(host.querySelector('.upload-row[data-status="done"]')).toBeNull()
+  })
+
   it('keeps two batches dropped in the same turn apart (R2a-1)', async () => {
     mount()
     const bodies: string[] = []

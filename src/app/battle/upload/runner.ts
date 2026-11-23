@@ -1,4 +1,4 @@
-import type { UploadedLogSummary } from '@/core/contract'
+import type { UploadResult } from '@/core/contract'
 import { ApiFailure } from '../../api/client'
 import type { FailureStatus, QueueAction } from './queue'
 
@@ -16,7 +16,7 @@ export interface RunUploadDeps {
   sha256(text: string): Promise<string | null>
   /** Log id → what to call it in the "same as" message. */
   knownLogs(): ReadonlyMap<string, string>
-  uploadLog(text: string, onProgress?: (fraction: number) => void): Promise<UploadedLogSummary>
+  uploadLog(text: string, onProgress?: (fraction: number) => void): Promise<UploadResult>
   dispatch(action: QueueAction): void
 }
 
@@ -38,7 +38,7 @@ export async function runUpload({ id, size, readText, sha256, knownLogs, uploadL
     const earlier = hash === null ? undefined : known.get(hash)
     if (earlier !== undefined) return dispatch({ type: 'duplicate', id, of: earlier })
     const log = await uploadLog(text, (fraction) => dispatch({ type: 'progress', id, fraction }))
-    const same = known.get(log.id)
+    const same = known.get(log.id) ?? (log.duplicate ? `${log.charName} 的日志` : undefined)
     if (same !== undefined) dispatch({ type: 'duplicate', id, of: same })
     else dispatch({ type: 'done', id, log })
   } catch (error) {

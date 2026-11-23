@@ -1,6 +1,6 @@
 import type {
   Analysis, ApiError, ApiErrorCode, BattleSummary, FitEntry, KillmailFit,
-  SideEdit, SideOverride, SideSubject, UploadedLog, UploadedLogSummary,
+  SideEdit, SideOverride, SideSubject, UploadedLog, UploadedLogSummary, UploadResult,
 } from '@/core/contract'
 
 export class ApiFailure extends Error {
@@ -112,7 +112,7 @@ export const api = {
     return { analysis: await read<Analysis>(response), etag: response.headers.get('ETag') }
   },
 
-  uploadLog(brId: string, text: string, onProgress?: UploadProgress): Promise<UploadedLogSummary> {
+  uploadLog(brId: string, text: string, onProgress?: UploadProgress): Promise<UploadResult> {
     const path = `${battleApiPath(brId)}/logs`
     if (onProgress) return uploadWithProgress(path, text, onProgress)
     return request(path, { method: 'POST', headers: textHeaders, body: text })
