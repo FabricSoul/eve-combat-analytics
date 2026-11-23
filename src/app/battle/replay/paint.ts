@@ -13,6 +13,7 @@ export interface ReplayFrame {
   focusOnly: boolean
   reducedMotion: boolean
   playing: boolean
+  pausedElapsed?: number
 }
 
 interface Line {
@@ -126,15 +127,16 @@ export function makePainter(
     under.setLineDash([])
   }
 
-  function drawLine(line: Line, source: Point, target: Point, reducedMotion: boolean) {
+  function drawLine(line: Line, source: Point, target: Point, reducedMotion: boolean, pausedElapsed: number) {
     const { edge, opacity, age } = line
     const width = edge.amount > 0 ? tracerWidth(edge.strength) : 1.25
     const entrance = reducedMotion ? 1 : Math.min(1, 0.18 + age / appear)
     const trailAlpha = reducedMotion ? 0.42 : (1 - age / fade) * entrance * 0.24
     strokeLine(line, source, target, 0, 1, opacity * trailAlpha, 0.6 + width * 0.35)
 
-    const travel = age / 650
-    if (!reducedMotion && travel < 1 && opacity > 0.2) {
+    const effectAge = age + pausedElapsed
+    const travel = effectAge / 650
+    if (!reducedMotion && effectAge < fade && travel < 1 && opacity > 0.2) {
       const from = Math.max(0, travel - 0.35)
       const capDrain = edge.kind === 'neut' || edge.kind === 'nos'
       strokeLine(line, source, target, capDrain ? 1 - travel : from, capDrain ? 1 - from : travel, opacity * entrance, width)
@@ -213,6 +215,7 @@ export function makePainter(
   }
 
   function burst({ x, y }: Point, radius: number, age: number) {
+    if (age >= Math.min(fade, 920)) return false
     for (let index = 0; index < 3; index++) {
       const progress = (age - index * 110) / 700
       if (progress < 0 || progress >= 1) continue
@@ -220,6 +223,7 @@ export function makePainter(
       ring(over, x, y, radius + (26 + index * 10) * growth,
         color(index === 1 ? 'accent-line' : 'text'), 3 - index * 0.75, 1 - progress)
     }
+    return true
   }
 
   function liveEdges(edges: readonly ReplayEdge[], t: number) {
@@ -233,7 +237,8 @@ export function makePainter(
   ) {
     under.clearRect(0, 0, width, height)
     over.clearRect(0, 0, width, height)
-    const { t, selected, focusOnly, reducedMotion } = frame
+    const { t, selected, focusOnly, reducedMotion, pausedElapsed = 0 } = frame
+    let animating = false
     const related = new Set<EntityKey>()
     const lines = new Map<string, Line>()
     const impacts = new Map<ReplayNode, Map<ReplayEdge['kind'], Impact>>()
@@ -258,15 +263,21 @@ export function makePainter(
       const previous = lines.get(key)
       // Coincident paths share a tracer so the same pixels don't stack to full opacity.
       if (!previous || previous.age !== age || previous.edge.strength < edge.strength) lines.set(key, line)
+      const effectAge = age + pausedElapsed
+      if (reducedMotion || effectAge >= fade) continue
+      if (source !== target && effectAge < 650 && opacity > 0.2) animating = true
       if (edge.kind === 'damage') {
-        const shake = impactShake(edge.strength, age - impactDelay, reducedMotion) * opacity
+        const shake = impactShake(edge.strength, effectAge - impactDelay, false) * opacity
         if (shake > (shakes.get(target) ?? 0)) shakes.set(target, shake)
       }
-      if (!reducedMotion && edge.kind === 'ewar' && (edge.ewar === 'warp_scramble' || edge.ewar === 'warp_disrupt')) {
-        points.set(target, Math.max(points.get(target) ?? 0, opacity))
+      if (edge.kind === 'ewar' && (edge.ewar === 'warp_scramble' || edge.ewar === 'warp_disrupt')) {
+        points.set(target, Math.max(points.get(target) ?? 0, opacity * (1 - effectAge / fade)))
+        animating = true
       }
-      const impactAge = age - impactDelay
-      if (!reducedMotion && edge.amount > 0 && impactAge >= 0 && impactAge <= 1200) {
+      const impactAge = effectAge - impactDelay
+      if (edge.amount <= 0 || impactAge > 1200) continue
+      animating = true
+      if (impactAge >= 0) {
         const effects = impacts.get(target) ?? new Map<ReplayEdge['kind'], Impact>()
         const previousImpact = effects.get(edge.kind)
         if (!previousImpact || previousImpact.opacity <= opacity) {
@@ -297,7 +308,7 @@ export function makePainter(
       if (!present.has(key)) continue
       if (focusOnly && selected !== key && !related.has(key)) continue
       const shake = shakes.get(node) ?? 0
-      const phase = (t % 1000) * 0.24 + node.ordinal
+      const phase = ((t + pausedElapsed) % 1000) * 0.24 + node.ordinal
       const x = node.x + Math.sin(phase) * shake
       const y = node.y + Math.cos(phase * 1.3) * shake
       positions.set(node, { x, y })
@@ -311,7 +322,7 @@ export function makePainter(
       const source = positions.get(line.source)
       const target = positions.get(line.target)
       if (!source || !target) continue
-      drawLine(line, source, target, reducedMotion)
+      drawLine(line, source, target, reducedMotion, pausedElapsed)
     }
     // Paint module icons after the tracers so crossing lines do not cover them.
     for (const line of [...lines.values()].sort((a, b) => drawRank[a.edge.kind] - drawRank[b.edge.kind])) {
@@ -344,7 +355,7 @@ export function makePainter(
       }
     }
 
-    return { related, positions, occupied, bounds, burst: reducedMotion ? null : burst }
+    return { related, positions, occupied, bounds, animating, burst: reducedMotion ? null : burst }
   }
 
   refreshTokens()

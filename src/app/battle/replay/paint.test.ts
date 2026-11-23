@@ -54,3 +54,29 @@ describe('replay paint anchors', () => {
     expect(under.probe.lineTo).toHaveBeenLastCalledWith(350, 200)
   })
 })
+
+it('clears temporary pulse rings as wall time advances at the same paused instant', () => {
+  const layout = makeLayout([pilot(1), pilot(2)], [1, 2], 500, 400)
+  Object.assign(layout.nodes[0]!, { x: 100, y: 180 })
+  Object.assign(layout.nodes[1]!, { x: 350, y: 200 })
+  const edge: ReplayEdge = {
+    t: 0, from: 'char:1', to: 'char:2', kind: 'damage', amount: 500, weapon: null,
+    quality: null, repairType: null, ewar: null, sources: [], corroborated: false, strength: 1,
+  }
+  const under = canvasProbe()
+  const over = canvasProbe()
+  const host = document.createElement('div')
+  host.style.setProperty('--dur-edge-fade', '3s')
+  const painter = makePainter(under.context, over.context, host, () => {})
+  const present = new Set<EntityKey>(['char:1', 'char:2'])
+  const frame = { t: 500, selected: null, focusOnly: false, reducedMotion: false, playing: false, pausedElapsed: 0 }
+  const initial = painter.paint(layout, [edge], [], present, frame, 500, 400)
+  expect(under.probe.arc.mock.calls.some(([, , radius]) => radius > 10)).toBe(true)
+
+  under.probe.arc.mockClear()
+  const settled = painter.paint(layout, [edge], [], present, { ...frame, pausedElapsed: 3000 }, 500, 400)
+  expect(under.probe.arc).not.toHaveBeenCalled()
+  expect(settled.positions.get(layout.nodes[1]!)).toEqual({ x: 350, y: 200 })
+  expect(initial.animating).toBe(true)
+  expect(settled.animating).toBe(false)
+})

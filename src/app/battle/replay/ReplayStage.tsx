@@ -15,7 +15,7 @@ import { buildScene, makeLayout } from './scene'
 import type { ReplayLayout, ReplayNode } from './scene'
 import './replay.css'
 
-interface ReplayStageProps extends Omit<ReplayFrame, 'reducedMotion'> {
+interface ReplayStageProps extends Omit<ReplayFrame, 'reducedMotion' | 'pausedElapsed'> {
   analysis: Analysis
   killmails: readonly Killmail[]
   order: readonly number[]
@@ -103,6 +103,7 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
   const detailKey = inspected ?? focused ?? selected
   const detail = detailKey ? layout?.byKey.get(detailKey) : undefined
   const frame = useRef({ t, playing, selected, focusOnly, detailKey, lockedKey })
+  const pauseClock = useRef<{ t: number; playing: boolean; since: number } | null>(null)
 
   const register = useCallback((key: EntityKey, element: HTMLDivElement | null) => {
     if (element) markers.current.set(key, element)
@@ -173,6 +174,13 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
       if (!layout) return
       const { detailKey, lockedKey, ...current } = frame.current
       const { t, playing, selected, focusOnly } = current
+      const now = performance.now()
+      let pause = pauseClock.current
+      if (!pause || pause.t !== t || pause.playing !== playing) {
+        pause = { t, playing, since: now }
+        pauseClock.current = pause
+      }
+      const pausedElapsed = playing ? 0 : now - pause.since
       const reducedMotion = reduced.matches
       const recent = recentEngagement(scene.edges, t)
       const present = scene.visibleAt(t, selected, recent)
@@ -200,9 +208,10 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
 
       const live = painter.liveEdges(scene.edges, t)
       layout.placeUnassigned(present)
-      const { related, positions, occupied, bounds, burst } = painter.paint(
-        layout, live, scene.pointSpans, present, { ...current, reducedMotion }, width, height,
+      const { related, positions, occupied, bounds, animating, burst } = painter.paint(
+        layout, live, scene.pointSpans, present, { ...current, reducedMotion, pausedElapsed }, width, height,
       )
+      let bursting = false
       const labels: { element: HTMLElement; node: ReplayNode; priority: number }[] = []
       const focusTargets: ReplayFocusTarget[] = []
       const previouslyFocused = document.activeElement
@@ -231,7 +240,7 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
         if (side === -1) marker.style.setProperty('--replay-diameter', `${node.radius * 2}px`)
         marker.toggleAttribute('data-dead', lastLoss !== undefined)
         marker.toggleAttribute('data-dim', !keep)
-        if (lastLoss && t - lastLoss.t < 920) burst?.(position, node.radius, t - lastLoss.t)
+        if (lastLoss && burst?.(position, node.radius, t - lastLoss.t + pausedElapsed)) bursting = true
 
         if (key === lockedKey && bracket.current) {
           const inset = node.radius + 7
@@ -280,7 +289,7 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
         element.style.transform = `translate3d(${rect.x - center.x}px, ${rect.y - center.y}px, 0)`
         occupied.push(rect)
       }
-      if (!reducedMotion && layout.isMoving()) schedule()
+      if (!reducedMotion && (layout.isMoving() || (!playing && (animating || bursting)))) schedule()
     }
 
     draw()
