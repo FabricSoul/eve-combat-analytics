@@ -1,12 +1,12 @@
 import { useId, useMemo, useState, type CSSProperties } from 'react'
 import type { EntityKey } from '@/core/contract'
 import { fmtHms } from '../lib/format'
-import { sideColor, sideLetter, sideOrder } from '../lib/sides'
+import { sideColor, sideLabel, sideOrder } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
 import { useView } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { Tabs } from '../ui/Tabs'
-import { defaultColumns, metricValue, metrics, sideLabel, useCombatRows, type Metric } from './compare/metrics'
+import { defaultColumns, metricValue, metrics, useCombatRows, type Metric } from './compare/metrics'
 import { Distribution, makeColumn, MetricBar, MetricLabel, MetricValue, PilotName, SideBySide } from './compare/CompareViews'
 import './compare/compare.css'
 
@@ -98,7 +98,7 @@ export function CompareTable(_props: CompareTableProps) {
           {sides.map((side) => <label key={side}>
             <input type="checkbox" checked={!hiddenSides.has(side)} onChange={() => setHiddenSides(toggle(hiddenSides, side))} />
             <i className="u7-side-dot" data-unknown={side < 0} style={{ '--u7-side': sideColor(side, order) } as CSSProperties} />
-            {sideLabel(side, oursSide, order)} {sideLetter(side, order)}
+            {sideLabel(side, order)}
           </label>)}
         </div></details>
         <details><summary>列</summary><div className="u7-compare-options u7-column-options">

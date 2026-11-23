@@ -92,3 +92,17 @@ it('labels the whole fight from the first interaction to the last killmail', () 
   render(<CompareTable />, loadUiFixture({ fullPilotEvents: true }))
   expect(host.querySelector('.u7-compare-note')?.textContent).toContain('全场 15:39–16:42')
 })
+
+it.each([
+  { count: 2, expected: ['我方', '敌方'] },
+  { count: 4, expected: ['我方', '敌方', 'C 方', 'D 方'] },
+])('uses replay labels in the $count-side filter', ({ count, expected }) => {
+  const coverage = [...fixture.analysis.coverage]
+  if (count === 4) coverage.push({ side: 2, known: 1, withLog: 0 }, { side: 3, known: 2, withLog: 0 })
+  render(<CompareTable />, { ...fixture, analysis: { ...fixture.analysis, coverage } })
+  const filter = [...host.querySelectorAll('details')].find((details) =>
+    details.querySelector('summary')?.textContent === '阵营')!
+  act(() => filter.querySelector('summary')!.click())
+  const labels = [...filter.querySelectorAll('label')].map((label) => label.textContent.trim())
+  expect(labels).toEqual(expected)
+})

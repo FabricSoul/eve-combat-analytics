@@ -63,6 +63,15 @@ export function sideLetter(side: number, order: readonly number[]): string | nul
   return letter
 }
 
+/** Short label in the viewer's side order, shared by battle controls. */
+export function sideLabel(side: number, order: readonly number[]): string {
+  const index = order.indexOf(side)
+  if (side < 0 || index < 0) return '未分边'
+  if (index === 0) return '我方'
+  if (index === 1) return '敌方'
+  return `${sideLetter(side, order) ?? 'C'} 方`
+}
+
 export function defaultOursSide(summary: BattleSummary): number {
   const counts = summary.meta.teams.map(() => 0)
   const uploaders = new Set<number>()
