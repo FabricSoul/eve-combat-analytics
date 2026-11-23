@@ -11,8 +11,14 @@ function format(value: number | null | undefined, display: (value: number) => st
 }
 
 export const fmtNum = (value: number | null | undefined) => format(value, (n) => grouped.format(n))
+/** ISK in Chinese units: 亿 from 1e8, 万 from 1e4, plain ISK below that (never "0.0 亿" for cheap ships). */
 export const fmtIsk = (value: number | null | undefined, decimals: 0 | 1 = 1) =>
-  format(value, (n) => `${(decimals === 0 ? whole : tenth).format(n / 100_000_000)} 亿`)
+  format(value, (n) => {
+    const abs = Math.abs(n)
+    if (abs >= 100_000_000) return `${(decimals === 0 ? whole : tenth).format(n / 100_000_000)} 亿`
+    if (abs >= 10_000) return `${whole.format(Math.floor(n / 10_000))} 万`
+    return `${whole.format(n)} ISK`
+  })
 export const fmtHms = (value: number | null | undefined) => format(value, (n) => Math.abs(n) <= lastDate ? clock.format(n) : '—')
 export const fmtSec = (value: number | null | undefined) => format(value, (n) => `${Math.round(n * 2) / 2} s`)
 export const fmtPct = (value: number | null | undefined) => format(value, (n) => percent.format(n))
