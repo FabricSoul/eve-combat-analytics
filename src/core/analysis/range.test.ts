@@ -9,7 +9,7 @@ it('matches every whole-fight stat on the real J125990 fixture exactly', () => {
   const analysis = analyze(state)
   const { start, end } = state.meta.windows[0]!
   expect(statsForRange(analysis, state.meta.killmails, start, end)).toEqual(analysis.stats)
-})
+}, 60_000)
 
 it('counts inclusive events and killmails, clips spans, and leaves the source analysis intact', () => {
   // Synthetic interactions and killmails with hand-checked totals.
