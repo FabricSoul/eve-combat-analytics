@@ -1,9 +1,10 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { env, exports as worker } from 'cloudflare:workers'
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
+import * as battleAnalysis from '../core/analysis/analyze'
 import { sideOf } from '../core/br/normalize'
-import type { Analysis, BattleSummary, ServerMessage, UploadedLog, UploadedLogSummary } from '../core/contract'
+import type { Analysis, BattleSummary, ServerMessage, SideOverride, UploadedLog, UploadedLogSummary } from '../core/contract'
 import router from './index'
 import type { Env } from './index'
 import { packJson } from './storage'
@@ -150,7 +151,7 @@ it('stores only events within inclusive windows and resolves distinct visible na
   expect(result.logs.every((log) => !('parsed' in log))).toBe(true)
   const detail = await readLogDetail(id, expectedId)
   expect(detail.parsed.events.map((event) => event.t)).toEqual([start, start + 1, end])
-  expect(result.names).toEqual({ Target: { charId: 101, side: 3 }, NPC: null })
+  expect(result.names).toEqual({ Target: { charId: 101, side: 3, corpId: 12345, allyId: null }, NPC: null })
   expect(meta.killmails.some((km) => [km.victim, ...km.attackers].some((pilot) => pilot.charId === 100))).toBe(false)
 })
 
@@ -190,7 +191,7 @@ it('broadcasts only new uploads to both hibernating viewers and snapshots curren
     expect(duplicate.status).toBe(200)
     const initial = await result.json<UploadedLogSummary>()
     expect(await duplicate.json()).toEqual(initial)
-    const added = { type: 'log_added', log: (await state(id)).logs[0], names: { Target: { charId: 101, side: 3 }, NPC: null } }
+    const added = { type: 'log_added', log: (await state(id)).logs[0], names: { Target: { charId: 101, side: 3, corpId: 12345, allyId: null }, NPC: null } }
     expect(await first.next()).toEqual(added)
     expect(await second.next()).toEqual(added)
     expect(await (await upload(id, 'valid log')).json()).toEqual(initial)
@@ -257,7 +258,7 @@ it('I1 uses battle-time affiliation for uploads and counterparties on killmails'
   const side = sideOf(pilot, teams)
   expect(side).toBeGreaterThanOrEqual(0)
   expect(await (await upload(id, 'historical')).json()).toMatchObject({ side })
-  expect((await state(id)).names['Zeikku Targaryen']).toEqual({ charId: 2113179297, side })
+  expect((await state(id)).names['Zeikku Targaryen']).toMatchObject({ charId: 2113179297, side })
 })
 
 it('I5 stores a >3 MB BR in bounded gzip chunks and reads it back after eviction', async () => {
@@ -543,3 +544,144 @@ it('analyzes all 17 real fight logs in workerd and matches Node', async () => {
     workerdAlarmMs: elapsed, nodeAnalyzeMs: fixture.expected.nodeMilliseconds, nodeJsonBytes: fixture.expected.jsonBytes,
   }))
 }, 90_000)
+
+function putSide(id: string, data: unknown) {
+  return worker.default.fetch(`${battle(id)}/sides`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+}
+
+async function editSide(id: string, subject: SideOverride['subject'], side: number): Promise<SideOverride> {
+  const response = await putSide(id, { subject, side })
+  expect(response.status).toBe(200)
+  const override = { subject, side, source: 'manual', setAt: now } satisfies SideOverride
+  expect(await response.json()).toEqual(override)
+  return override
+}
+
+it('F6b sets, replaces and removes effective overrides through eviction', async () => {
+  const id = await prepare(960)
+  const stub = env.BATTLE.getByName(id)
+  const first = await editSide(id, 'corp:12345', 0)
+  const alliance = await editSide(id, 'ally:1042504553', 1)
+  expect((await state(id)).sideOverrides).toEqual([first, alliance])
+  const replacement = await editSide(id, 'corp:12345', 2)
+  await evictDurableObject(stub)
+  expect((await state(id)).sideOverrides).toEqual([alliance, replacement])
+  expect(await editSide(id, 'corp:12345', -1)).toMatchObject({ side: -1 })
+  expect((await state(id)).sideOverrides).toEqual([alliance])
+})
+
+it.each([
+  { subject: 'fleet:100', side: 0 },
+  { subject: 'char:-100', side: 0 },
+  { subject: 'ally:01', side: 0 },
+  { subject: 'corp:0', side: 0 },
+  { subject: 'char:100\n', side: 0 },
+  { subject: 'char:9007199254740992', side: 0 },
+  { subject: 100, side: 0 },
+  { subject: 'char:100', side: -2 },
+  { subject: 'char:100', side: teams.length },
+  { subject: 'char:100', side: 0.5 },
+  { subject: 'char:100', side: '0' },
+  null,
+].map((body, index) => ({ body, index })))('F6b rejects an invalid override payload $index', async ({ body, index }) => {
+  const id = await prepare(970 + index)
+  const response = await putSide(id, body)
+  expect(response.status).toBe(400)
+  expect(await response.json()).toMatchObject({ error: 'bad_request' })
+  expect((await state(id)).sideOverrides).toEqual([])
+})
+
+it('F6b rejects malformed JSON', async () => {
+  const id = await prepare(982)
+  const response = await worker.default.fetch(`${battle(id)}/sides`, { method: 'PUT', body: '{' })
+  expect(response.status).toBe(400)
+  expect(await response.json()).toMatchObject({ error: 'bad_request' })
+})
+
+it('F6b broadcasts effective edits before the coalesced analysis receives them', async () => {
+  const id = await prepare(983)
+  const stub = env.BATTLE.getByName(id)
+  const uploadResponse = await upload(id, 'valid log')
+  expect(uploadResponse.status).toBe(200)
+  await uploadResponse.json()
+  expect(await runDurableObjectAlarm(stub)).toBe(true)
+
+  const analyze = vi.spyOn(battleAnalysis, 'analyze')
+  const viewer = await connect(id)
+  try {
+    expect(await viewer.next()).toMatchObject({ type: 'snapshot', state: { sideOverrides: [], analysisVersion: 1 } })
+    const first = await editSide(id, 'char:100', 0)
+    expect(await viewer.next()).toEqual({ type: 'sides_set', overrides: [first] })
+    const replacement = await editSide(id, 'char:100', 2)
+    expect(await viewer.next()).toEqual({ type: 'sides_set', overrides: [replacement] })
+    expect((await state(id)).analysisVersion).toBe(1)
+    expect(analyze).not.toHaveBeenCalled()
+
+    expect(await runDurableObjectAlarm(stub)).toBe(true)
+    expect(await viewer.next()).toEqual({ type: 'analysis_ready', version: 2 })
+    expect(analyze).toHaveBeenCalledTimes(1)
+    expect(analyze).toHaveBeenCalledWith(expect.objectContaining({ sideOverrides: [replacement] }))
+    expect(await runDurableObjectAlarm(stub)).toBe(false)
+    const response = await rawAnalysis(id)
+    expect(response.headers.get('etag')).toBe('"v2"')
+    const { value } = await decodeAnalysis(response)
+    expect(value.entities['char:100']).toBeDefined()
+  } finally {
+    analyze.mockRestore()
+    viewer.close()
+  }
+})
+
+it('F6b rate-limits accepted changes per battle across eviction and frees expired slots', async () => {
+  const id = await prepare(984)
+  const stub = env.BATTLE.getByName(id)
+  for (let i = 1; i <= 30; i++) await editSide(id, `char:${i}`, 0)
+  await evictDurableObject(stub)
+
+  const response = await putSide(id, { subject: 'char:31', side: 0 })
+  expect(response.status).toBe(429)
+  expect(await response.json()).toMatchObject({ error: 'bad_request' })
+  expect((await state(id)).sideOverrides).toHaveLength(30)
+  const other = await prepare(985)
+  await editSide(other, 'char:31', 0)
+
+  await runInDurableObject(stub, (_, { storage }) => {
+    storage.sql.exec('UPDATE side_edits SET setAt = ? WHERE id = 1', now - 60_000)
+  })
+  await editSide(id, 'char:31', 0)
+  expect((await state(id)).sideOverrides).toHaveLength(31)
+})
+
+it('F6b persists ESI affiliations for uploaders and names absent from killmails', async () => {
+  const id = await prepare(986)
+  const response = await upload(id, 'valid log')
+  expect(response.status).toBe(200)
+  const summary = await response.json<UploadedLogSummary>()
+  const affiliation = { corpId: 98108724, allyId: 1042504553 }
+  expect(summary).toMatchObject({ charId: 100, side: 1, ...affiliation })
+
+  await evictDurableObject(env.BATTLE.getByName(id))
+  expect((await state(id)).logs).toEqual([summary])
+  expect(await readLogDetail(id, summary.id)).toMatchObject(affiliation)
+  expect((await state(id)).names.Target).toEqual({ charId: 101, side: 3, corpId: 12345, allyId: null })
+  expect(await (await upload(id, 'valid log')).json()).toEqual(summary)
+})
+
+it('F6b persists battle-time affiliations for historical uploaders and names', async () => {
+  const id = await prepare(987)
+  const pilot = meta.killmails.flatMap((km) => [km.victim, ...km.attackers])
+    .find((p) => p.charId === 2113179297 && sideOf(p, teams) >= 0)!
+  const response = await upload(id, 'historical')
+  expect(response.status).toBe(200)
+  const summary = await response.json<UploadedLogSummary>()
+  const affiliation = { corpId: pilot.corpId, allyId: pilot.allyId }
+  expect(summary).toMatchObject(affiliation)
+  expect(await readLogDetail(id, summary.id)).toMatchObject(affiliation)
+  expect((await state(id)).names['Zeikku Targaryen']).toEqual({
+    charId: pilot.charId, side: sideOf(pilot, teams), ...affiliation,
+  })
+})

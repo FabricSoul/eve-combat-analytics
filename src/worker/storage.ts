@@ -1,13 +1,29 @@
 import type {
-  BattleMeta, BattleState, BattleSummary, FitEntry, LogEvent, NameIndex, ParsedLog, UploadedLog, UploadedLogSummary,
+  BattleMeta, BattleState, BattleSummary, FitEntry, LogEvent, NameIndex, ParsedLog, SideOverride,
+  SideSubject, UploadedLog, UploadedLogSummary,
 } from '../core/contract'
 
-type LogRow = Pick<UploadedLogSummary, keyof UploadedLogSummary> & { unparsedCount: number | null }
+export type StoredAffiliation = Pick<UploadedLog, 'corpId' | 'allyId'>
+type LogSummary = Pick<UploadedLogSummary, keyof UploadedLogSummary> & StoredAffiliation
+type LogRow = Pick<UploadedLogSummary, keyof UploadedLogSummary> & {
+  unparsedCount: number | null
+  affiliation: string | null
+}
 export type StoredLog = UploadedLog & { unparsedCount: number }
 export type PendingLog = { id: string; nameOffset: number; events: LogEvent[] }
 export type PackedJson = ArrayBuffer[]
 
 const CHUNK_BYTES = 1024 * 1024
+const SIDE_EDIT_LIMIT = 30
+const SIDE_EDIT_WINDOW_MS = 60_000
+
+function unpackAffiliation(value: string | null): StoredAffiliation {
+  return value === null ? {} : JSON.parse(value)
+}
+
+function packAffiliation({ corpId, allyId }: StoredAffiliation): string {
+  return JSON.stringify({ corpId, allyId })
+}
 
 export async function packJson(value: unknown): Promise<PackedJson> {
   return packStream(new Blob([JSON.stringify(value)]).stream())
@@ -96,20 +112,26 @@ export class BattleStorage {
     })
   }
 
+  private hasAffiliation(table: 'logs' | 'names'): boolean {
+    return this.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray()
+      .some(({ name }) => name === 'affiliation')
+  }
+
   private logRows(id?: string): LogRow[] {
     const columns = 'id, charId, charName, side, uploadedAt, events'
     const count = this.legacy ? 'NULL AS unparsedCount' : 'unparsedCount'
+    const affiliation = this.hasAffiliation('logs') ? 'affiliation' : 'NULL AS affiliation'
     const where = id === undefined ? '' : 'WHERE id = ?'
     return this.sql.exec<LogRow>(
-      `SELECT ${columns}, ${count} FROM logs ${where} ORDER BY charId, uploadedAt, id`, ...(id === undefined ? [] : [id]),
+      `SELECT ${columns}, ${count}, ${affiliation} FROM logs ${where} ORDER BY charId, uploadedAt, id`, ...(id === undefined ? [] : [id]),
     ).toArray()
   }
 
-  private summarizeLog({ id, charId, charName, side, events, uploadedAt }: LogRow): UploadedLogSummary {
-    return { id, charId, charName, side, events, uploadedAt }
+  private summarizeLog({ id, charId, charName, side, events, uploadedAt, affiliation }: LogRow): LogSummary {
+    return { id, charId, charName, side, events, uploadedAt, ...unpackAffiliation(affiliation) }
   }
 
-  logById(id: string): UploadedLogSummary | undefined {
+  logById(id: string): LogSummary | undefined {
     const row = this.logRows(id)[0]
     return row && this.summarizeLog(row)
   }
@@ -129,10 +151,10 @@ export class BattleStorage {
     return unpackJson(chunks.map(({ data }) => data))
   }
 
-  private async getLog({ id, charId, charName, side, uploadedAt, unparsedCount }: LogRow): Promise<StoredLog> {
+  private async getLog({ id, charId, charName, side, uploadedAt, unparsedCount, affiliation }: LogRow): Promise<StoredLog> {
     const parsed = await this.parsed({ id, charId })
     return {
-      id, charId, charName, side, uploadedAt,
+      id, charId, charName, side, uploadedAt, ...unpackAffiliation(affiliation),
       parsed: { ...parsed, unparsed: parsed.unparsed.slice(0, 500) },
       unparsedCount: unparsedCount ?? parsed.unparsed.length,
     }
@@ -152,26 +174,66 @@ export class BattleStorage {
 
   private fitsAndNames(): Pick<BattleState, 'fits' | 'names'> {
     const fits = this.sql.exec<FitEntry & Record<string, SqlStorageValue>>('SELECT * FROM fits ORDER BY charId').toArray()
-    const names: NameIndex = Object.fromEntries(
-      this.sql.exec<{ name: string; charId: number | null; side: number | null }>(
-        'SELECT * FROM names',
-      ).toArray().map(({ name, charId, side }) => [name, charId === null ? null : { charId, side: side ?? -1 }]),
-    )
+    const affiliation = this.hasAffiliation('names') ? 'affiliation' : 'NULL AS affiliation'
+    const rows = this.sql.exec<{ name: string; charId: number | null; side: number | null; affiliation: string | null }>(
+      `SELECT name, charId, side, ${affiliation} FROM names`,
+    ).toArray()
+    const names: NameIndex = Object.fromEntries(rows.map(({ name, charId, side, affiliation }) => [
+      name, charId === null ? null : { charId, side: side ?? -1, ...unpackAffiliation(affiliation) },
+    ]))
     return { fits, names }
   }
 
   summary(meta: BattleMeta): BattleSummary {
     const logs = this.logRows().map((row) => this.summarizeLog(row))
-    return { meta, logs, ...this.fitsAndNames(), sideOverrides: [], analysisVersion: this.analysisStatus().version }
+    return { meta, logs, ...this.fitsAndNames(), sideOverrides: this.sideOverrides(), analysisVersion: this.analysisStatus().version }
   }
 
   async state(meta: BattleMeta): Promise<BattleState> {
     const rows = this.logRows()
     const { fits, names } = this.fitsAndNames()
+    const sideOverrides = this.sideOverrides()
     const logs: StoredLog[] = []
     // Read one JSON value at a time to cap transient decompression and parsing memory.
     for (const row of rows) logs.push(await this.getLog(row))
-    return { meta, logs, fits, names, sideOverrides: [] }
+    return { meta, logs, fits, names, sideOverrides }
+  }
+
+  private sideOverrides(): SideOverride[] {
+    if (!this.hasTable('side_overrides')) return []
+    return this.sql.exec<{ subject: SideSubject; side: number; setAt: number }>(
+      'SELECT subject, side, setAt FROM side_overrides ORDER BY id',
+    ).toArray().map((entry) => ({ ...entry, source: 'manual' }))
+  }
+
+  canEditSide(setAt: number): boolean {
+    if (!this.hasTable('side_edits')) return true
+    const { count } = this.sql.exec<{ count: number }>(
+      'SELECT count(*) AS count FROM side_edits WHERE setAt > ?', setAt - SIDE_EDIT_WINDOW_MS,
+    ).one()
+    return count < SIDE_EDIT_LIMIT
+  }
+
+  setSide({ subject, side, setAt }: SideOverride): SideOverride[] {
+    return this.storage.transactionSync(() => {
+      if (!this.hasTable('side_edits')) {
+        this.sql.exec(`
+          CREATE TABLE side_edits (id INTEGER PRIMARY KEY, setAt INTEGER NOT NULL);
+          CREATE TABLE side_overrides (
+            id INTEGER PRIMARY KEY, subject TEXT UNIQUE NOT NULL, side INTEGER NOT NULL, setAt INTEGER NOT NULL
+          );
+        `)
+      }
+      this.sql.exec('DELETE FROM side_edits WHERE setAt <= ?', setAt - SIDE_EDIT_WINDOW_MS)
+      this.sql.exec('INSERT INTO side_edits (setAt) VALUES (?)', setAt)
+      if (side === -1) {
+        this.sql.exec('DELETE FROM side_overrides WHERE subject = ?', subject)
+      } else {
+        this.sql.exec('INSERT OR REPLACE INTO side_overrides (subject, side, setAt) VALUES (?, ?, ?)', subject, side, setAt)
+      }
+      this.markAnalysisDirty()
+      return this.sideOverrides()
+    })
   }
 
   analysisStatus(): { revision: number; analyzedRevision: number; version: number } {
@@ -222,16 +284,21 @@ export class BattleStorage {
   ): void {
     const { charId, id, charName, side, uploadedAt, unparsedCount, parsed } = log
     this.storage.transactionSync(() => {
+      if (!this.hasAffiliation('logs')) this.sql.exec('ALTER TABLE logs ADD COLUMN affiliation TEXT')
+      if (!this.hasAffiliation('names')) this.sql.exec('ALTER TABLE names ADD COLUMN affiliation TEXT')
       this.sql.exec(
-        'INSERT INTO logs VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        id, charId, charName, side, uploadedAt, parsed.events.length, unparsedCount, resolution.currentOffset,
+        'INSERT INTO logs (id, charId, charName, side, uploadedAt, events, unparsedCount, nameOffset, affiliation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        id, charId, charName, side, uploadedAt, parsed.events.length, unparsedCount, resolution.currentOffset, packAffiliation(log),
       )
       packed.forEach((chunk, seq) => this.sql.exec('INSERT INTO log_chunks VALUES (?, ?, ?)', id, seq, chunk))
       if (resolution.pending) {
         this.sql.exec('UPDATE logs SET nameOffset = ? WHERE id = ?', resolution.pending.offset, resolution.pending.id)
       }
       for (const [name, entry] of Object.entries(resolution.names)) {
-        this.sql.exec('INSERT INTO names VALUES (?, ?, ?)', name, entry?.charId ?? null, entry?.side ?? null)
+        this.sql.exec(
+          'INSERT INTO names (name, charId, side, affiliation) VALUES (?, ?, ?, ?)',
+          name, entry?.charId ?? null, entry?.side ?? null, entry && packAffiliation(entry),
+        )
       }
       this.markAnalysisDirty()
     })

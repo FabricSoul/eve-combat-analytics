@@ -3,7 +3,8 @@ import { analyze } from '../core/analysis/analyze'
 import { sideOf } from '../core/br/normalize'
 import { GamelogFormatError } from '../core/contract'
 import type {
-  Analysis, ApiError, BattleMeta, FitEntry, LogEvent, NameIndex, ServerMessage, UploadedLogSummary,
+  Analysis, ApiError, BattleMeta, FitEntry, KillmailParticipant, LogEvent, NameIndex, ServerMessage,
+  SideOverride, SideSubject, UploadedLogSummary,
 } from '../core/contract'
 import { analysisJson } from './analysis-json'
 import { ApiFailure, battlePath, errorResponse, readText, upstreamFailure } from './http'
@@ -11,7 +12,7 @@ import type { Env } from './index'
 import { abortable, createServices } from './services'
 import type { Services } from './services'
 import { BattleStorage, packJson, packStream } from './storage'
-import type { StoredLog } from './storage'
+import type { StoredAffiliation, StoredLog } from './storage'
 
 const NAME_LIMIT = 2000
 const ESI_NAME_BATCH = 500
@@ -30,19 +31,45 @@ async function sha256(text: string): Promise<string> {
   return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(text))))
 }
 
-function historicalSides(meta: BattleMeta): Map<number, number> {
-  const sides = new Map<number, number>()
+type SideAssignment = { side: number } & StoredAffiliation
+type AffiliationIds = Pick<KillmailParticipant, 'corpId' | 'allyId'>
+
+function assignSide(affiliation: AffiliationIds | undefined, teams: BattleMeta['teams']): SideAssignment {
+  if (!affiliation) return { side: -1 }
+  return {
+    side: sideOf(affiliation, teams),
+    corpId: affiliation.corpId ?? undefined,
+    allyId: affiliation.allyId,
+  }
+}
+
+function historicalSides(meta: BattleMeta): Map<number, SideAssignment> {
+  const sides = new Map<number, SideAssignment>()
   for (const { victim, attackers } of meta.killmails) {
     for (const p of [victim, ...attackers]) {
-      if (p.charId !== null && (sides.get(p.charId) ?? -1) < 0) {
-        sides.set(p.charId, sideOf(p, meta.teams))
+      if (p.charId !== null && (sides.get(p.charId)?.side ?? -1) < 0) {
+        sides.set(p.charId, assignSide(p, meta.teams))
       }
     }
   }
   return sides
 }
 
-type Battle = { meta: BattleMeta; sides: Map<number, number> }
+function isSideSubject(subject: unknown): subject is SideSubject {
+  if (typeof subject !== 'string') return false
+  const match = /^(?:ally|corp|char):([1-9]\d{0,15})$/.exec(subject)
+  return match?.[0] === subject && Number.isSafeInteger(Number(match[1]))
+}
+
+async function readSideEdit(request: Request): Promise<unknown> {
+  try {
+    return JSON.parse(await readText(request, 1024, 'Side edits must be at most 1 KiB'))
+  } catch {
+    throw new ApiFailure('bad_request', 'Expected a JSON side edit')
+  }
+}
+
+type Battle = { meta: BattleMeta; sides: Map<number, SideAssignment> }
 
 type AnalysisRead =
   | { status: 404 }
@@ -138,6 +165,10 @@ export class BattleRoom extends DurableObject<Env> {
         const eft = await readText(request, 64 * 1024, 'EFT fits must be at most 64 KiB')
         return await this.inOrder(() => this.setFit(charId, eft))
       }
+      if (request.method === 'PUT' && route === 'sides') {
+        const data = await readSideEdit(request)
+        return await this.inOrder(() => this.setSide(data))
+      }
       if (request.method === 'GET' && route === 'ws') {
         if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
           throw new ApiFailure('bad_request', 'WebSocket upgrade required', 426)
@@ -217,19 +248,19 @@ export class BattleRoom extends DurableObject<Env> {
       const ids = await this.lookupListener(charName, signal)
       const charId = characterId(ids, charName)
       if (charId === null) throw new ApiFailure('unknown_character', 'Could not resolve the Gamelog listener')
-      const side = await this.listenerSide(charId, battle, signal)
+      const assignment = await this.listenerSide(charId, battle, signal)
       const resolution = await this.resolveNames(events, battle, signal)
       // No more ESI calls are needed after this point.
       clearTimeout(timeout)
 
       const log: StoredLog = {
-        id, charId, charName, side, uploadedAt: this.services.now(),
+        id, charId, charName, ...assignment, uploadedAt: this.services.now(),
         parsed: { ...parsed, events, unparsed: parsed.unparsed.slice(0, 500) },
         unparsedCount: parsed.unparsed.length,
       }
-      const summary: UploadedLogSummary = {
-        id, charId, charName, side, events: events.length, uploadedAt: log.uploadedAt,
-      }
+      const summary = {
+        id, charId, charName, ...assignment, events: events.length, uploadedAt: log.uploadedAt,
+      } satisfies UploadedLogSummary
       const packed = await packJson(log.parsed)
       await this.scheduleAnalysis()
       this.store.saveLog(log, packed, resolution)
@@ -248,13 +279,13 @@ export class BattleRoom extends DurableObject<Env> {
     }
   }
 
-  private async listenerSide(charId: number, { meta, sides }: Battle, signal: AbortSignal): Promise<number> {
+  private async listenerSide(charId: number, { meta, sides }: Battle, signal: AbortSignal): Promise<SideAssignment> {
     const historical = sides.get(charId)
     if (historical !== undefined) return historical
     try {
       const entries = await abortable(signal, () => this.services.affiliations([charId], signal))
       const entry = entries.find((p) => p.charId === charId)
-      return entry ? sideOf(entry, meta.teams) : -1
+      return assignSide(entry, meta.teams)
     } catch {
       throw new ApiFailure('br_unavailable', 'Character affiliation lookup is unavailable')
     }
@@ -305,10 +336,12 @@ export class BattleRoom extends DurableObject<Env> {
       .filter((id) => id !== null)
       .filter((id) => !sides.has(id))
     const affiliations = charIds.length ? await this.services.affiliations(charIds, signal) : []
-    const currentSides = new Map(affiliations.map((entry) => [entry.charId, sideOf(entry, meta.teams)]))
+    const currentSides = new Map(affiliations.map((entry) => [entry.charId, assignSide(entry, meta.teams)]))
     return Object.fromEntries(names.map((name) => {
       const charId = characterId(ids, name)
-      return [name, charId === null ? null : { charId, side: sides.get(charId) ?? currentSides.get(charId) ?? -1 }]
+      if (charId === null) return [name, null]
+      const assignment = sides.get(charId) ?? currentSides.get(charId) ?? { side: -1 }
+      return [name, { charId, ...assignment }]
     }))
   }
 
@@ -324,6 +357,25 @@ export class BattleRoom extends DurableObject<Env> {
     this.store.setFit(fit)
     this.broadcast({ type: 'fit_set', fit })
     return Response.json(fit)
+  }
+
+  private async setSide(data: unknown): Promise<Response> {
+    const { meta } = await this.battle()
+    if (!data || typeof data !== 'object' || !('subject' in data) || !isSideSubject(data.subject)
+      || !('side' in data) || typeof data.side !== 'number' || !Number.isInteger(data.side)
+      || data.side < -1 || data.side >= meta.teams.length) {
+      throw new ApiFailure('bad_request', 'Expected an alliance, corporation or character subject and a valid side index')
+    }
+
+    const setAt = this.services.now()
+    if (!this.store.canEditSide(setAt)) {
+      throw new ApiFailure('bad_request', 'A battle can accept at most 30 side edits per minute', 429)
+    }
+    const override: SideOverride = { subject: data.subject, side: data.side, source: 'manual', setAt }
+    await this.scheduleAnalysis()
+    const overrides = this.store.setSide(override)
+    this.broadcast({ type: 'sides_set', overrides })
+    return Response.json(override)
   }
 
   private openWebSocket(meta: BattleMeta): Response {
