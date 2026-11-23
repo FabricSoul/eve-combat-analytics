@@ -244,6 +244,9 @@ export type ApiErrorCode =
   | 'unknown_character'
   | 'bad_eft'
   | 'too_large'
+  /** A log or fit for this character exists and the request lacks that uploader's token. */
+  | 'log_exists'
+  | 'bad_request'
 
 export interface ApiError {
   error: ApiErrorCode
@@ -251,11 +254,16 @@ export interface ApiError {
 }
 
 /**
- * POST /api/battles            body { brUrl }            → { brId }   (idempotent)
- * GET  /api/battles/:brId                                → BattleState
- * POST /api/battles/:brId/logs body: raw Gamelog text    → UploadedLogSummary
- * PUT  /api/battles/:brId/fits/:charId body: EFT text    → FitEntry
- * GET  /api/battles/:brId/ws   (WebSocket upgrade)       → ServerMessage stream
+ * POST /api/battles                 body { brUrl }          → { brId }   (idempotent)
+ * GET  /api/battles/:brId                                   → BattleSummary  (no parsed events)
+ * GET  /api/battles/:brId/logs/:logId                       → UploadedLog    (immutable: cache forever)
+ * POST /api/battles/:brId/logs      body: raw Gamelog text  → UploadResult
+ * PUT  /api/battles/:brId/fits/:charId body: EFT text (≤ 64 KiB) → FitEntry
+ * GET  /api/battles/:brId/ws        (WebSocket upgrade)     → ServerMessage stream
+ *
+ * Ownership without login: the first upload of a character's log (or fit) returns an uploader token. Replacing that
+ * character's log or fit requires header `X-Uploader-Token: <token>`; otherwise 409 `log_exists`. Superseded logs are
+ * kept in storage (not served). The client keeps its tokens per battle in localStorage.
  */
 export interface UploadedLogSummary {
   id: string
@@ -263,12 +271,26 @@ export interface UploadedLogSummary {
   charName: string
   side: number
   events: number
+  uploadedAt: number
   replaced: boolean
 }
 
+export interface UploadResult extends UploadedLogSummary {
+  uploaderToken: string
+}
+
+/** BattleState without parsed events; the client GETs each log by id and assembles a BattleState for analyze(). */
+export interface BattleSummary {
+  meta: BattleMeta
+  logs: UploadedLogSummary[]
+  fits: FitEntry[]
+  names: NameIndex
+}
+
+/** Every message stays well under 1 MiB: logs are fetched over HTTP, never pushed. */
 export type ServerMessage =
-  | { type: 'snapshot'; state: BattleState }
-  | { type: 'log_added'; log: UploadedLog; names: NameIndex }
+  | { type: 'snapshot'; state: BattleSummary }
+  | { type: 'log_added'; log: UploadedLogSummary; names: NameIndex }
   | { type: 'fit_set'; fit: FitEntry }
 
 // ───────────────────────────── Analysis ─────────────────────────────
