@@ -14,7 +14,7 @@ export interface EmptyBattleProps {
 export function EmptyBattle({ onUpload }: EmptyBattleProps) {
   const { summary, analysis } = useBattleContext()
   const view = useView()
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'idle' | 'ok' | 'failed'>('idle')
   const window0 = summary?.meta.windows[0]
   const start = summary?.meta.windows.reduce((min, { start }) => Math.min(min, start), Infinity)
   const kills = summary?.meta.killmails.length
@@ -23,9 +23,9 @@ export function EmptyBattle({ onUpload }: EmptyBattleProps) {
   async function copyInvite() {
     try {
       await navigator.clipboard.writeText(globalThis.location.href)
-      setCopied(true)
+      setCopied('ok')
     } catch {
-      setCopied(false)
+      setCopied('failed')
     }
   }
 
@@ -37,7 +37,7 @@ export function EmptyBattle({ onUpload }: EmptyBattleProps) {
           <p className="empty-lead">
             BR 已导入{window0 ? `：${window0.systemName}` : ''}
             {kills != null && <> · <span className="app-number">{fmtNum(kills)}</span> 次击毁</>}
-            {summary && <> · <span className="app-number">{fmtIsk(summary.meta.killmails.reduce((sum, { value }) => sum + value, 0), 0)}</span> ISK</>}
+            {summary && <> · <span className="app-number">{fmtIsk(summary.meta.killmails.reduce((sum, { value }) => sum + value, 0), 0)}</span></>}
             。现在只能看击毁记录，有人上传日志后回放和对比才会出现。
           </p>
           <ol className="empty-steps">
@@ -64,8 +64,18 @@ export function EmptyBattle({ onUpload }: EmptyBattleProps) {
           <b>拖入 Gamelog</b>
           <span>或 <button type="button" className="empty-pick" onClick={onUpload}>选择文件</button>，可多选、可拖整个文件夹</span>
           <Button className="empty-copy" onClick={() => void copyInvite()}>
-            <Icon name="link" />{copied ? '已复制' : '复制邀请链接'}
+            <Icon name="link" />{copied === 'ok' ? '已复制' : '复制邀请链接'}
           </Button>
+          <div className="empty-copy-status" role={copied === 'failed' ? 'alert' : 'status'}>
+            {copied === 'ok' && '已复制邀请链接'}
+            {copied === 'failed' && (
+              <>
+                复制失败，请手动复制：
+                <input className="empty-link" readOnly value={globalThis.location.href} aria-label="邀请链接"
+                  ref={(node) => node?.select()} onFocus={(event) => event.currentTarget.select()} />
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
