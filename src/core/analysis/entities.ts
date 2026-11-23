@@ -1,7 +1,7 @@
-import { sideOf } from '../br/normalize'
 import type { BattleState, Coverage, Entity, EntityKey } from '../contract'
+import type { SideAssignments } from './sides'
 
-export const charKey = (id: number): EntityKey => `char:${id}`
+export const charKey = (id: number): `char:${number}` => `char:${id}`
 
 export function addShip(entity: Entity, ship: string | null | undefined): void {
   if (ship != null && !entity.shipTypes.includes(ship)) entity.shipTypes.push(ship)
@@ -14,7 +14,7 @@ interface KillmailStats {
   entity: Entity
 }
 
-export function indexKillmails(meta: BattleState['meta'], entities: Map<EntityKey, Entity>) {
+export function indexKillmails(meta: BattleState['meta'], entities: Map<EntityKey, Entity>, sides: SideAssignments) {
   const totals = new Map<EntityKey, KillmailStats>()
   const deaths = new Map<EntityKey, number[]>()
   const killmails = [...meta.killmails].sort((a, b) => a.t - b.t || a.id - b.id)
@@ -38,9 +38,8 @@ export function indexKillmails(meta: BattleState['meta'], entities: Map<EntityKe
           key,
           name: meta.names[charId]?.name ?? String(charId),
           charId,
-          side: sideOf(participant, meta.teams),
+          ...sides.get(charId)!,
           hasLog: false,
-          sideSource: 'br',
           shipTypes: [],
         }
         entry = { damage: 0, count: 0, lastMailId: -1, entity }
@@ -52,9 +51,6 @@ export function indexKillmails(meta: BattleState['meta'], entities: Map<EntityKe
         entry.lastMailId = id
       }
       if (shipTypeId !== null) addShip(entry.entity, meta.names[shipTypeId]?.name)
-
-      // A later killmail may be the first one that establishes this pilot's side.
-      if (entry.entity.side === -1) entry.entity.side = sideOf(participant, meta.teams)
     }
   }
 

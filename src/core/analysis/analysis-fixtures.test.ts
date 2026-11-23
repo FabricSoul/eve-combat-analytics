@@ -1,4 +1,4 @@
-import { realBattleState } from '../../../fixtures/real/j125990-20250622/load'
+import { realBattleState, realBattleStateWithBr } from '../../../fixtures/real/j125990-20250622/load'
 import { expect, it } from 'vitest'
 import { battle, hit, log, other } from '../../../fixtures/states/analysis'
 import type { BattleState } from '../contract'
@@ -40,6 +40,21 @@ it('identity coverage on the real J125990 fight (fixtures/real/j125990-20250622)
   expect(r.withReaction).toBe(r.logistics)
   expect(r.loggedPilots).toBe(17)
   expect(r.withSwitchAfterKill).toBeGreaterThanOrEqual(12)
+}, 60_000)
+
+it('corrects only Lucinda HIly in the owner-generated J125990 battle report', () => {
+  const state = realBattleStateWithBr()
+  const result = analyze(state)
+  const lucinda = 2117427381
+  expect(state.logs.find(({ charId }) => charId === lucinda)?.side).toBe(0)
+  expect(result.entities[`char:${lucinda}`]).toMatchObject({ side: 1, sideSource: 'log' })
+  expect(result.sideOverrides).toEqual([
+    expect.objectContaining({ subject: `char:${lucinda}`, side: 1, source: 'log' }),
+  ])
+  const otherUploaders = state.logs.filter(({ charId }) => charId !== lucinda)
+  for (const { charId, side } of otherUploaders) expect(result.entities[`char:${charId}`]?.side).toBe(side)
+  expect([...new Set(otherUploaders.filter(({ side }) => side >= 0).map(({ side }) => side))]).toEqual([1])
+  console.info('J125990 log side corrections', result.sideOverrides)
 }, 60_000)
 
 it.skipIf(!process.env.PERF)('analyzes 90,000 events in under 500 ms (PERF=1)', { retry: 3 }, () => {

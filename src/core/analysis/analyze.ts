@@ -1,8 +1,9 @@
-import type { Analysis, Analyze, Entity, EntityKey, Interaction } from '../contract'
+import type { Analysis, Analyze, Entity, EntityKey, Interaction, SideOverride } from '../contract'
 import { collectCoverage, indexKillmails } from './entities'
 import { collectEwarSpans, collectInteractions } from './interactions'
 import { detectPrimaries, floorSecond } from './primaries'
 import { collectStats } from './stats'
+import { deriveSideOverrides, indexSideAssignments } from './sides'
 
 function indexDamage(
   interactions: Interaction[],
@@ -35,8 +36,18 @@ function indexDamage(
 export const analyze: Analyze = (state) => {
   const sideCount = state.meta.teams.length
   const entities = new Map<EntityKey, Entity>()
-  const interactions = collectInteractions(state, entities)
-  const { totals, deaths, firstKill } = indexKillmails(state.meta, entities)
+  const assignments = indexSideAssignments(state)
+  const sideOverrides: SideOverride[] = []
+  let interactions = collectInteractions(state, entities, assignments)
+  for (let pass = 0; pass < 2; pass++) {
+    const corrections = deriveSideOverrides(state, interactions, entities, assignments)
+    if (corrections.length === 0) break
+    sideOverrides.push(...corrections)
+    // Ship-only identities depend on the listener's side.
+    entities.clear()
+    interactions = collectInteractions(state, entities, assignments)
+  }
+  const { totals, deaths, firstKill } = indexKillmails(state.meta, entities, assignments)
   const ewarSpans = collectEwarSpans(interactions)
   const coverage = collectCoverage(entities, sideCount)
   const { timeline, shotsBySide } = indexDamage(interactions, entities, sideCount, firstKill)
@@ -45,5 +56,5 @@ export const analyze: Analyze = (state) => {
   const primaries = primariesBySide.flatMap((ranges) => ranges.map(({ span }) => span))
     .sort((a, b) => a.start - b.start || a.bySide - b.bySide)
   const entityRecord = Object.fromEntries([...entities].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0))
-  return { entities: entityRecord, sideOverrides: [], interactions, ewarSpans, primaries, stats, coverage, timeline }
+  return { entities: entityRecord, sideOverrides, interactions, ewarSpans, primaries, stats, coverage, timeline }
 }

@@ -1,6 +1,7 @@
 import type { BattleState, Entity, EntityKey, EwarSpan, Interaction, LogEvent } from '../contract'
 import { charKey } from './entities'
 import { expectedSide, indexIdentities } from './identities'
+import { assignedSide, type SideAssignments } from './sides'
 
 interface Observation {
   interaction: Interaction
@@ -153,22 +154,23 @@ function distinctEvents(events: LogEvent[], retained: Set<string> | undefined): 
   })
 }
 
-export function collectInteractions(state: BattleState, entities: Map<EntityKey, Entity>): Interaction[] {
+export function collectInteractions(
+  state: BattleState, entities: Map<EntityKey, Entity>, assignments: SideAssignments,
+): Interaction[] {
   const logs = [...state.logs].sort((a, b) => a.charId - b.charId || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const splitListeners = new Set<number>()
   const observations: Observation[] = []
-  for (const { charId, charName, side } of logs) {
+  for (const { charId, charName } of logs) {
     const key = charKey(charId)
     const listener = entities.get(key)
     if (listener) {
       splitListeners.add(charId)
-      if (listener.side === -1) listener.side = side
     } else {
-      entities.set(key, { key, name: charName, charId, side, shipTypes: [], hasLog: true, sideSource: side >= 0 ? 'br' : 'unknown' })
+      entities.set(key, { key, name: charName, charId, ...assignedSide(assignments, charId), shipTypes: [], hasLog: true })
     }
   }
 
-  const identities = indexIdentities(state, logs, entities)
+  const identities = indexIdentities(state, logs, entities, assignments)
   const sides = state.meta.teams.length
   let previousListener: number | undefined
   let retained: Set<string> | undefined
@@ -179,7 +181,7 @@ export function collectInteractions(state: BattleState, entities: Map<EntityKey,
       retained = splitListeners.has(listenerId) ? new Set() : undefined
     }
     const listener = charKey(listenerId)
-    const side = identities.effectiveSide({ charId: listenerId, side: entities.get(listener)!.side })
+    const side = entities.get(listener)!.side
     for (const event of distinctEvents(log.parsed.events, retained)) {
       const otherSide = expectedSide(event.kind, side, sides)
       const other = identities.resolve(event.other, otherSide, event.t, log)

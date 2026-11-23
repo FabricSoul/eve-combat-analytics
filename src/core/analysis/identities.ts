@@ -1,6 +1,6 @@
-import { sideOf } from '../br/normalize'
 import type { BattleState, Counterparty, Entity, EntityKey, LogEvent, UploadedLog } from '../contract'
 import { addShip, charKey } from './entities'
+import { assignedSide, type SideAssignments } from './sides'
 
 const SIGHTING_MS = 60_000
 const UNKNOWN_SIDE = -1
@@ -76,7 +76,9 @@ export function expectedSide(kind: LogEvent['kind'], listenerSide: number, sides
   return UNKNOWN_SIDE
 }
 
-export function indexIdentities(state: BattleState, logs: UploadedLog[], entities: Map<EntityKey, Entity>) {
+export function indexIdentities(
+  state: BattleState, logs: UploadedLog[], entities: Map<EntityKey, Entity>, assignments: SideAssignments,
+) {
   const { meta, names } = state
   const ships: ShipIndex = new Map()
   const listenersByName = new Map<string, Character>()
@@ -89,7 +91,6 @@ export function indexIdentities(state: BattleState, logs: UploadedLog[], entitie
   }
   const namedSightings = new Map<string, Character | null>()
   const byName = new Map<string, Character | null>()
-  const battleSides = new Map<number, { side: number; t: number }>()
 
   function record(typeId: number, character: Character, t: number, logId: string | null) {
     addSighting(ships, typeId, UNKNOWN_SIDE, character, t, logId)
@@ -99,11 +100,9 @@ export function indexIdentities(state: BattleState, logs: UploadedLog[], entitie
   for (const { t, victim, attackers } of meta.killmails) {
     for (const participant of [victim, ...attackers]) {
       const { charId, shipTypeId } = participant
-      if (charId === null) continue
-      const side = sideOf(participant, meta.teams)
-      const previous = battleSides.get(charId)
-      if (side >= 0 && (!previous || t < previous.t)) battleSides.set(charId, { side, t })
-      if (shipTypeId !== null) record(shipTypeId, { charId, side, name: meta.names[charId]?.name ?? String(charId) }, t, null)
+      if (charId === null || shipTypeId === null) continue
+      const { side } = assignedSide(assignments, charId)
+      record(shipTypeId, { charId, side, name: meta.names[charId]?.name ?? String(charId) }, t, null)
     }
   }
 
@@ -113,15 +112,11 @@ export function indexIdentities(state: BattleState, logs: UploadedLog[], entitie
     const entry = Object.hasOwn(names, name) ? names[name] : null
     const character = entry ? {
       charId: entry.charId,
-      side: entry.side,
+      side: assignedSide(assignments, entry.charId).side,
       name: meta.names[entry.charId]?.name ?? name,
     } : null
     byName.set(name, character)
     return character
-  }
-
-  function effectiveSide({ charId, side }: { charId: number; side: number }): number {
-    return side >= 0 ? side : battleSides.get(charId)?.side ?? UNKNOWN_SIDE
   }
 
   function recordLabel(label: Counterparty, log: UploadedLog, t: number) {
@@ -131,7 +126,7 @@ export function indexIdentities(state: BattleState, logs: UploadedLog[], entitie
     if (character === undefined) {
       const indexed = named(name)
       const known = indexed ? listenersById.get(indexed.charId) ?? indexed : listenersByName.get(name)
-      character = known ? { ...known, side: effectiveSide(known) } : null
+      character = known ?? null
       namedSightings.set(name, character)
     }
     if (character && character.charId !== log.charId) record(shipTypeId, character, t, log.id)
@@ -171,10 +166,12 @@ export function indexIdentities(state: BattleState, logs: UploadedLog[], entitie
         key,
         name: character?.name ?? (shipOnly ? shipName ?? shipType ?? raw : name ?? raw),
         charId: character?.charId ?? null,
-        side: character?.side ?? (shipOnly ? side : UNKNOWN_SIDE),
+        // An anonymous ship's bucket follows the observer's perspective.
+        ...(character
+          ? assignedSide(assignments, character.charId)
+          : { side: shipOnly ? side : UNKNOWN_SIDE, sideSource: 'unknown' as const }),
         shipTypes: [],
         hasLog: false,
-        sideSource: (character?.side ?? (shipOnly ? side : UNKNOWN_SIDE)) >= 0 ? 'br' : 'unknown',
       }
       entities.set(key, entity)
     }
@@ -182,5 +179,5 @@ export function indexIdentities(state: BattleState, logs: UploadedLog[], entitie
     return key
   }
 
-  return { resolve, effectiveSide }
+  return { resolve }
 }
