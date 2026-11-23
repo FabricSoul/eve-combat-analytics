@@ -1,5 +1,6 @@
 import { GamelogFormatError, type ClientLanguage, type LogEvent, type ParseGamelog } from '../contract'
-import { combatText, matchCombat, visibleText } from './combat'
+import { matchCombat } from './combat'
+import { combatText, visibleText } from './markup'
 
 const listenerLabel = /^(Listener|收听者)\s*[:：]\s*(.*)$/
 const sessionLabel = /^(Session Started|进程开始|会话开始)\s*[:：]\s*(.*)$/
@@ -130,7 +131,7 @@ export const parseGamelog: ParseGamelog = (text) => {
     if (t !== null && combat?.event?.other.raw) {
       events.push({ ...combat.event, t, line })
     } else {
-      unparsed.push({ line, text: visibleText(normalized) })
+      unparsed.push({ line, text: visibleText(normalized.text, normalized.names) })
     }
   }
 

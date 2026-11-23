@@ -2,9 +2,17 @@ import type { Counterparty } from '../contract'
 import shipTypes from '../data/ship-types.json'
 
 const typeIds = new Map<string, number>()
+const englishTypes = new Set<string>()
 for (const { id, en, zh } of shipTypes) {
-  if (en) typeIds.set(en, id)
+  if (en) {
+    englishTypes.add(en)
+    typeIds.set(en, id)
+  }
   if (zh) typeIds.set(zh, id)
+}
+
+export function isEnglishShipType(name: string): boolean {
+  return englishTypes.has(name)
 }
 
 interface ShipPrefix {
@@ -133,10 +141,10 @@ const legacyHull = /^(?<name>[^()[\]<>]+?)\s*(?:\[(?<corp>[A-Za-z0-9._'-]{1,5})\
 const corpFirst = /^\[([A-Za-z0-9._'-]{1,5})\]\s*([^()[\]<>]+)$/
 const legacyShipFirst = /^([^()[\]<>]+?)\s*(?:\[([^()[\]<>]+)\]|<([^()[\]<>]+)>)$/
 
-export function counterparty(label: string, raw: string, drone?: string): Counterparty {
+export function counterparty(label: string, raw: string, drone?: string, npcName?: string): Counterparty {
   const result: Counterparty = {
     raw,
-    name: null,
+    name: npcName ?? null,
     corpTicker: null,
     allianceTicker: null,
     shipType: null,
@@ -148,6 +156,7 @@ export function counterparty(label: string, raw: string, drone?: string): Counte
     result.shipType = droneType ?? null
     result.shipTypeId = droneId
   }
+  if (npcName) return result
   // A leading italic run is a pilot label in a real overview layout.
   // Italics after the hull are cosmetic and can contain bracket groups.
   const clean = label.replace(/^<i>([^<>]+)<\/i>/, '$1')

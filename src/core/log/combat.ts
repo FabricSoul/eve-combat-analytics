@@ -1,5 +1,6 @@
 import type { ClientLanguage, EwarType, HitQuality, LogEvent, RepairType } from '../contract'
-import { counterparty } from './counterparty'
+import { counterparty, isEnglishShipType } from './counterparty'
+import { canonicalText, combatText, decodeEscapedTags, localizedText, visibleText, wholeNameHint, type CombatMarkup } from './markup'
 
 type WithoutLocation<Event> = Event extends LogEvent ? Omit<Event, 't' | 'line'> : never
 
@@ -8,51 +9,39 @@ interface CombatMatch {
   event: WithoutLocation<LogEvent> | null
 }
 
-const clientTags = 'a|b|br|color|font|fontsize|loc|localized|size|span|s|strong|em|u|url'
-const escapedTag = new RegExp(`&lt;(\\/?(?:${clientTags}|i)(?=\\s|=|\\/|&gt;)[^&<>]*)&gt;`, 'gi')
-const literalTag = new RegExp(`<\\/?(?:${clientTags})(?=[\\s=/>])[^<>]*>`, 'gi')
-const italicTag = /<\/?i(?=[\s=/>])[^<>]*>/gi
-const excessSpace = /\s{2,}|[^\S ]/g
-const entities: Record<string, string> = { nbsp: ' ', amp: '&', gt: '>', lt: '<' }
+type Names = CombatMarkup['names']
 
-function decodeEscapedTags(raw: string): string {
-  return raw.replace(escapedTag, '<$1>')
-}
-
-export function visibleText(text: string): string {
-  return text.includes('<') ? text.replace(/<\/?i>/g, '').replace(excessSpace, ' ').trim() : text.trim()
-}
-
-export function combatText(raw: string): string {
-  // Keep italics until the counterparty has been isolated. Custom ship names
-  // can contain overview punctuation and even the message's " - " delimiter.
-  const tags = raw.includes('&lt;') ? decodeEscapedTags(raw) : raw
-  const body = tags.replace(literalTag, '')
-  const normalized = /<\/?i/i.test(body)
-    ? body.replace(italicTag, (tag) => tag[1] === '/' ? '</i>' : '<i>')
-    : body
-  return normalized
-    .replace(/&(nbsp|amp|gt|lt);/g, (entity, key: string) => entities[key] ?? entity)
-    .replace(excessSpace, ' ')
-    .trim()
-}
-
-function label(text: string) {
-  return counterparty(text.trim(), visibleText(text))
+function label(text: string, names: Names, raw = text, drone?: string) {
+  const trimmed = text.trim()
+  const hint = wholeNameHint(trimmed, names)
+  const npcName = hint && !isEnglishShipType(hint) ? hint : undefined
+  // Pad only known English hull hints: Chinese displays can fuse the localized
+  // hull to the preceding pilot name without whitespace.
+  const canonical = npcName ?? localizedText(trimmed, names, ({ english }) =>
+    isEnglishShipType(english) ? ' ' + english + '* ' : english,
+  )
+  return counterparty(canonical, visibleText(raw, names), drone && canonicalText(drone, names), npcName)
 }
 
 function payloadParts(payload: string): string[] {
   const quoteEnd = /'\s*\([^()]+\)/.exec(payload)?.index
   const quoteStart = quoteEnd === undefined ? undefined : payload.indexOf("'")
-  if (!payload.includes('<i>') && quoteStart === undefined) return payload.split(' - ')
+  if (!/[()[\]<>]/.test(payload) && quoteStart === undefined) return payload.split(' - ')
   const parts: string[] = []
   let start = 0
+  let parentheses = 0
+  let brackets = 0
   let italicDepth = 0
-  for (const match of payload.matchAll(/<\/?i>| - /g)) {
+  for (const match of payload.matchAll(/<\/?i>|<[^<>]+>|[()[\]]| - /g)) {
+    if (quoteStart !== undefined && quoteEnd !== undefined && quoteStart < match.index && match.index < quoteEnd) continue
     if (match[0] === '<i>') italicDepth++
     else if (match[0] === '</i>') italicDepth = Math.max(0, italicDepth - 1)
-    else if (italicDepth === 0 && !(quoteStart !== undefined && quoteEnd !== undefined &&
-      quoteStart < match.index && match.index < quoteEnd)) {
+    else if (italicDepth) continue
+    else if (match[0] === '(') parentheses++
+    else if (match[0] === ')') parentheses = Math.max(0, parentheses - 1)
+    else if (match[0] === '[') brackets++
+    else if (match[0] === ']') brackets = Math.max(0, brackets - 1)
+    else if (match[0] === ' - ' && !parentheses && !brackets) {
       parts.push(payload.slice(start, match.index))
       start = match.index + match[0].length
     }
@@ -61,10 +50,10 @@ function payloadParts(payload: string): string[] {
   return parts
 }
 
-function effectPayload(payload: string) {
+function effectPayload(payload: string, names: Names) {
   const [other = '', ...parts] = payloadParts(payload)
-  const module = visibleText(parts.join(' - ').replace(/^-(?: |$)/, '')) || null
-  return { other: label(other), module }
+  const module = canonicalText(parts.join(' - ').replace(/^-(?: |$)/, ''), names) || null
+  return { other: label(other, names), module }
 }
 
 const qualities = new Map<string, HitQuality>([
@@ -86,7 +75,7 @@ const repairs = new Map<string, RepairType>([
   ['远程电容传输', 'capacitor'],
 ])
 
-function damage(text: string): CombatMatch | null {
+function damage(text: string, names: Names): CombatMatch | null {
   const m = /^(\d+)\s*(?:(to|from) |(对|来自)\s*)(.+)$/.exec(text)
   if (!m?.[4]) return null
   const language = m[2] ? 'en' : 'zh'
@@ -124,44 +113,44 @@ function damage(text: string): CombatMatch | null {
     if (deflected && parts.at(-1)?.toLowerCase() === lastPart) parts.pop()
   }
   if (quality === undefined && parts.length > 1) return { language, event: null }
-  const weapon = visibleText(parts.join(' - ')) || null
+  const weapon = canonicalText(parts.join(' - '), names) || null
   return {
     language,
     event: {
       kind: 'damage', dir, amount, weapon, quality: quality ?? 'none',
-      other: structureName ? counterparty(structureName, visibleText(party)) : label(party),
+      other: label(structureName ?? party, names, party),
     },
   }
 }
 
-function repair(text: string): CombatMatch | null {
+function repair(text: string, names: Names): CombatMatch | null {
   const en = /^(\d+) (remote armor repaired|remote shield boosted|remote hull repaired|remote capacitor transmitted) (to|by) (.+)$/.exec(text)
   const m = en ?? /^(\d+)\s*(远程装甲维修量|远程护盾回充增量|远程结构维修量|远程电容传输量?)\s*(至|由)\s*(.+)$/.exec(text)
   if (!m?.[4]) return null
   const language = en ? 'en' : 'zh'
   const repairType = repairs.get(m[2] ?? '')
   if (!repairType) return { language, event: null }
-  return repairResult(language, m[3] === 'to' || m[3] === '至' ? 'out' : 'in', Number(m[1]), repairType, m[4])
+  return repairResult(language, m[3] === 'to' || m[3] === '至' ? 'out' : 'in', Number(m[1]), repairType, m[4], names)
 }
 
 function repairResult(
-  language: CombatMatch['language'], dir: 'in' | 'out', amount: number, repairType: RepairType, payload: string,
+  language: CombatMatch['language'], dir: 'in' | 'out', amount: number, repairType: RepairType, payload: string, names: Names,
 ): CombatMatch {
-  const { other, module } = effectPayload(payload)
+  const { other, module } = effectPayload(payload, names)
   const valid = Number.isSafeInteger(amount) && !!other.raw
   return { language, event: valid ? { kind: 'repair', dir, repairType, amount, other, module } : null }
 }
 
-function remoteEnergy(text: string): CombatMatch | null {
+function remoteEnergy(text: string, names: Names): CombatMatch | null {
   const en = /^\+?(\d+) GJ remote energy transferred (to|from) (.+)$/.exec(text)
-  if (en?.[3]) return repairResult('en', en[2] === 'to' ? 'out' : 'in', Number(en[1]), 'capacitor', en[3])
+  if (en?.[3]) return repairResult('en', en[2] === 'to' ? 'out' : 'in', Number(en[1]), 'capacitor', en[3], names)
 
   const out = /^(\d+)\s*GJ\s*远程能量传输至\s*(.+)$/.exec(text)
-  if (out?.[2]) return repairResult('zh', 'out', Number(out[1]), 'capacitor', out[2])
+  if (out?.[2]) return repairResult('zh', 'out', Number(out[1]), 'capacitor', out[2], names)
 
   const incoming = /^\+?(\d+)\s*GJ\s*来自\s*(.+?)\s*远程能量传输(.*)$/.exec(text)
   if (incoming?.[2]) {
-    return repairResult('zh', 'in', Number(incoming[1]), 'capacitor', incoming[2] + (incoming[3] ?? ''))
+    return repairResult('zh', 'in', Number(incoming[1]), 'capacitor', incoming[2] + (incoming[3] ?? ''), names)
   }
   return null
 }
@@ -171,14 +160,14 @@ function amountColor(raw: string): string | undefined {
   return [...leadingTags.matchAll(/<color\s*=\s*(0x[\da-f]+)>/gi)].at(-1)?.[1]?.toLowerCase()
 }
 
-function capacitor(text: string, raw: string): CombatMatch | null {
+function capacitor(text: string, raw: string, names: Names): CombatMatch | null {
   const en = /^([+-]?\d+) GJ (energy neutralized|energy drained (from|to)) (.+)$/.exec(text)
   const m = en ?? /^([+-]?\d+)\s*GJ\s*(能量中和|被(从|吸取到))\s*(.+)$/.exec(text)
   if (!m?.[4]) return null
   const language = en ? 'en' : 'zh'
   const amount = Math.abs(Number(m[1]))
   const payload = m[3] === '从' ? m[4].replace(/吸取(?= - |$)/, '') : m[4]
-  const { other, module } = effectPayload(payload)
+  const { other, module } = effectPayload(payload, names)
   if (!Number.isSafeInteger(amount) || !other.raw) return { language, event: null }
 
   if (m[3]) {
@@ -194,7 +183,7 @@ function capacitor(text: string, raw: string): CombatMatch | null {
   return { language, event: dir ? { kind: 'neut', dir, amount, other, module } : null }
 }
 
-function explicitNeutralization(text: string): CombatMatch | null {
+function explicitNeutralization(text: string, names: Names): CombatMatch | null {
   const en = /^(\d+) GJ from (.+) - Energy neutralized$/i.exec(text)
   const zh = /^([^被]+)被(.+?)能量中和\s*(\d+)\s*GJ$/.exec(text)
   const language = en ? 'en' : 'zh'
@@ -202,19 +191,22 @@ function explicitNeutralization(text: string): CombatMatch | null {
 
   const amount = Number(en?.[1] ?? zh?.[3])
   const { other, module } = en?.[2]
-    ? effectPayload(en[2])
-    : { other: label(zh?.[1] ?? ''), module: visibleText(zh?.[2] ?? '') || null }
+    ? effectPayload(en[2], names)
+    : { other: label(zh?.[1] ?? '', names), module: canonicalText(zh?.[2] ?? '', names) || null }
   const valid = Number.isSafeInteger(amount) && !!other.raw
   return { language, event: valid ? { kind: 'neut', dir: 'in', amount, other, module } : null }
 }
 
-function misses(text: string): CombatMatch | null {
+function misses(text: string, names: Names): CombatMatch | null {
   const enOut = /^Your (?:group of )?(.+?) misses (.+?) completely\.?(?: - (.+))?$/.exec(text)
-  const out = enOut ?? /^你的(?:一组)?\s*(.+?)\s*\*?完全没有打中\s*(.+?)(?: - (.+))?$/.exec(text)
+  const zhOut = enOut ? null : /^你的(?:一组)?\s*(.+?)\s*\*?完全没有打中\s*(.+)$/.exec(text)
+  const out = enOut ?? zhOut
   if (out?.[1] && out[2]) {
+    const [party = '', ...suffix] = zhOut ? payloadParts(out[2]) : [out[2]]
+    const weapon = canonicalText(enOut?.[3] ?? (suffix.join(' - ') || out[1]), names) || null
     return {
       language: enOut ? 'en' : 'zh',
-      event: { kind: 'miss', dir: 'out', weapon: visibleText(out[3] ?? out[1]) || null, other: label(out[2]) },
+      event: { kind: 'miss', dir: 'out', weapon, other: label(party, names) },
     }
   }
 
@@ -225,8 +217,8 @@ function misses(text: string): CombatMatch | null {
     return {
       language: 'zh',
       event: {
-        kind: 'miss', dir: 'in', weapon: visibleText(zhDrone[3] ?? zhDrone[2]) || null,
-        other: counterparty(zhDrone[1].trim(), visibleText(zhDrone[1] + '的' + zhDrone[2]), visibleText(zhDrone[2])),
+        kind: 'miss', dir: 'in', weapon: canonicalText(zhDrone[3] ?? zhDrone[2], names) || null,
+        other: label(zhDrone[1], names, zhDrone[1] + '的' + zhDrone[2], zhDrone[2]),
       },
     }
   }
@@ -235,24 +227,24 @@ function misses(text: string): CombatMatch | null {
   return {
     language: enIn ? 'en' : 'zh',
     event: {
-      kind: 'miss', dir: 'in', weapon: visibleText(incoming[2] ?? '') || null,
-      other: counterparty(ownedDrone?.[2] ?? incoming[1], visibleText(incoming[1]), ownedDrone?.[1]),
+      kind: 'miss', dir: 'in', weapon: canonicalText(incoming[2] ?? '', names) || null,
+      other: label(ownedDrone?.[2] ?? incoming[1], names, incoming[1], ownedDrone?.[1]),
     },
   }
 }
 
-function warp(language: CombatMatch['language'], ewar: EwarType, from: string, to: string): CombatMatch {
+function warp(language: CombatMatch['language'], ewar: EwarType, from: string, to: string, names: Names): CombatMatch {
   const isListener = (name: string) => /^(?:you|你)(?: -)?$/i.test(name.trim())
   const fromListener = isListener(from)
   const toListener = isListener(to)
   if (!fromListener && !toListener) {
-    const source = label(from)
-    const other = label(to)
+    const source = label(from, names)
+    const other = label(to, names)
     return { language, event: source.raw && other.raw ? { kind: 'ewar_seen', ewar, source, other } : null }
   }
   if (fromListener && toListener) return { language, event: null }
   const dir = fromListener ? 'out' : 'in'
-  const other = label(fromListener ? to : from)
+  const other = label(fromListener ? to : from, names)
   return { language, event: other.raw ? { kind: 'ewar', ewar, dir, other } : null }
 }
 
@@ -266,7 +258,7 @@ function englishWarpParties(suffix: string, raw: string): [string, string] | und
   // of any " to " inside a pilot or cosmetic label.
   const marked = /<font(?:size)?\b[^>]*>\s*to(?=\s|<)/i.exec(raw)
   if (marked) {
-    const leading = /^Warp (?:scramble|disruption) attempt from (.+)$/i.exec(combatText(raw.slice(0, marked.index)))?.[1]
+    const leading = /^Warp (?:scramble|disruption) attempt from (.+)$/i.exec(combatText(raw.slice(0, marked.index)).text)?.[1]
     if (leading && suffix.startsWith(leading + ' to ')) return [leading, suffix.slice(leading.length + 4)]
   }
   const explicit = /^(you(?: -)?) to (.+)$/i.exec(suffix) ?? /^(.+) to (you)$/i.exec(suffix)
@@ -275,51 +267,51 @@ function englishWarpParties(suffix: string, raw: string): [string, string] | und
   return undefined
 }
 
-function electronicWarfare(text: string, raw: string): CombatMatch | null {
+function electronicWarfare(text: string, raw: string, names: Names): CombatMatch | null {
   const notice = text.replace(/[!！]$/, '')
   const en = /^Warp (scramble|disruption) attempt from (.+)$/i.exec(notice)
   if (en?.[2]) {
     const ewar = en[1]?.toLowerCase() === 'scramble' ? 'warp_scramble' : 'warp_disrupt'
     const parties = englishWarpParties(en[2], raw)
-    return parties ? warp('en', ewar, ...parties) : { language: 'en', event: null }
+    return parties ? warp('en', ewar, ...parties, names) : { language: 'en', event: null }
   }
 
   const zh = /^(?:来自 )?(.+?)\s*试图跃迁(扰频|扰断)\s*(.+)$/.exec(notice)
   if (zh?.[1] && zh[3]) {
-    return warp('zh', zh[2] === '扰频' ? 'warp_scramble' : 'warp_disrupt', zh[1], zh[3])
+    return warp('zh', zh[2] === '扰频' ? 'warp_scramble' : 'warp_disrupt', zh[1], zh[3], names)
   }
 
   const jamIn = /^(?:Your target locks broken by|You're jammed by) (.+)$/.exec(notice)
   if (jamIn?.[1]) {
-    const { other } = effectPayload(jamIn[1])
+    const { other } = effectPayload(jamIn[1], names)
     return { language: 'en', event: other.raw ? { kind: 'ewar', dir: 'in', ewar: 'jam', other } : null }
   }
   const jamOut = /^(.+?)(?: -)? (?:target locks broken|jammed) - .+$/.exec(notice)
   if (jamOut?.[1]) {
-    const other = label(jamOut[1])
+    const other = label(jamOut[1], names)
     return { language: 'en', event: other.raw ? { kind: 'ewar', dir: 'out', ewar: 'jam', other } : null }
   }
 
   const zhJamIn = /^(?:你的\s*目标锁定丢失\s*于\s*(.+)|([^的]+)的.+?令\s*你的\s*目标锁定丢失)$/.exec(notice)
   const zhSource = zhJamIn?.[1] ?? zhJamIn?.[2]
   if (zhSource) {
-    return { language: 'zh', event: { kind: 'ewar', dir: 'in', ewar: 'jam', other: label(zhSource) } }
+    return { language: 'zh', event: { kind: 'ewar', dir: 'in', ewar: 'jam', other: label(zhSource, names) } }
   }
   const zhDroneJam = /^(.+?)的.+正在干扰你$/.exec(notice)
   if (zhDroneJam?.[1]) {
-    return { language: 'zh', event: { kind: 'ewar', dir: 'in', ewar: 'jam', other: label(zhDroneJam[1]) } }
+    return { language: 'zh', event: { kind: 'ewar', dir: 'in', ewar: 'jam', other: label(zhDroneJam[1], names) } }
   }
   const zhJamOut = /^[^对]+对([^对]+?)\s*目标锁定丢失$/.exec(notice)
   if (zhJamOut?.[1]) {
-    return { language: 'zh', event: { kind: 'ewar', dir: 'out', ewar: 'jam', other: label(zhJamOut[1]) } }
+    return { language: 'zh', event: { kind: 'ewar', dir: 'out', ewar: 'jam', other: label(zhJamOut[1], names) } }
   }
   return null
 }
 
-export function matchCombat(text: string, raw: string): CombatMatch | null {
+export function matchCombat({ text, names }: CombatMarkup, raw: string): CombatMatch | null {
   if (/^[+\-]?\d/.test(text)) {
-    const quantitative = damage(text) ?? repair(text) ?? capacitor(text, raw) ?? remoteEnergy(text)
+    const quantitative = damage(text, names) ?? repair(text, names) ?? capacitor(text, raw, names) ?? remoteEnergy(text, names)
     if (quantitative) return quantitative
   }
-  return misses(text) ?? electronicWarfare(text, raw) ?? explicitNeutralization(text)
+  return misses(text, names) ?? electronicWarfare(text, raw, names) ?? explicitNeutralization(text, names)
 }

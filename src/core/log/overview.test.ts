@@ -30,11 +30,11 @@ describe('dictionary-backed overview labels', () => {
     const result = parseGamelog(readFileSync(zh, 'utf8'))
     expect(result.unparsed).toEqual([])
     expect(result.events.slice(0, 7).map(({ other }) => other)).toEqual([
-      party('勒沙克级* [WISP] [C57] Kite-in-Dusk 7', 'Kite-in-Dusk 7', '勒沙克级', 47271, 'C57', 'WISP'),
-      party('Kite-in-Dusk 7勒沙克级*', 'Kite-in-Dusk 7', '勒沙克级', 47271),
-      party('Root Copper纪念碑级*', 'Root Copper', '纪念碑级', 85086),
-      party("Vos Tar'len[WISP]'[HA] Absolution - midnight'(救赎级*)", "Vos Tar'len", '救赎级', 22448, null, 'WISP'),
-      party("Vos Tar'len 奉献级* <WISP>", "Vos Tar'len", '奉献级', 12017, null, 'WISP'),
+      party('勒沙克级* [WISP] [C57] Kite-in-Dusk 7', 'Kite-in-Dusk 7', 'Leshak', 47271, 'C57', 'WISP'),
+      party('Kite-in-Dusk 7勒沙克级*', 'Kite-in-Dusk 7', 'Leshak', 47271),
+      party('Root Copper纪念碑级*', 'Root Copper', 'Cenotaph', 85086),
+      party("Vos Tar'len[WISP]'[HA] Absolution - midnight'(救赎级*)", "Vos Tar'len", 'Absolution', 22448, null, 'WISP'),
+      party("Vos Tar'len 奉献级* <WISP>", "Vos Tar'len", 'Devoter', 12017, null, 'WISP'),
       party('涅斯托级* [WISP] [250MM] Vera Moon', 'Vera Moon', '涅斯托级', 33472, '250MM', 'WISP'),
       party('帝国海军监护官*', null, '帝国海军监护官', 31868),
     ])
@@ -79,11 +79,11 @@ describe('dictionary-backed overview labels', () => {
     expect(chinese[9]).toMatchObject({ kind: 'ewar', dir: 'in', ewar: 'jam', other: { name: "Vos Tar'len" } })
   })
 
-  it('keeps the printed drone type when a drone miss names its owner', () => {
+  it('keeps the canonical drone type when a drone miss names its owner', () => {
     const result = parseGamelog(readFileSync(zh, 'utf8'))
     expect(result.events.at(-1)).toMatchObject({
       kind: 'miss', dir: 'in',
-      other: party('Root Copper的帝国海军监护官*', 'Root Copper', '帝国海军监护官', 31868),
+      other: party('Root Copper的帝国海军监护官*', 'Root Copper', 'Imperial Navy Curator', 31868),
     })
   })
 
@@ -115,10 +115,13 @@ it('resolves dictionary ships and known listeners in the 17 real PvP logs (fixtu
   const files = texts.map((t) => t.file)
   const logs = texts.map((t) => parseGamelog(t.text))
   const events = logs.flatMap(({ events }) => events)
+  const weapons = new Set(events.flatMap((event) => 'weapon' in event && event.weapon ? [event.weapon] : []))
+  expect(weapons.size).toBe(30)
+  expect([...weapons].filter((weapon) => weapon.includes(') - ') || weapon.includes('*)'))).toEqual([])
   const unparsed = logs.reduce((sum, log) => sum + log.unparsed.length, 0)
   expect(files).toHaveLength(17)
   expect(events.length + unparsed).toBe(107_365)
-  expect(unparsed / (events.length + unparsed)).toBeLessThanOrEqual(0.002)
+  expect(unparsed).toBe(0)
   expect(events.filter((event) => event.kind === 'ewar_seen').length).toBeGreaterThan(3_000)
 
   const parties = events.flatMap((event) => event.kind === 'ewar_seen' ? [event.other, event.source] : [event.other])
