@@ -74,6 +74,14 @@ it('names the mutated module returned by the killmail API', async () => {
     .toContain('Entropic Radiation Sink II')
 })
 
+it('counts skipped item types while keeping the imported EFT available', async () => {
+  vi.spyOn(api, 'getKillmailFit').mockResolvedValue({ ...result, skippedTypeIds: [900001, 900002] })
+  await renderFit()
+  await act(async () => button('从击毁报告带入').click())
+  expect(host.textContent).toContain('2 个物品无法识别名称')
+  expect(button('保存配装').disabled).toBe(false)
+})
+
 it('warns for an explicitly named Abyssal module in pasted EFT', async () => {
   await renderFit()
   const editor = host.querySelector('textarea')!

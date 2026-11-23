@@ -132,6 +132,7 @@ function PilotFit({ pilot, charId, summary, interactions }: {
   const mutated = importDetails
     ? importDetails.mutated ?? []
     : parsed?.modules.map(({ name }) => name).filter((name) => /\bAbyssal\b|深渊/i.test(name)) ?? []
+  const skippedCount = importDetails?.skippedTypeIds?.length ?? 0
   return <div className="u7-fit">
     <div className="u7-fit-actions">
       {(!editor || loss) && <Button disabled={busy !== null} onClick={() => {
@@ -168,6 +169,7 @@ function PilotFit({ pilot, charId, summary, interactions }: {
         </Button>
       </div>
     </form>}
+    {skippedCount > 0 && <p className="u7-fit-hint" role="status">{fmtNum(skippedCount)} 个物品无法识别名称，已跳过。</p>}
     {mutated.length > 0 && <p className="u7-fit-hint">{warning} {Array.from(new Set(mutated)).join("、")}</p>}
     <div className="u7-fit-columns">
       {parsed && <section className="u7-person-card u7-fit-racks">
