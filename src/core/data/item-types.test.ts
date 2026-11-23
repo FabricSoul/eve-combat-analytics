@@ -25,6 +25,17 @@ describe('item-types', () => {
     expect(itemTypeId('NonExistentModuleOrWeapon999')).toBeNull()
   })
 
+  it('returns null for ambiguous item names that map to multiple type IDs', () => {
+    // 莱塞勒氏改良型爆炸装甲增强器 is ambiguous in CCP static data between
+    // typeID 15054 (Kinetic Armor Hardener) and typeID 15070 (Explosive Armor Hardener)
+    expect(itemTypeId('莱塞勒氏改良型爆炸装甲增强器')).toBeNull()
+    expect(itemTypeId('莱塞勒氏改良型爆炸装甲增强器*')).toBeNull()
+
+    // Unambiguous English names for both hardeners resolve to their respective IDs
+    expect(itemTypeId("Raysere's Modified Kinetic Armor Hardener")).toBe(15054)
+    expect(itemTypeId("Raysere's Modified Explosive Armor Hardener")).toBe(15070)
+  })
+
   it('keeps item-types.json within the size budget (< 1.5 MB)', () => {
     const jsonPath = new URL('item-types.json', import.meta.url)
     const stats = statSync(jsonPath)
