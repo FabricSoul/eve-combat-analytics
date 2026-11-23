@@ -144,3 +144,28 @@ describe('EventFeed range, focus and scope', () => {
     expect(rows(mounted.container)).toHaveLength(0)
   })
 })
+
+describe('EventFeed amounts and current row', () => {
+  it('prints 0 for a real zero amount and — only for kinds that carry no amount', () => {
+    const extra: Analysis = {
+      ...analysis,
+      interactions: [
+        hit(T - 4_000, 1, 4, { amount: 0 }),
+        hit(T - 2_000, 1, 4, { kind: 'ewar', ewar: 'warp_scramble', weapon: null, amount: 0 }),
+        hit(T - 1_000, 5, 2, { kind: 'neut', amount: 0 }),
+      ],
+    }
+    mounted = mountApp(createElement(EventFeed), { summary, analysis: extra }, { initialTime: T })
+    const amounts = Object.fromEntries(rows(mounted.container).map((r) => [r.getAttribute('data-kind'), r.querySelector('.feed-amount')?.textContent]))
+    expect(amounts).toEqual({ damage: '0', ewar: '—', neut: '0' })
+  })
+
+  it('draws the gold left rule on the current row from the accent-line token', async () => {
+    const { readFileSync } = await import('node:fs')
+    const css = readFileSync('src/app/battle/feed/feed.css', 'utf8')
+    const rule = /\.feed-row\[aria-current="true"\]::before\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+    expect(rule).toContain('var(--color-accent-line)')
+    expect(rule).toMatch(/width:\s*2px/)
+    expect(rule).toMatch(/inset-inline-start:\s*0/)
+  })
+})

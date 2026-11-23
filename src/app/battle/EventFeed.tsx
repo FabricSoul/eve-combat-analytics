@@ -70,7 +70,7 @@ export function EventFeed({ compact: forcedCompact }: EventFeedProps) {
   function amount(row: FeedRow) {
     return (
       <span className="feed-amount">
-        {row.total ? fmtNum(Math.round(row.total)) : '—'}
+        {row.kind === 'ewar' || row.kind === 'miss' ? '—' : fmtNum(Math.round(row.total))}
         {row.count > 1 && <span className="feed-count"> ×{row.count}</span>}
       </span>
     )

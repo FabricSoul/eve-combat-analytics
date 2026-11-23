@@ -19,7 +19,9 @@
 }
 .feed-head { position: sticky; top: 0; z-index: 1; height: 26px; background: var(--color-surface); color: var(--color-text-3); font-size: 11px; }
 .feed-row { height: var(--row); }
+.feed-row { position: relative; }
 .feed-row[aria-current="true"] { background: var(--color-sel); }
+.feed-row[aria-current="true"]::before { content: ""; position: absolute; inset-block: 0; inset-inline-start: 0; width: 2px; background: var(--color-accent-line); }
 .feed[data-mode="key"] .feed-head { grid-template-columns: 60px 22px minmax(0, 1fr); }
 .feed[data-mode="key"] .feed-row { grid-template-columns: 60px 22px minmax(0, 1fr); }
 .feed[data-compact] .feed-head, .feed[data-compact] .feed-row { grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1fr) 78px; }
