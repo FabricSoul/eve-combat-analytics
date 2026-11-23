@@ -8,7 +8,7 @@ import type { Analysis, BattleSummary, ServerMessage } from '@/core/contract'
 import { tokenGroups } from '../gallery/TokensPage'
 import { defaultOursSide, sideColor, sideLetter, sideOrder } from '../lib/sides'
 import { useBattle } from '../state/battle-store'
-import { useView, ViewProvider } from '../state/view-store'
+import { usePlayback, useView, ViewProvider } from '../state/view-store'
 
 const appDirectory = resolve('src/app')
 
@@ -96,9 +96,9 @@ describe('browser stores', () => {
 
   it('reads and writes ours, t and sel, preserving the rest of the URL', () => {
     window.history.replaceState(null, '', '/b/test?ours=1&t=1000&sel=char%3A42&x=keep#top')
-    let view!: ReturnType<typeof useView>
+    let view!: ReturnType<typeof useView> & ReturnType<typeof usePlayback>
     function Probe() {
-      view = useView()
+      view = { ...useView(), ...usePlayback() }
       return null
     }
     act(() => root.render(createElement(ViewProvider, { children: createElement(Probe) })))

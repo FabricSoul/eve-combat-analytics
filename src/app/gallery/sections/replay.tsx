@@ -4,7 +4,7 @@ import { ReplayCanvas } from '@/app/battle/ReplayCanvas'
 import { fmtHms } from '@/app/lib/format'
 import { defaultOursSide } from '@/app/lib/sides'
 import { BattleProvider } from '@/app/state/battle-store'
-import { useView, ViewProvider } from '@/app/state/view-store'
+import { usePlayback, useView, ViewProvider } from '@/app/state/view-store'
 import { loadUiFixture, uiReplayStart } from '@/app/test/ui-fixture'
 import { Button } from '@/app/ui/Button'
 import type { GallerySection } from '../GalleryPage'
@@ -56,7 +56,8 @@ const samples = [
 function ReplaySamples() {
   const [sideCount, setSideCount] = useState(2)
   const [compact, setCompact] = useState(false)
-  const { t, playing, play, pause, seek, setSpeed, speed, selected, focusOnly, setFocusOnly } = useView()
+  const { play, pause, seek, setSpeed, speed, selected, focusOnly, setFocusOnly } = useView()
+  const { t, playing } = usePlayback('coarse')
   const data = useMemo(() => ({ summary, analysis: extraSides(sideCount) }), [sideCount])
   return (
     <>

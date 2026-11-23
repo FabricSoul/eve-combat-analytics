@@ -123,7 +123,8 @@ function BattleWorkspace() {
   function shareUrl() {
     const url = new URL(window.location.href)
     url.searchParams.set('ours', String(view.oursSide))
-    if (view.t > 0) url.searchParams.set('t', String(Math.floor(view.t)))
+    const t = view.getTime()
+    if (t > 0) url.searchParams.set('t', String(Math.floor(t)))
     if (view.selected) url.searchParams.set('sel', view.selected)
     else url.searchParams.delete('sel')
     return url.href

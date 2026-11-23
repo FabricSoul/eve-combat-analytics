@@ -1,5 +1,6 @@
 import {
-  createContext, createElement, useContext, useEffect, useRef, useState, type ReactNode,
+  createContext, createElement, useCallback, useContext, useEffect, useLayoutEffect,
+  useMemo, useRef, useState, type ReactNode,
 } from 'react'
 import type { EntityKey } from '@/core/contract'
 
@@ -16,9 +17,12 @@ interface UrlView {
   selected: EntityKey | null
 }
 
-interface ViewState {
+interface PlaybackState {
   t: number
   playing: boolean
+}
+
+interface ViewState {
   speed: PlaybackSpeed
   range: TimeRange | null
   selected: EntityKey | null
@@ -28,6 +32,7 @@ interface ViewState {
   feedMode: FeedMode
   drawerTab: DrawerTab
   panelTab: PanelTab
+  getTime(): number
   seek(t: number): void
   play(): void
   pause(): void
@@ -60,6 +65,9 @@ function readView(): UrlView {
 const emptyUrlView: UrlView = { oursSide: null, t: null, selected: null }
 const defaultLayers: LayerId[] = ['dmgOurs', 'dmgTheirs', 'primary', 'kills']
 const ViewContext = createContext<ViewState | null>(null)
+const PlaybackContext = createContext<PlaybackState | null>(null)
+const CoarsePlaybackContext = createContext<PlaybackState | null>(null)
+const coarseInterval = 250
 
 interface ViewProviderProps {
   children: ReactNode
@@ -72,7 +80,10 @@ interface ViewProviderProps {
 export function ViewProvider({
   children, initialTime = 0, endTime, defaultSide = 0, syncUrl = true,
 }: ViewProviderProps) {
-  const [urlView, setUrlView] = useState(() => syncUrl ? readView() : emptyUrlView)
+  const [initialView] = useState(() => syncUrl ? readView() : emptyUrlView)
+  const [time, setTime] = useState(initialView.t)
+  const [side, setSide] = useState(initialView.oursSide)
+  const [selected, setSelected] = useState(initialView.selected)
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState<PlaybackSpeed>(1)
   const [range, saveRange] = useState<TimeRange | null>(null)
@@ -82,11 +93,17 @@ export function ViewProvider({
   const [drawerTab, setDrawerTab] = useState<DrawerTab>('stats')
   const [panelTab, setPanelTab] = useState<PanelTab>('roster')
   const lastUrlWrite = useRef(-Infinity)
+  const t = time ?? initialTime
+  const currentTime = useRef(t)
+  useLayoutEffect(() => { currentTime.current = t }, [t])
 
   useEffect(() => {
     if (!syncUrl) return
     function restore() {
-      setUrlView(readView())
+      const view = readView()
+      setTime(view.t)
+      setSide(view.oursSide)
+      setSelected(view.selected)
       setFocusOnly(false)
       setPlaying(false)
     }
@@ -97,7 +114,7 @@ export function ViewProvider({
   useEffect(() => {
     if (!syncUrl || (playing && performance.now() - lastUrlWrite.current < 1000)) return
     const url = new URL(window.location.href)
-    const params = { ours: urlView.oursSide, t: urlView.t, sel: urlView.selected }
+    const params = { ours: side, t: time, sel: selected }
     for (const [name, value] of Object.entries(params)) {
       const encoded = typeof value === 'number' ? String(Math.floor(value)) : value
       if (url.searchParams.get(name) === encoded) continue
@@ -112,10 +129,7 @@ export function ViewProvider({
         // Some browsers rate-limit history updates during rapid scrubbing.
       }
     }
-  }, [urlView, playing, syncUrl])
-
-  const { selected } = urlView
-  const t = urlView.t ?? initialTime
+  }, [side, time, selected, playing, syncUrl])
 
   useEffect(() => {
     if (!playing) return
@@ -124,10 +138,7 @@ export function ViewProvider({
     function tick(now: number) {
       const increment = Math.max(0, now - last) * speed
       last = now
-      setUrlView((previous) => {
-        const next = (previous.t ?? initialTime) + increment
-        return { ...previous, t: Math.min(next, endTime ?? Infinity) }
-      })
+      setTime((previous) => Math.min((previous ?? initialTime) + increment, endTime ?? Infinity))
       frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
@@ -140,56 +151,80 @@ export function ViewProvider({
     if (playing && endTime !== undefined && t >= endTime) setPlaying(false)
   }, [t, playing, endTime])
 
-  function select(key: EntityKey | null) {
-    setUrlView((previous) => ({ ...previous, selected: previous.selected === key ? null : key }))
+  const select = useCallback((key: EntityKey | null) => {
+    setSelected((previous) => previous === key ? null : key)
     setFocusOnly(false)
     setDrawerTab('stats')
-  }
+  }, [])
 
-  const value: ViewState = {
-    t,
-    playing,
+  const getTime = useCallback(() => currentTime.current, [])
+  const seek = useCallback((next: number) => {
+    if (Number.isFinite(next)) setTime(Math.max(0, Math.round(next)))
+  }, [])
+  const play = useCallback(() => {
+    if (endTime !== undefined && getTime() >= endTime) setTime(initialTime)
+    setPlaying(true)
+  }, [endTime, initialTime, getTime])
+  const pause = useCallback(() => setPlaying(false), [])
+  const setRange = useCallback((next: TimeRange | null) => {
+    saveRange(next && (next[0] <= next[1] ? next : [next[1], next[0]]))
+  }, [])
+  const setOursSide = useCallback((side: number) => {
+    if (Number.isSafeInteger(side) && side >= 0) setSide(side)
+  }, [])
+  const toggleLayer = useCallback((layer: LayerId) => setLayers((previous) => {
+    const next = new Set(previous)
+    if (next.has(layer)) next.delete(layer)
+    else next.add(layer)
+    return next
+  }), [])
+  const oursSide = side ?? defaultSide
+  const focused = selected !== null && focusOnly
+  const value = useMemo<ViewState>(() => ({
     speed,
     range,
     selected,
-    focusOnly: selected !== null && focusOnly,
-    oursSide: urlView.oursSide ?? defaultSide,
+    focusOnly: focused,
+    oursSide,
     layers,
     feedMode,
     drawerTab,
     panelTab,
-    seek: (next) => {
-      if (Number.isFinite(next)) setUrlView((previous) => ({ ...previous, t: Math.max(0, Math.round(next)) }))
-    },
-    play: () => {
-      if (endTime !== undefined && t >= endTime) {
-        setUrlView((previous) => ({ ...previous, t: initialTime }))
-      }
-      setPlaying(true)
-    },
-    pause: () => setPlaying(false),
+    getTime,
+    seek,
+    play,
+    pause,
     setSpeed,
-    setRange: (next) => saveRange(next && (next[0] <= next[1] ? next : [next[1], next[0]])),
+    setRange,
     select,
     setFocusOnly,
-    setOursSide: (side) => {
-      if (Number.isSafeInteger(side) && side >= 0) setUrlView((previous) => ({ ...previous, oursSide: side }))
-    },
-    toggleLayer: (layer) => setLayers((previous) => {
-      const next = new Set(previous)
-      if (next.has(layer)) next.delete(layer)
-      else next.add(layer)
-      return next
-    }),
+    setOursSide,
+    toggleLayer,
     setFeedMode,
     setDrawerTab,
     setPanelTab,
-  }
-  return createElement(ViewContext.Provider, { value }, children)
+  }), [speed, range, selected, focused, oursSide, layers, feedMode, drawerTab, panelTab,
+    getTime, seek, play, pause, setRange, select, setOursSide, toggleLayer])
+  const playback = useMemo(() => ({ t, playing }), [t, playing])
+  const coarseTime = playing ? Math.floor(t / coarseInterval) * coarseInterval : t
+  const coarsePlayback = useMemo(() => ({ t: coarseTime, playing }), [coarseTime, playing])
+  return createElement(ViewContext.Provider, { value },
+    createElement(PlaybackContext.Provider, { value: playback },
+      createElement(CoarsePlaybackContext.Provider, { value: coarsePlayback }, children)))
 }
 
 export function useView(): ViewState {
   const view = useContext(ViewContext)
   if (!view) throw new Error('useView requires ViewProvider')
   return view
+}
+
+export function usePlayback(cadence: 'frame' | 'coarse' = 'frame'): PlaybackState {
+  const playback = useContext(cadence === 'coarse' ? CoarsePlaybackContext : PlaybackContext)
+  if (!playback) throw new Error('usePlayback requires ViewProvider')
+  return playback
+}
+
+export function useCoarseTime(): number {
+  return usePlayback('coarse').t
 }

@@ -2,7 +2,7 @@ import type { Killmail } from '@/core/contract'
 import { fmtHms, fmtIsk, fmtNum } from '../lib/format'
 import { sideColor, sideOrder } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
-import { useView } from '../state/view-store'
+import { useCoarseTime, useView } from '../state/view-store'
 import { Portrait } from '../ui/Portrait'
 import { TypeIcon } from '../ui/TypeIcon'
 import './upload/kills.css'
@@ -15,6 +15,7 @@ const podTypeIds = new Set([670, 33328])
 export function KillsList(_props: KillsListProps) {
   const { summary, analysis } = useBattleContext()
   const view = useView()
+  const t = useCoarseTime()
   if (!summary) return null
   const { names } = summary.meta
   const kills = summary.meta.killmails
@@ -30,7 +31,7 @@ export function KillsList(_props: KillsListProps) {
   // Only the kill the cursor is on is current: the selected victim's latest loss at or before the cursor.
   const currentKillId = (() => {
     if (view.selected === null) return null
-    const own = kills.filter((kill) => victimKey(kill) === view.selected && kill.t <= view.t)
+    const own = kills.filter((kill) => victimKey(kill) === view.selected && kill.t <= t)
     return own.at(-1)?.id ?? null
   })()
 

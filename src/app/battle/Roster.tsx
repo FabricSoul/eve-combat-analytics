@@ -3,7 +3,7 @@ import { statsForRange } from '@/core/analysis/range'
 import type { SideSubject } from '@/core/contract'
 import { sideColor, sideLetter } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
-import { useView } from '../state/view-store'
+import { useCoarseTime, useView } from '../state/view-store'
 import { Portrait } from '../ui/Portrait'
 import { Tag } from '../ui/Tag'
 import { TypeIcon } from '../ui/TypeIcon'
@@ -20,10 +20,11 @@ interface OpenMenu { row: RosterRow & { charId: number }; x: number; y: number; 
 export function Roster(_props: RosterProps) {
   const { summary, analysis } = useBattleContext()
   const view = useView()
+  const t = useCoarseTime()
   const [menu, setMenu] = useState<OpenMenu | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
   const mover = useSideMove(summary?.meta.brId ?? '')
-  const at = view.range ? view.range[1] : view.t
+  const at = view.range ? view.range[1] : t
   const { range } = view
   const rangeStats = useMemo(
     () => summary && analysis && range ? statsForRange(analysis, summary.meta.killmails, range[0], range[1]) : undefined,

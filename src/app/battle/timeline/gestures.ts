@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
-import type { TimeRange, useView } from '@/app/state/view-store'
+import type { TimeRange, usePlayback, useView } from '@/app/state/view-store'
 import { clamp, second, zoomDomain } from './model'
 
 interface Drag {
@@ -29,7 +29,7 @@ function fractionAt(chart: SVGSVGElement, clientX: number, left: number, right: 
 }
 
 export function useTimelineGestures(
-  full: TimeRange, left: number, right: number, view: ReturnType<typeof useView>,
+  full: TimeRange, left: number, right: number, view: ReturnType<typeof useView> & ReturnType<typeof usePlayback>,
 ) {
   const chart = useRef<SVGSVGElement>(null)
   const [width, setWidth] = useState(960)

@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { BattleProvider } from '../state/battle-store'
-import { useView, ViewProvider } from '../state/view-store'
+import { usePlayback, useView, ViewProvider } from '../state/view-store'
 import { loadUiFixture } from '../test/ui-fixture'
 import { KillsList } from './KillsList'
 
@@ -16,7 +16,8 @@ afterEach(() => { act(() => root?.unmount()); host?.remove() })
 
 function Probe() {
   const view = useView()
-  return <output data-t={view.t} data-sel={view.selected ?? ''} />
+  const { t } = usePlayback()
+  return <output data-t={t} data-sel={view.selected ?? ''} />
 }
 
 function mount(fixture = loadUiFixture()) {

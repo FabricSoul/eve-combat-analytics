@@ -3,7 +3,7 @@ import { act, useEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BattleProvider } from '@/app/state/battle-store'
-import { ViewProvider, useView } from '@/app/state/view-store'
+import { ViewProvider, usePlayback, useView } from '@/app/state/view-store'
 import { fmtHms, fmtNum } from '@/app/lib/format'
 import { loadUiFixture } from '@/app/test/ui-fixture'
 import { Timeline } from '../Timeline'
@@ -16,12 +16,13 @@ const bounds = { x: 0, left: 0, width: 1000, top: 0, y: 0, right: 1000, bottom: 
 
 let host: HTMLDivElement
 let root: Root
-let view: ReturnType<typeof useView>
+let view: ReturnType<typeof useView> & ReturnType<typeof usePlayback>
 let restore: ReturnType<typeof vi.spyOn>
 
 function Probe() {
   const current = useView()
-  useEffect(() => { view = current }, [current])
+  const playback = usePlayback()
+  useEffect(() => { view = { ...current, ...playback } }, [current, playback])
   return null
 }
 

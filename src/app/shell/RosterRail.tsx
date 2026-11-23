@@ -2,12 +2,13 @@ import { useMemo, useState, type MouseEvent, type FocusEvent } from 'react'
 import { buildRoster, fullSideOrder } from '../battle/roster/model'
 import { sideColor, sideLetter, sideName } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
-import { useView } from '../state/view-store'
+import { useCoarseTime, useView } from '../state/view-store'
 import { TypeIcon } from '../ui/TypeIcon'
 
 export function RosterRail() {
   const { analysis, summary } = useBattleContext()
-  const { oursSide, selected, select, t, range } = useView()
+  const { oursSide, selected, select, range } = useView()
+  const t = useCoarseTime()
   const [tooltip, setTooltip] = useState<{ name: string; top: number } | null>(null)
   // Rebuild the roster only when playback crosses a kill, not on each replay frame.
   const at = range?.[1] ?? t

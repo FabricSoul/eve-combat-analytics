@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import type { EntityKey, Killmail } from '@/core/contract'
 import { sideOrder } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
-import { useView } from '../state/view-store'
+import { usePlayback, useView } from '../state/view-store'
 import { ReplayStage } from './replay/ReplayStage'
 
 export interface ReplayCanvasProps {}
@@ -11,7 +11,8 @@ const noKillmails: readonly Killmail[] = []
 
 export function ReplayCanvas(_props: ReplayCanvasProps) {
   const { analysis, summary, status } = useBattleContext()
-  const { t, playing, selected, focusOnly, oursSide, select } = useView()
+  const { selected, focusOnly, oursSide, select } = useView()
+  const { t, playing } = usePlayback()
   const selectRef = useRef(select)
   useLayoutEffect(() => { selectRef.current = select }, [select])
   const selectPilot = useCallback((key: EntityKey) => selectRef.current(key), [])

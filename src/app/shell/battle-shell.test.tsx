@@ -13,11 +13,12 @@ import { loadUiFixture } from '../test/ui-fixture'
 
 vi.mock('../battle/ReplayCanvas', () => ({ ReplayCanvas: () => null }))
 vi.mock('../battle/Timeline', async () => {
-  const { useView } = await import('../state/view-store')
+  const { usePlayback, useView } = await import('../state/view-store')
   return {
     Timeline: () => {
       const view = useView()
-      return <button type="button" onClick={() => view.setRange([view.t, view.t + 1000])}>
+      const { t } = usePlayback()
+      return <button type="button" onClick={() => view.setRange([t, t + 1000])}>
         {view.range ? '清除选段测试' : '建立选段测试'}
       </button>
     },

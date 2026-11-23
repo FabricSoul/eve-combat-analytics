@@ -3,7 +3,7 @@ import type { Analysis, BattleSummary } from '@/core/contract'
 import { fmtHms, fmtNum } from '../lib/format'
 import { sideColor, sideLetter } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
-import { useView, type LayerId } from '../state/view-store'
+import { usePlayback, useView, type LayerId } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { Portrait } from '../ui/Portrait'
 import { useTimelineGestures } from './timeline/gestures'
@@ -32,7 +32,7 @@ function LayerChip({ label, on, toggle, children, disabled }: {
 }
 
 function Controls({ view, next, canPlay }: {
-  view: ReturnType<typeof useView>; next: number | undefined; canPlay: boolean
+  view: ReturnType<typeof useView> & ReturnType<typeof usePlayback>; next: number | undefined; canPlay: boolean
 }) {
   const nextSpeed = { 1: 2, 2: 4, 4: 8, 8: 1 } as const
   return <div className="eca-timeline-controls" role="group" aria-label="回放控制">
@@ -58,7 +58,7 @@ function TimelineRoom({ compact, summary, analysis }: {
   summary: BattleSummary
   analysis: Analysis | null
 }) {
-  const view = useView()
+  const view = { ...useView(), ...usePlayback() }
   const { layers, oursSide } = view
   const [hidden, setHidden] = useState<ReadonlySet<number>>(() => new Set())
   const data = useMemo(() => timelineData(summary, analysis, oursSide), [summary, analysis, oursSide])
