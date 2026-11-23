@@ -187,16 +187,17 @@ describe('timeline', () => {
     expect(view.t).toBe(start)
   })
 
-  it('reads the real plotted damage and current primary at the hovered second', async () => {
+  it('reads the real raw damage and current primary at the hovered second', async () => {
     await render()
     const primary = fixture.analysis.primaries.find(({ bySide, start: t }) => bySide === 1 && t > start)!
     const i = (primary.start - start) / 1000
     await pointer('pointermove', xAt(primary.start))
     const tip = host.querySelector('[role="tooltip"]')!
     for (const side of [1, 0]) {
-      const sample = fixture.analysis.timeline.damageBySide[side]!.slice(Math.max(0, i - 9), i + 1)
-      const value = Math.round(sample.reduce((sum, n) => sum + n, 0) / 10)
-      expect(tip.querySelector(`[data-readout-side="${side}"] .app-number`)?.textContent).toBe(fmtNum(value))
+      const value = fixture.analysis.timeline.damageBySide[side]![i]
+      const readout = tip.querySelector(`[data-readout-side="${side}"]`)!
+      expect(readout.querySelector('.app-number')?.textContent).toBe(fmtNum(value))
+      expect(readout.textContent).toContain('/秒')
     }
     expect(tip.textContent).toContain(fixture.analysis.entities[primary.target]!.name)
     expect(tip.textContent).toContain(String(primary.shooters.length))

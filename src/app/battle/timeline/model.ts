@@ -4,6 +4,7 @@ import type { LayerId, TimeRange } from '@/app/state/view-store'
 
 export const second = 1000
 const smoothingSeconds = 10
+const damageSmoothingRadius = 5
 
 export const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
@@ -30,6 +31,19 @@ function rollingMean(samples: readonly number[]) {
   })
 }
 
+function centeredDamageMean(samples: readonly number[]) {
+  let first = 0
+  let afterLast = 0
+  let sum = 0
+  return samples.map((_, index) => {
+    const start = Math.max(0, index - damageSmoothingRadius)
+    const end = Math.min(samples.length, index + damageSmoothingRadius + 1)
+    while (first < start) sum -= samples[first++]!
+    while (afterLast < end) sum += samples[afterLast++]!
+    return sum / (afterLast - first)
+  })
+}
+
 export function timelineData(summary: BattleSummary, analysis: Analysis | null, ours: number) {
   const kills = summary.meta.killmails
   const interactions = analysis?.interactions ?? []
@@ -37,7 +51,7 @@ export function timelineData(summary: BattleSummary, analysis: Analysis | null, 
   const damage = new Map<number, number[]>()
   let length = 0
   for (const [side, samples] of Object.entries(analysis?.timeline.damageBySide ?? {})) {
-    damage.set(Number(side), rollingMean(samples))
+    damage.set(Number(side), centeredDamageMean(samples))
     length = Math.max(length, samples.length)
   }
 

@@ -96,6 +96,7 @@ function TimelineRoom({ compact, summary, analysis }: {
   const rangeEnd = range ? Math.min(range[1], end) : 0
   const cursorOnPlot = view.t >= start && view.t <= end
   const hoverOnPlot = hover !== null && hover >= start && hover <= end
+  const hoverBucket = hoverOnPlot ? Math.floor((hover - (analysis?.timeline.start ?? data.start)) / second) : -1
   // Reconstructed target spans can overlap at a switch. Prefer the newer call.
   const primary = hoverOnPlot ? data.primaries.reduce<(typeof data.primaries)[number] | undefined>((current, target) =>
     target.start <= hover && target.end >= hover && (!current || current.start <= target.start) ? target : current,
@@ -151,7 +152,7 @@ function TimelineRoom({ compact, summary, analysis }: {
         <time className="app-number">{fmtHms(hover)}</time>
         {damage.map((curve) => <div key={curve.side} data-readout-side={curve.side} className="eca-timeline-readout">
           <Dot color={curve.color} /><span>{curve.label}</span>
-          <b className="app-number">{fmtNum(Math.round(curve.samples[Math.floor((hover - data.start) / second)] ?? 0))}</b><span>/秒</span>
+          <b className="app-number">{fmtNum(analysis?.timeline.damageBySide[curve.side]?.[hoverBucket] ?? 0)}</b><span>/秒</span>
         </div>)}
         {primary ? <div className="eca-timeline-target">
           <span>主目标</span><Portrait charId={primaryEntity?.charId ?? null} size={16} />
