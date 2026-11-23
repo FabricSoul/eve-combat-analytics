@@ -1,0 +1,65 @@
+# T4 — Analysis engine (`analyze`)
+
+{{COMMON}}
+
+## Goal
+Implement `analyze: Analyze` from `src/core/contract.ts` in `src/core/analysis/`: a pure function from a
+`BattleState` (BR meta + every uploaded `ParsedLog` + name index + fits) to an `Analysis` the UI draws: the
+deduplicated interaction stream that drives the replay, ewar spans, primary targets, per-pilot comparison stats,
+coverage, and the per-side damage timeline. It runs in the browser on every live update, so it must be fast.
+
+## You may edit
+`src/core/analysis/**` (split into modules as you like: entities, interactions/dedupe, ewar spans, primaries, stats,
+timeline) and `fixtures/states/**` for hand-built states. Nothing else.
+
+## Definitions (implement exactly; if one is unworkable, ask the coordinator)
+- **Entities.** Every log listener (`char:<id>` from `UploadedLog.charId`), every counterparty (resolved through
+  `state.names[displayName]` to `char:<id>` with that side, else `name:<displayName>` with side -1, where
+  displayName = `other.name ?? other.raw`), and every killmail participant with a charId (name from `meta.names`,
+  side via `sideOf` from `src/core/br/normalize.ts`, ship from `meta.names[shipTypeId]`). `shipTypes` collects every
+  ship seen for the entity (log counterparty ship labels and killmail ships), de-duplicated. `hasLog` = has an
+  uploaded log.
+- **Interactions.** Each log event becomes one interaction: for `dir: 'out'` from = listener, to = counterparty; for
+  `'in'` the reverse. Kinds map 1:1 (`repair` keeps `repairType`, `ewar` keeps `ewar`).
+- **Dedupe.** The same hit appears in both parties' logs when both uploaded. Two interactions from different logs are
+  the same when from, to, kind, amount are equal, the weapon/module is equal or either is null, and |Δt| ≤ 1 s. Merge
+  into one with both `sources` and `corroborated: true`; keep the earlier t. Match greedily in time order so a burst of
+  equal hits pairs one-to-one (never one-to-many). Misses dedupe the same way with amount 0.
+- **Ewar spans.** Warp scramble/disrupt (and other ewar) lines repeat while the effect holds. Consecutive lines for the
+  same from/to/ewar less than 15 s apart form one span [first t, last t + 5 s].
+- **Engagement time** of an entity: from its first to its last interaction (any kind, either direction).
+- **Primary target** per side, computed on 10 s windows sliding by 1 s: the enemy entity receiving the most damage
+  from that side in the window, if it received ≥ 40% of the side's damage in that window and ≥ 2 distinct shooters
+  hit it. Consecutive windows with the same primary merge into one `PrimaryTarget` span; gaps < 5 s are bridged.
+  `killedAt` = the killmail time of that target (victim charId match) if it falls within span end + 10 s; `damage`
+  and `shooters` are over the span.
+- **PilotStats** for every entity with a log, plus killmail-only entities (log-derived fields 0/null for those):
+  - `damageOut/In`, `repairOut/In`, `neutOut/In`: sums over deduplicated interactions.
+  - `activeRatio`: distinct seconds with outgoing damage ÷ engagement seconds (0 when engagement is 0).
+  - `primaryShare`: outgoing damage that hit the side's primary of that second ÷ damageOut.
+  - `switchDelayMedian`: for each primary span of the pilot's side after the first, seconds from span start to the
+    pilot's first hit on that target within the span; median over spans where it hit at all; null if none.
+  - `repReactionMedian`: for each friendly the pilot repaired, each "damage episode" (incoming damage after ≥ 10 s
+    without any) → seconds to the pilot's first repair on that friendly within 30 s; median; null if none.
+  - `firstShotDelay`: pilot's first outgoing damage minus the side's first outgoing damage.
+  - `hitQuality`: counts by quality of outgoing damage; `misses`: outgoing misses.
+  - `pointSeconds`: total length of outgoing warp_scramble/warp_disrupt spans.
+  - `killmailDamage` / `killmailCount`: sum of the entity's attacker damage on killmails / number of killmails it is on.
+- **Coverage** per side: `known` = distinct characters of that side seen in killmails or logs, `withLog` = those with an
+  uploaded log.
+- **Timeline**: `start` = first interaction t floored to the second; `damageBySide[s][i]` = damage dealt by side s in
+  second i (deduplicated). Empty state → start = first killmail t, empty arrays.
+
+## Failing tests to write first
+- Hand-built small states in `fixtures/states/` (say in a header that they are synthetic) with exact expected outputs:
+  dedupe of a two-sided exchange (corroborated, one-to-one with bursts of equal hits, weapon null on one side), ewar span
+  merging, primary detection (threshold edges: 39% vs 40%, one shooter vs two, gap bridging, killedAt), each PilotStats
+  field, coverage, timeline buckets.
+- On the real BR fixture with zero logs (`normalizeBrComposition` the fixture): coverage known per side matches the
+  killmail characters (side 0 has 142, side 1 has 49 distinct characters as computed by the coordinator — verify);
+  `killmailDamage` of `char:<Zeikku Targaryen's id>` is 54,034 on 15 killmails (look the id up in the names fixture).
+- Determinism: the same state analyzed twice is deep-equal; log order does not change the result.
+- Performance: 30 logs × 3,000 events (generate them in the test) analyze in under 500 ms.
+
+## Evidence for worker_done
+`./check-all.sh` tail; the measured performance; every definition you had to interpret.
