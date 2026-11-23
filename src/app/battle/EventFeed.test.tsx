@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Analysis, Interaction } from '@/core/contract'
 import { fmtHms } from '../lib/format'
 import { EventFeed } from './EventFeed'
+import { useView } from '../state/view-store'
 import { mountApp, tinyAnalysis, tinySummary } from './roster/testing'
 
 const T = Date.UTC(2025, 5, 22, 15, 43, 2)
@@ -112,5 +113,34 @@ describe('EventFeed module icons', () => {
       await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
       expect(mounted.container.querySelector('.feed-weapon img')?.getAttribute('src')).toContain('/types/2410/icon')
     }, { timeout: 3000 })
+  })
+})
+
+describe('EventFeed range, focus and scope', () => {
+  it('labels key mode with its real time scope and follows the Shift-drag range', () => {
+    let view!: ReturnType<typeof useView>
+    function Probe() { view = useView(); return null }
+    mounted = mountApp(createElement('div', null, createElement(EventFeed), createElement(Probe)), { summary, analysis }, { initialTime: T })
+    const el = mounted.container
+    expect(el.querySelector('.feed-at')?.textContent).toBe(`${fmtHms(T)} 之前 10 秒`)
+    mode(el, '只看关键')
+    expect(el.querySelector('.feed-at')?.textContent).toBe(`${fmtHms(T)} 之前的关键事件`)
+    act(() => view.setRange([T - 4_000, T - 2_500]))
+    expect(el.querySelector('.feed-at')?.textContent).toBe(`${fmtHms(T - 4_000)}–${fmtHms(T - 2_500)} 内的关键事件`)
+    mode(el, '逐条')
+    expect(rows(el).map((r) => r.querySelector('.feed-time')?.textContent)).toEqual([fmtHms(T - 3_000)])
+  })
+
+  it('只看他 narrows key mode too', () => {
+    let view!: ReturnType<typeof useView>
+    function Probe() { view = useView(); return null }
+    mounted = mountApp(createElement('div', null, createElement(EventFeed), createElement(Probe)), { summary, analysis }, { initialTime: T })
+    mode(mounted.container, '只看关键')
+    expect(rows(mounted.container).length).toBeGreaterThan(1)
+    act(() => { view.select('char:2'); view.setFocusOnly(true) })
+    expect(rows(mounted.container).some((r) => r.textContent?.includes('主目标换成'))).toBe(true)
+    act(() => view.select('char:6')) // takes no part in any key event
+    act(() => view.setFocusOnly(true))
+    expect(rows(mounted.container)).toHaveLength(0)
   })
 })

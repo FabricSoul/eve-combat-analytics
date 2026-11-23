@@ -3,7 +3,7 @@ import { fmtHms, fmtIsk, fmtNum } from '../lib/format'
 import { useBattleContext } from '../state/battle-store'
 import { useView, type FeedMode } from '../state/view-store'
 import { TypeIcon } from '../ui/TypeIcon'
-import { buildFeed, defaultFeedKinds, windowMs, type FeedKind, type FeedRow } from './feed/model'
+import { buildFeed, defaultFeedKinds, scopeLabel, type FeedKind, type FeedRow } from './feed/model'
 import { useModuleTypeId } from './feed/item-icon'
 import { Who } from './feed/Who'
 import { fullSideOrder } from './roster/model'
@@ -47,8 +47,8 @@ export function EventFeed({ compact: forcedCompact }: EventFeedProps) {
   const mode = view.feedMode
   const focus = view.focusOnly ? view.selected : null
   const rows = useMemo(
-    () => summary && analysis ? buildFeed({ analysis, summary, mode, t: view.t, oursSide: view.oursSide, kinds: active, focus }) : [],
-    [summary, analysis, mode, view.t, view.oursSide, active, focus],
+    () => summary && analysis ? buildFeed({ analysis, summary, mode, t: view.t, oursSide: view.oursSide, kinds: active, focus, range: view.range }) : [],
+    [summary, analysis, mode, view.t, view.oursSide, active, focus, view.range],
   )
   const order = useMemo(() => analysis ? fullSideOrder(analysis, view.oursSide) : [], [analysis, view.oursSide])
 
@@ -123,7 +123,7 @@ export function EventFeed({ compact: forcedCompact }: EventFeedProps) {
   return (
     <div ref={root} className="feed" data-mode={mode} data-compact={compactHead ? '' : undefined}>
       <div className="feed-bar">
-        <div className="feed-title"><span>事件</span><span className="feed-at">{fmtHms(view.t)} 之前 {windowMs / 1000} 秒</span></div>
+        <div className="feed-title"><span>事件</span><span className="feed-at">{scopeLabel(mode, view.t, view.range)}</span></div>
         <div className="feed-modes" role="group" aria-label="事件流模式">
           {modes.map(({ value, label }) => (
             <button key={value} type="button" aria-pressed={mode === value} onClick={() => view.setFeedMode(value)}>{label}</button>

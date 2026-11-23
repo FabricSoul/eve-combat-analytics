@@ -1,3 +1,4 @@
+import { fmtHms } from '../../lib/format'
 import type { EntityKey, InteractionKind, BattleSummary, Analysis, Interaction } from '@/core/contract'
 
 export type FeedMode = 'merged' | 'raw' | 'key'
@@ -40,8 +41,10 @@ export interface FeedInput {
   t: number
   oursSide: number
   kinds?: readonly FeedKind[]
-  /** Only events with this entity on either end. */
+  /** Only events with this entity on either end (key mode: kills, switches and hits that involve it). */
   focus?: EntityKey | null
+  /** The Shift-drag range: nothing outside it is shown, and the window never runs past its end. */
+  range?: readonly [from: number, to: number] | null
 }
 
 const feedKind = (kind: InteractionKind): FeedKind => kind === 'nos' ? 'neut' : kind === 'miss' ? 'damage' : kind
@@ -54,11 +57,17 @@ function eventRow(i: Interaction, patch: Partial<FeedRow> = {}): FeedRow {
   }
 }
 
-function inWindow(analysis: Analysis, t: number, kinds: readonly FeedKind[], focus: EntityKey | null | undefined) {
+/** Latest time the feed may show, and the earliest. */
+function bounds(t: number, range: FeedInput['range']): [from: number, to: number] {
+  return range ? [range[0], Math.min(t, range[1])] : [-Infinity, t]
+}
+
+function inWindow(analysis: Analysis, t: number, kinds: readonly FeedKind[], focus: EntityKey | null | undefined, range: FeedInput['range']) {
   const list: Interaction[] = []
+  const [from, to] = bounds(t, range)
   for (const i of analysis.interactions) {
-    if (i.t > t) break
-    if (i.t <= t - windowMs || !kinds.includes(feedKind(i.kind)) || i.kind === 'miss') continue
+    if (i.t > to) break
+    if (i.t < from || i.t <= to - windowMs || !kinds.includes(feedKind(i.kind)) || i.kind === 'miss') continue
     if (focus && i.from !== focus && i.to !== focus) continue
     list.push(i)
   }
@@ -69,10 +78,13 @@ function markCurrent(rows: FeedRow[]): FeedRow[] {
   return rows.map((row, index) => ({ ...row, current: index === 0 }))
 }
 
-function keyRows({ analysis, summary, t, oursSide }: FeedInput): FeedRow[] {
+function keyRows({ analysis, summary, t, oursSide, focus, range }: FeedInput): FeedRow[] {
   const rows: FeedRow[] = []
+  const [from, to] = bounds(t, range)
+  const focusId = focus && /^char:(\d+)$/.test(focus) ? Number(focus.slice(5)) : null
   for (const km of summary.meta.killmails) {
-    if (km.t > t) continue
+    if (km.t > to || km.t < from) continue
+    if (focus && km.victim.charId !== focusId && !km.attackers.some((a) => a.charId === focusId)) continue
     const charId = km.victim.charId
     rows.push({
       id: `kill-${km.id}`, type: 'kill', lastT: km.t, count: 1, total: km.value, kind: 'damage', from: null, to: null,
@@ -83,7 +95,8 @@ function keyRows({ analysis, summary, t, oursSide }: FeedInput): FeedRow[] {
     })
   }
   for (const p of analysis.primaries) {
-    if (p.bySide !== oursSide || p.start > t) continue
+    if (p.bySide !== oursSide || p.start > to || p.start < from) continue
+    if (focus && p.target !== focus && !p.shooters.includes(focus)) continue
     rows.push({
       id: `primary-${p.start}-${p.target}`, type: 'primary', lastT: p.start, count: p.shooters.length, total: 0, kind: 'damage',
       from: null, to: p.target, weapon: null, victim: null, victimName: null, shipTypeId: null, shipName: null, current: false,
@@ -92,7 +105,8 @@ function keyRows({ analysis, summary, t, oursSide }: FeedInput): FeedRow[] {
   const damages = analysis.interactions.filter((i) => i.kind === 'damage').map((i) => i.amount).sort((a, b) => b - a)
   const threshold = damages[Math.max(1, Math.ceil(damages.length * 0.01)) - 1] ?? Infinity
   for (const i of analysis.interactions) {
-    if (i.t > t) break
+    if (i.t > to) break
+    if (i.t < from || (focus && i.from !== focus && i.to !== focus)) continue
     if (i.kind === 'damage' && i.amount >= threshold) rows.push(eventRow(i, { type: 'big', id: `big-${i.t}-${i.from}-${i.to}` }))
   }
   return rows.sort((a, b) => b.lastT - a.lastT).slice(0, keyLimit)
@@ -100,9 +114,9 @@ function keyRows({ analysis, summary, t, oursSide }: FeedInput): FeedRow[] {
 
 /** What the event feed shows at playback time t. */
 export function buildFeed(input: FeedInput): FeedRow[] {
-  const { analysis, mode, t, kinds = defaultFeedKinds, focus } = input
+  const { analysis, mode, t, kinds = defaultFeedKinds, focus, range } = input
   if (mode === 'key') return markCurrent(keyRows(input))
-  const list = inWindow(analysis, t, kinds, focus)
+  const list = inWindow(analysis, t, kinds, focus, range)
   if (mode === 'raw') return markCurrent(list.slice(-rawLimit).reverse().map((i, index) => eventRow(i, { id: `${index}-${i.t}-${i.from}-${i.to}-${i.kind}` })))
   const groups = new Map<string, FeedRow>()
   for (const i of list) {
@@ -116,4 +130,12 @@ export function buildFeed(input: FeedInput): FeedRow[] {
     } else groups.set(id, eventRow(i, { id }))
   }
   return markCurrent([...groups.values()].sort((a, b) => b.lastT - a.lastT || b.total - a.total).slice(0, mergedLimit))
+}
+
+/** What time span the rows cover, for the feed's header. Key mode is not limited to the last 10 s. */
+export function scopeLabel(mode: FeedMode, t: number, range: FeedInput['range']): string {
+  const seconds = windowMs / 1000
+  if (!range) return mode === 'key' ? `${fmtHms(t)} 之前的关键事件` : `${fmtHms(t)} 之前 ${seconds} 秒`
+  const span = `${fmtHms(range[0])}–${fmtHms(Math.min(t, range[1]))} 内`
+  return mode === 'key' ? `${span}的关键事件` : `${span} · 最近 ${seconds} 秒`
 }

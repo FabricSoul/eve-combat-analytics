@@ -96,6 +96,19 @@ describe('buildRoster', () => {
     expect(deadAt()).toBe(true)
   })
 
+  it('orders by the given range stats instead of the whole fight', () => {
+    const range = [stats(1, 900), stats(2, 5), stats(3, 100)]
+    const ours = (statsOverride?: typeof range) =>
+      buildRoster(base, analysisOf(entities), 0, Infinity, statsOverride)[0]!.rows.map((r) => r.charId)
+    expect(ours()).toEqual([3, 1, 2])
+    expect(ours(range)).toEqual([1, 3, 2]) // logs first, then by output inside the range: 1 (900) before 3 (100)
+    const noLogs = entities.map((e) => ({ ...e, hasLog: false }))
+    const rows = (statsOverride?: typeof range) =>
+      buildRoster(base, analysisOf(noLogs), 0, Infinity, statsOverride)[0]!.rows.map((r) => r.charId)
+    expect(rows()).toEqual([2, 3, 1])
+    expect(rows(range)).toEqual([1, 3, 2])
+  })
+
   it('tags only changed sides: 据日志 with the reason, 手动 with the change time', () => {
     const summary: BattleSummary = {
       ...base,

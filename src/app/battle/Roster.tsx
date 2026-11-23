@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState, type MouseEvent } from 'react'
+import { statsForRange } from '@/core/analysis/range'
 import type { SideSubject } from '@/core/contract'
 import { sideColor, sideLetter } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
@@ -23,9 +24,14 @@ export function Roster(_props: RosterProps) {
   const closeMenu = useCallback(() => setMenu(null), [])
   const mover = useSideMove(summary?.meta.brId ?? '')
   const at = view.range ? view.range[1] : view.t
+  const { range } = view
+  const rangeStats = useMemo(
+    () => summary && analysis && range ? statsForRange(analysis, summary.meta.killmails, range[0], range[1]) : undefined,
+    [summary, analysis, range],
+  )
   const groups = useMemo(
-    () => summary && analysis ? buildRoster(summary, analysis, view.oursSide, at) : [],
-    [summary, analysis, view.oursSide, at],
+    () => summary && analysis ? buildRoster(summary, analysis, view.oursSide, at, rangeStats) : [],
+    [summary, analysis, view.oursSide, at, rangeStats],
   )
   if (!summary || !analysis) return <div className="roster-note" role="status">正在等待分析结果…</div>
   if (groups.length === 0) return <div className="roster-note">这场战斗还没有名单。</div>

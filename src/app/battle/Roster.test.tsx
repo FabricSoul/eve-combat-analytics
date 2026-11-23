@@ -53,6 +53,28 @@ describe('Roster', () => {
     expect(ship.querySelector('.roster-more')).toBeNull()
   })
 
+  it('orders by stats of the Shift-drag range when one is set', () => {
+    let view!: ReturnType<typeof useView>
+    function Probe() { view = useView(); return null }
+    const T = 1_000_000
+    const hit = (t: number, from: number, amount: number) => ({
+      t, from: `char:${from}` as const, to: 'char:4' as const, kind: 'damage' as const, amount, weapon: null, quality: null,
+      repairType: null, ewar: null, sources: [], corroborated: false,
+    })
+    // Pilot2 deals most early, Pilot1 most late; both without logs so only output orders them.
+    const entities = Object.fromEntries(Object.entries(tinyAnalysis.entities).map(([k, e]) => [k, { ...e, hasLog: false }]))
+    const analysis = {
+      ...tinyAnalysis, entities, interactions: [hit(T, 2, 900), hit(T + 1_000, 2, 900), hit(T + 50_000, 1, 500)],
+      stats: tinyAnalysis.stats.map((s) => s.key === 'char:2' ? { ...s, damageOut: 1_800 } : s.key === 'char:1' ? { ...s, damageOut: 500 } : s),
+    }
+    mounted = mountApp(createElement('div', null, createElement(Roster), createElement(Probe)), { summary: tinySummary, analysis })
+    expect(names().slice(0, 3)).toEqual(['Pilot2', 'Pilot1', 'Pilot3'])
+    act(() => view.setRange([T + 40_000, T + 60_000]))
+    expect(names().slice(0, 2)).toEqual(['Pilot1', 'Pilot2'])
+    act(() => view.setRange(null))
+    expect(names().slice(0, 2)).toEqual(['Pilot2', 'Pilot1'])
+  })
+
   it('selects on click and clears on a second click', () => {
     let view!: ReturnType<typeof useView>
     function Probe() { view = useView(); return null }

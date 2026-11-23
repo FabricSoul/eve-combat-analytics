@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Analysis, BattleSummary, Interaction } from '@/core/contract'
 import { loadUiFixture, uiReplayStart } from '../../test/ui-fixture'
-import { buildFeed, defaultFeedKinds } from './model'
+import { fmtHms } from '../../lib/format'
+import { buildFeed, defaultFeedKinds, scopeLabel } from './model'
 
 const T = 1_000_000
 function hit(t: number, from: string, to: string, patch: Partial<Interaction> = {}): Interaction {
@@ -98,5 +99,62 @@ describe('feed on J125990', () => {
     expect(merged.length).toBeLessThanOrEqual(16)
     expect(merged.length).toBeGreaterThan(0)
     expect(raw.length).toBeGreaterThan(0)
+  })
+})
+
+describe('range and focus in every mode', () => {
+  const interactions = [
+    hit(T - 9_000, '1', '2', { amount: 10 }), hit(T - 7_000, '1', '2', { amount: 11 }), hit(T - 5_000, '3', '2', { amount: 12 }),
+    hit(T - 2_000, '3', '2', { amount: 13 }), hit(T - 1_000, '1', '2', { amount: 500 }),
+  ]
+  const analysis: Analysis = {
+    ...empty, interactions,
+    primaries: [
+      { target: 'char:2', bySide: 0, start: T - 8_000, end: T, killedAt: null, damage: 1, shooters: ['char:1'] },
+      { target: 'char:9', bySide: 0, start: T - 3_000, end: T, killedAt: null, damage: 1, shooters: ['char:3'] },
+    ],
+  }
+  const kill = (id: number, t: number, victim: number, attacker: number) => ({
+    id, hash: 'h', systemId: 1, t, value: 1e8,
+    victim: { charId: victim, corpId: null, allyId: null, shipTypeId: 587, weaponTypeId: null, damage: 0 },
+    attackers: [{ charId: attacker, corpId: null, allyId: null, shipTypeId: 587, weaponTypeId: null, damage: 1 }],
+  })
+  const km = summary([kill(1, T - 6_000, 2, 1), kill(2, T - 4_000, 9, 3)])
+  const total = (rows: { count: number }[]) => rows.reduce((n, r) => n + r.count, 0)
+
+  it('merged and raw keep only events inside the range', () => {
+    const range = [T - 8_000, T - 4_000] as const
+    expect(total(buildFeed({ analysis, summary: summary(), mode: 'merged', t: T, oursSide: 0, range }))).toBe(2)
+    const raw = buildFeed({ analysis, summary: summary(), mode: 'raw', t: T, oursSide: 0, range })
+    expect(raw.map((r) => r.lastT)).toEqual([T - 5_000, T - 7_000])
+  })
+
+  it('stops at the cursor inside a range and shows nothing before it', () => {
+    const range = [T - 8_000, T - 1_000] as const
+    expect(buildFeed({ analysis, summary: summary(), mode: 'raw', t: T - 6_000, oursSide: 0, range }).map((r) => r.lastT)).toEqual([T - 7_000])
+    expect(buildFeed({ analysis, summary: summary(), mode: 'raw', t: T - 9_500, oursSide: 0, range })).toEqual([])
+  })
+
+  it('key mode keeps only kills, primary switches and hits inside the range', () => {
+    const rows = buildFeed({ analysis, summary: km, mode: 'key', t: T, oursSide: 0, range: [T - 7_000, T - 3_500] })
+    expect(rows.map((r) => [r.type, r.lastT])).toEqual([['kill', T - 4_000], ['kill', T - 6_000]])
+  })
+
+  it('key mode honours 只看他: kills, primary switches and big hits that involve the focused pilot', () => {
+    const rows = buildFeed({ analysis, summary: km, mode: 'key', t: T, oursSide: 0, focus: 'char:3' })
+    expect(rows.map((r) => [r.type, r.id])).toEqual([['primary', `primary-${T - 3_000}-char:9`], ['kill', 'kill-2']])
+    const victim = buildFeed({ analysis, summary: km, mode: 'key', t: T, oursSide: 0, focus: 'char:2' })
+    expect(victim.map((r) => r.id)).toContain('kill-1')
+    expect(victim.map((r) => r.id)).not.toContain('kill-2')
+  })
+})
+
+describe('scopeLabel', () => {
+  it('says what time span the rows cover in each mode', () => {
+    expect(scopeLabel('merged', T, null)).toBe(`${fmtHms(T)} 之前 10 秒`)
+    expect(scopeLabel('raw', T, null)).toBe(`${fmtHms(T)} 之前 10 秒`)
+    expect(scopeLabel('key', T, null)).toBe(`${fmtHms(T)} 之前的关键事件`)
+    expect(scopeLabel('merged', T, [T - 60_000, T - 30_000])).toBe(`${fmtHms(T - 60_000)}–${fmtHms(T - 30_000)} 内 · 最近 10 秒`)
+    expect(scopeLabel('key', T, [T - 60_000, T + 30_000])).toBe(`${fmtHms(T - 60_000)}–${fmtHms(T)} 内的关键事件`)
   })
 })
