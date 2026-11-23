@@ -117,11 +117,20 @@
   .u7-compare-header { padding-inline: var(--space-2); }
   .u7-compare-body, .u7-compare-note { padding-inline: var(--space-2); }
   .u7-compact-metric { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
-  .u7-compare table { table-layout: fixed; }
   .u7-compare colgroup, .u7-compare .u7-compare-groups, .u7-compare [data-compact="false"] { display: none; }
   .u7-compare .u7-compact-pilot { display: table-cell; text-align: left; }
-  .u7-compare [data-compact="true"] { width: min(46%, 126px); }
-  .u7-compare th .u7-compare-who { max-width: calc(100% - 24px); }
+  .u7-compare [data-compact="true"] { width: 1%; padding-inline-start: var(--space-1); }
+  .u7-compare tbody th { --pin-size: 12px; padding-inline: var(--space-1); }
+  .u7-compare tbody th > label { margin-inline-end: var(--space-1); }
+  .u7-compare tbody th input[type="checkbox"] {
+    width: var(--pin-size); height: var(--pin-size); vertical-align: middle;
+  }
+  /* Shrink intrinsic name width for table layout, then fill the assigned pilot cell. */
+  .u7-compare tbody th .u7-compare-who {
+    width: 0;
+    min-width: calc(100% - var(--pin-size) - var(--space-1));
+  }
+  .u7-compare tbody th .u7-compare-who .app-type-icon { display: none; }
   .u7-compare td .u7-compare-bar { width: 28px; }
   .u7-distribution-strip { grid-template-columns: 1fr; }
 }
