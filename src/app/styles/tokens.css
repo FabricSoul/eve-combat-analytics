@@ -1,0 +1,20 @@
+/* EVE Combat Analytics — tokens chosen on the artboard: direction A (dir-a), color tok-c1 + tok-g2, type tok-t1, density tok-d2. */
+:root {
+  color-scheme: light;
+  --color-bg: #f5f7fa; --color-surface: #ffffff; --color-raised: #eceff4;
+  --color-text: #111827; --color-text-2: #4b5565; --color-text-3: #636c7e; --color-hair: rgba(17,24,39,.09);
+  --color-accent: #e8c26a; --color-accent-ink: #111827; --color-accent-line: #8a6418; --color-sel: rgba(232,194,106,.16);
+  --color-side-0: #2a78d6; --color-side-1: #d9442b; --color-side-2: #8a1f86; --color-side-n: #5f6778; --color-repair: #1baf7a; --color-dead: #9aa1ae;
+  --font-ui: Inter, "PingFang SC", "Noto Sans SC", system-ui, sans-serif; --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --fs: 13px; --fs-s: 12px; --fs-l: 16px; --fs-title: 24px; --lh: 20px;
+  --row: 32px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px; --space-8: 32px;
+  --radius-ctl: 6px; --radius-card: 10px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1); --dur-hover: 140ms; --dur-edge-in: 200ms; --dur-edge-fade: 3s; --dur-move: 300ms;
+}
+[data-appearance="dark"] {
+  color-scheme: dark;
+  --color-bg: #0b0d14; --color-surface: #11141c; --color-raised: #1a1e28;
+  --color-text: #eef0f5; --color-text-2: #a3a9b8; --color-text-3: #848ca0; --color-hair: rgba(238,240,245,.09);
+  --color-accent: #e8c26a; --color-accent-ink: #0b0d14; --color-accent-line: #e8c26a; --color-sel: rgba(232,194,106,.10);
+  --color-side-0: #3987e5; --color-side-1: #e5533a; --color-side-2: #a63c9e; --color-side-n: #9aa1b2; --color-repair: #1fa889; --color-dead: #4a5163;
+}

@@ -1,0 +1,55 @@
+import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react'
+import { TopBar, type TopBarProps } from './TopBar'
+
+export type Appearance = 'light' | 'dark'
+const storageKey = 'eve-combat-analytics:appearance'
+const preference = '(prefers-color-scheme: dark)'
+
+function storedAppearance(): Appearance | null {
+  try {
+    const stored = localStorage.getItem(storageKey)
+    return stored === 'dark' || stored === 'light' ? stored : null
+  } catch {
+    return null
+  }
+}
+
+export interface AppShellProps {
+  children: ReactNode
+  battle?: boolean
+  topBar?: Omit<TopBarProps, 'appearance' | 'onToggleAppearance'>
+}
+
+export function AppShell({ children, battle = false, topBar }: AppShellProps) {
+  const [override, setOverride] = useState(storedAppearance)
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia?.(preference).matches ?? false)
+  const appearance = override ?? (systemDark ? 'dark' : 'light')
+
+  useEffect(() => {
+    const media = window.matchMedia?.(preference)
+    const update = () => setSystemDark(media?.matches ?? false)
+    media?.addEventListener('change', update)
+    return () => media?.removeEventListener('change', update)
+  }, [])
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.appearance = appearance
+  }, [appearance])
+
+  function toggleAppearance() {
+    const next = appearance === 'dark' ? 'light' : 'dark'
+    setOverride(next)
+    try {
+      localStorage.setItem(storageKey, next)
+    } catch {
+      // The current tab can still change its appearance with storage disabled.
+    }
+  }
+
+  return (
+    <div className={battle ? 'app-shell app-shell--battle' : 'app-shell'}>
+      <TopBar {...topBar} appearance={appearance} onToggleAppearance={toggleAppearance} />
+      <main className="app-shell-body">{children}</main>
+    </div>
+  )
+}

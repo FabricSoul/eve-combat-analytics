@@ -13,3 +13,4 @@ Tests read these offline; nothing here requires network access.
 - `br-6b03a9aff85099ccb2b7e763.composition.json` — the real BR the owner generated for this fight
   (br.evetools.org/br/6b03a9aff85099ccb2b7e763). Its teams put Lucinda HIly's alliance on the wrong side; her log
   shows otherwise. `realBattleStateWithBr()` loads it.
+- `ui/` — offline gallery snapshots from `node scripts/build-ui-fixture.ts`. The replay window is 2025-06-22 15:41:30–15:44:30 UTC. Entities, pilot statistics, and the battle summary cover the whole fight.
