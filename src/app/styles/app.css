@@ -205,8 +205,15 @@ html {
 }
 .battle-panel-content { flex: 1; min-height: 0; overflow: auto; }
 .battle-replay { grid-area: replay; position: relative; min-width: 0; min-height: 0; overflow: hidden; }
-.battle-feed { grid-area: feed; min-width: 0; min-height: 0; border-inline-start: 1px solid var(--color-hair); }
-.battle-feed-content { height: min(100%, 260px); overflow: auto; }
+.battle-feed {
+  grid-area: feed;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-inline-start: 1px solid var(--color-hair);
+}
+.battle-feed-content { flex: 1; min-height: 0; overflow: auto; }
 .battle-timeline { grid-area: timeline; min-width: 0; border-top: 1px solid var(--color-hair); }
 .battle-drawer {
   position: absolute;

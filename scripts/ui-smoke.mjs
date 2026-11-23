@@ -160,6 +160,7 @@ export class BattleRoom extends ProductionRoom {
   const replayBox = await tablet.page.getByRole('region', { name: '回放', exact: true }).boundingBox()
   const feedBox = await tablet.page.getByRole('complementary', { name: '事件流' }).boundingBox()
   assert.ok(replayBox && feedBox && feedBox.y >= replayBox.y + replayBox.height, 'tablet event feed sits below the replay')
+  assert.equal(feedBox.height, 224, 'tablet feed is capped at 28dvh at 900×800')
   const railPilot = rail.getByRole('button', { name: new RegExp(pilot) })
   await railPilot.focus()
   await tablet.page.getByText(pilot, { exact: true }).waitFor()
@@ -245,7 +246,33 @@ export class BattleRoom extends ProductionRoom {
     assert.equal(await shot.page.getByRole('slider', { name: '回放时间' }).getAttribute('aria-valuetext'), '15:43:02')
     assert.ok(await shot.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
     assert.deepEqual(shot.errors, [])
+    if (width === 1280) {
+      const column = shot.page.getByRole('complementary', { name: '事件流' })
+      const { columnHeight, headerHeight, viewportHeight } = await column.evaluate((node) => {
+        const viewport = node.querySelector('.battle-feed-content')
+        const header = viewport.querySelector('.feed-head')
+        const headerHeight = header.getBoundingClientRect().bottom - viewport.getBoundingClientRect().top
+        return { columnHeight: node.clientHeight, headerHeight, viewportHeight: viewport.clientHeight }
+      })
+      const rowViewportHeight = viewportHeight - headerHeight
+      assert.ok(rowViewportHeight >= columnHeight - headerHeight,
+        `Desktop feed needs ${columnHeight - headerHeight}px below the header, has ${rowViewportHeight}px`)
+      console.log(`Desktop feed (${theme}): ${viewportHeight}px viewport, ${headerHeight}px header, ${columnHeight}px column`)
+    }
     if (width === 1280 && theme === 'dark') {
+      const column = shot.page.getByRole('complementary', { name: '事件流' })
+      const feedBounds = await column.boundingBox()
+      await shot.page.locator('.roster-main').filter({ hasText: pilot }).click()
+      const drawer = shot.page.getByRole('complementary', { name: '个人详情' })
+      await drawer.waitFor()
+      assert.deepEqual(await column.boundingBox(), feedBounds, 'desktop pilot drawer leaves the feed column in place')
+      assert.ok(await column.evaluate((node) => {
+        const { x, y, width, height } = node.getBoundingClientRect()
+        return Boolean(document.elementFromPoint(x + width / 2, y + height / 2)?.closest('.battle-drawer'))
+      }), 'desktop pilot drawer overlays the feed')
+      await drawer.getByRole('button', { name: '关闭个人详情' }).click()
+      await drawer.waitFor({ state: 'hidden' })
+
       const side = shot.page.getByRole('combobox', { name: '我方' })
       assert.equal(await side.getAttribute('aria-expanded'), 'false')
       assert.match(await side.innerText(), /DeltaForce\.inc 等 43 人/)
