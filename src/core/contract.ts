@@ -353,7 +353,8 @@ export interface BattleSummary {
 /** Every message stays well under 1 MiB: logs are fetched over HTTP, never pushed. */
 export type ServerMessage =
   | { type: 'snapshot'; state: BattleSummary }
-  | { type: 'log_added'; log: UploadedLogSummary; names: NameIndex }
+  /** metaNames contains newly resolved character, corporation, and alliance names keyed by ID. */
+  | { type: 'log_added'; log: UploadedLogSummary; names: NameIndex; metaNames?: BattleMeta['names'] }
   | { type: 'fit_set'; fit: FitEntry }
   | { type: 'sides_set'; overrides: SideOverride[] }
   /** A new analysis is ready; clients refetch GET /analysis. */
