@@ -1,4 +1,5 @@
-import type { UploadResult } from '@/core/contract'
+import type { UploadedLogSummary, UploadResult } from '@/core/contract'
+import { fmtHms } from '../../lib/format'
 import { ApiFailure } from '../../api/client'
 import type { FailureStatus, QueueAction } from './queue'
 
@@ -20,6 +21,12 @@ export interface RunUploadDeps {
   dispatch(action: QueueAction): void
 }
 
+/** How a log already in the battle is named in the "same as" message: pilot plus the time span it covers. */
+export function describeLog(log: Pick<UploadedLogSummary, 'charName' | 'first' | 'last'>): string {
+  const span = log.first != null && log.last != null ? `（${fmtHms(log.first)}–${fmtHms(log.last)}）` : ''
+  return `${log.charName} 的日志${span}`
+}
+
 export async function sha256Hex(text: string): Promise<string | null> {
   const subtle = globalThis.crypto?.subtle
   if (!subtle) return null
@@ -38,7 +45,7 @@ export async function runUpload({ id, size, readText, sha256, knownLogs, uploadL
     const earlier = hash === null ? undefined : known.get(hash)
     if (earlier !== undefined) return dispatch({ type: 'duplicate', id, of: earlier })
     const log = await uploadLog(text, (fraction) => dispatch({ type: 'progress', id, fraction }))
-    const same = known.get(log.id) ?? (log.duplicate ? `${log.charName} 的日志` : undefined)
+    const same = known.get(log.id) ?? (log.duplicate ? describeLog(log) : undefined)
     if (same !== undefined) dispatch({ type: 'duplicate', id, of: same })
     else dispatch({ type: 'done', id, log })
   } catch (error) {

@@ -20,17 +20,19 @@ function Probe() {
   return <output data-t={t} data-sel={view.selected ?? ''} />
 }
 
-function mount(fixture = loadUiFixture()) {
+function mount(fixture = loadUiFixture(), initialTime = 0) {
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
   act(() => root!.render(
     <BattleProvider static={fixture}>
-      <ViewProvider syncUrl={false} initialTime={0}><KillsList /><Probe /></ViewProvider>
+      <ViewProvider syncUrl={false} initialTime={initialTime}><KillsList /><Probe /></ViewProvider>
     </BattleProvider>,
   ))
   return fixture
 }
+
+const lastBefore = (list: { t: number }[], t: number) => list.findLastIndex((kill) => kill.t <= t)
 
 describe('KillsList', () => {
   it('lists every killmail except pods, in time order', () => {
@@ -68,6 +70,22 @@ describe('KillsList', () => {
     expect(current()).toEqual([first])
     act(() => rows()[second!]!.click())
     expect(current()).toEqual([second])
+  })
+
+  it('with nothing selected, marks the latest kill at or before the replay time (C-fix 2)', () => {
+    const fixture = loadUiFixture()
+    const shown = fixture.summary.meta.killmails.filter(({ victim }) => !podTypes.has(victim.shipTypeId ?? -1)).sort((a, b) => a.t - b.t || a.id - b.id)
+    const target = shown[4]!
+    mount(fixture, target.t + 1)
+    const rows = Array.from(host.querySelectorAll('button.kills-row'))
+    expect(rows.flatMap((row, index) => row.getAttribute('aria-current') === 'true' ? [index] : [])).toEqual([lastBefore(shown, target.t + 1)])
+    expect(rows[lastBefore(shown, target.t + 1)]!.classList.contains('kills-row--sel')).toBe(true)
+  })
+
+  it('marks nothing before the first kill', () => {
+    const fixture = loadUiFixture()
+    mount(fixture, -1)
+    expect(host.querySelector('[aria-current]')).toBeNull()
   })
 
   it('keeps the victim selected when the same row is clicked again', () => {

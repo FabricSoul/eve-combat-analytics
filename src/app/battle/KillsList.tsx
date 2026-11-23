@@ -28,10 +28,11 @@ export function KillsList(_props: KillsListProps) {
     return key && analysis?.entities[key] ? key : null
   }
 
-  // Only the kill the cursor is on is current: the selected victim's latest loss at or before the cursor.
+  // The current kill is the one at the cursor: the selected victim's latest loss at or before the cursor,
+  // or, with nothing selected, the latest kill at or before it.
   const currentKillId = (() => {
-    if (view.selected === null) return null
-    const own = kills.filter((kill) => victimKey(kill) === view.selected && kill.t <= t)
+    const upTo = kills.filter((kill) => kill.t <= t)
+    const own = view.selected === null ? upTo : upTo.filter((kill) => victimKey(kill) === view.selected)
     return own.at(-1)?.id ?? null
   })()
 

@@ -73,7 +73,7 @@ export function HomePage(_props: HomePageProps) {
               onClick={(event) => follow(event, battle.brId)}>
               <span className="home-recent-name">{battle.title ?? battle.brId}</span>
               <span className="home-recent-meta">
-                {battle.start !== undefined && battle.end !== undefined && `${fmtDate(battle.start)} ${clock(battle.start)}–${clock(battle.end)}`}
+                {battle.start !== undefined && battle.end !== undefined && <span className="app-number">{`${fmtDate(battle.start)} ${clock(battle.start)}–${clock(battle.end)}`}</span>}
               </span>
               <span className="home-recent-count">
                 {battle.kills !== undefined && <><span className="app-number">{fmtNum(battle.kills)}</span> 次击毁</>}

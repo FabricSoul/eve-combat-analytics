@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UploadedLogSummary } from '@/core/contract'
 import { api, ApiFailure } from '../api/client'
+import { fmtHms } from '../lib/format'
 import { BattleProvider } from '../state/battle-store'
 import { ViewProvider } from '../state/view-store'
 import { loadUiFixture } from '../test/ui-fixture'
@@ -112,6 +113,18 @@ describe('UploadDock', () => {
     expect(upload).toHaveBeenCalledOnce()
     expect(row.textContent).toContain('完全相同')
     expect(row.textContent).toContain(known.charName)
+    expect(row.textContent).toContain(`${known.charName} 的日志（${fmtHms(known.first!)}–${fmtHms(known.last!)}）`)
+  })
+
+  it('names a file seen on this page by its file name (C-fix 3)', async () => {
+    mount()
+    vi.spyOn(api, 'uploadLog').mockResolvedValue(newLog({ id: 'a'.repeat(64), charName: 'Fresh' }))
+    await act(async () => { window.dispatchEvent(dragEvent('drop', [file('first.txt', 'same text')])) })
+    await settle()
+    await act(async () => { window.dispatchEvent(dragEvent('drop', [file('second.txt', 'same text')])) })
+    await settle()
+    const row = host.querySelector('.upload-row[data-status="duplicate"]')!
+    expect(row.textContent).toContain('和已上传的 first.txt 完全相同，跳过')
   })
 
   it('reports a duplicate the server caught that this page has not seen yet (a teammate uploaded it at the same moment)', async () => {

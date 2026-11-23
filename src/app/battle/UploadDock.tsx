@@ -4,7 +4,7 @@ import { useBattleContext } from '../state/battle-store'
 import { collectFiles, hasFiles } from './upload/files'
 import { Icon } from './upload/icons'
 import { initialQueue, queueReducer } from './upload/queue'
-import { runUpload, sha256Hex } from './upload/runner'
+import { describeLog, runUpload, sha256Hex } from './upload/runner'
 import { UploadTray } from './upload/UploadTray'
 import type { UploadedLogSummary } from '@/core/contract'
 import './upload/upload.css'
@@ -87,7 +87,7 @@ export function UploadDock({ pickerRef }: UploadDockProps) {
       sha256: sha256Hex,
       knownLogs: () => {
         const known = new Map<string, string>()
-        for (const log of latest.current.summary?.logs ?? []) known.set(log.id, log.charName)
+        for (const log of latest.current.summary?.logs ?? []) known.set(log.id, describeLog(log))
         for (const item of latest.current.queue.items) if (item.log) known.set(item.log.id, item.name)
         return known
       },

@@ -119,6 +119,8 @@ describe('HomePage', () => {
     expect(link.getAttribute('href')).toBe(`/b/${id}`)
     expect(link.textContent).toContain('J125990')
     expect(link.textContent).toContain('52')
+    const numbers = Array.from(link.querySelectorAll('.app-number')).map((node) => node.textContent)
+    expect(numbers).toEqual([expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}–\d{2}:\d{2}$/), '52', '17'])
     act(() => root!.unmount())
     host.remove()
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied') })
