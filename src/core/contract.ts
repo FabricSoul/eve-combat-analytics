@@ -327,6 +327,14 @@ export interface KillmailFit {
   charId: number | null
   shipTypeId: number
   eft: string
+  /**
+   * Names (as written in `eft`) of modules that were abyssal/mutated on the killmail and were replaced by their base type,
+   * because killmails carry no mutation rolls. Empty when the fit had none; the fit tab warns only when non-empty.
+   * Optional: fits cached before 2026-11-23 lack it.
+   */
+  mutated?: string[]
+  /** Type ids on the killmail that the name table does not know (skipped from `eft`). Optional, empty when none. */
+  skippedTypeIds?: number[]
 }
 
 /**
