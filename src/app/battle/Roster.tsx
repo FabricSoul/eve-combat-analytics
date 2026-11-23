@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type MouseEvent } from 'react'
+import { Fragment, useCallback, useMemo, useState, type MouseEvent } from 'react'
 import { statsForRange } from '@/core/analysis/range'
 import type { SideSubject } from '@/core/contract'
 import { sideColor, sideLetter } from '../lib/sides'
@@ -66,6 +66,7 @@ export function Roster(_props: RosterProps) {
   return (
     <div className="roster">
       {groups.map(({ side, rows, withLog }) => {
+        const identified = rows.filter((row) => row.charId !== null).length
         const letter = sideLetter(side, order)
         return (
           <section key={side} aria-label={sideName(side, order)}>
@@ -73,10 +74,14 @@ export function Roster(_props: RosterProps) {
               <i className="side-dot" data-hollow={side < 0 ? '' : undefined}
                 style={side < 0 ? undefined : { background: sideColor(side, order) }} aria-hidden="true" />
               <span>{sideName(side, order)}{letter && <span className="side-letter"> {letter}</span>}{side === view.oursSide ? ` · 有日志 ${withLog}` : ''}</span>
-              <span className="roster-count">{rows.length}</span>
+              <span className="roster-count">{identified}</span>
             </h3>
-            {rows.map((row) => (
-              <div key={row.key} className="roster-row" data-selected={view.selected === row.key ? '' : undefined}
+            {rows.map((row, index) => (
+              <Fragment key={row.key}>
+              {row.charId === null && rows[index - 1]?.charId !== null && (
+                <h4 className="roster-sub">未识别 {rows.length - identified}</h4>
+              )}
+              <div className="roster-row" data-selected={view.selected === row.key ? '' : undefined}
                 data-nolog={row.hasLog ? undefined : ''} data-dead={row.dead ? '' : undefined}
                 onContextMenu={(event) => open(row, event, false)}>
                 <button type="button" className="roster-main" aria-pressed={view.selected === row.key}
@@ -94,6 +99,7 @@ export function Roster(_props: RosterProps) {
                     aria-expanded={menu?.row.key === row.key} onClick={(event) => open(row, event, true)}>⋯</button>
                 )}
               </div>
+              </Fragment>
             ))}
           </section>
         )

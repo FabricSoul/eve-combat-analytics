@@ -15,7 +15,7 @@ export interface EventFeedProps {
   compact?: boolean
 }
 
-const compactBelow = 340
+const compactUpTo = 400
 const modes: readonly { value: FeedMode; label: string }[] = [
   { value: 'merged', label: '合并同类' }, { value: 'raw', label: '逐条' }, { value: 'key', label: '只看关键' },
 ]
@@ -31,7 +31,7 @@ function useNarrow(forced: boolean | undefined) {
   useEffect(() => {
     const element = root.current
     if (!element || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => setNarrow(element.clientWidth > 0 && element.clientWidth < compactBelow))
+    const observer = new ResizeObserver(() => setNarrow(element.clientWidth > 0 && element.clientWidth <= compactUpTo))
     observer.observe(element)
     return () => observer.disconnect()
   }, [])

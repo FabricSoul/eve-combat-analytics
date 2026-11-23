@@ -83,7 +83,7 @@ describe('EventFeed', () => {
     expect(rows(el)[0]?.querySelector('.feed-time')).toBeNull()
   })
 
-  it('switches to compact when its column is narrower than 340', () => {
+  it('switches to compact when its column is no wider than 400', () => {
     let notify!: () => void
     let width = 460
     vi.stubGlobal('ResizeObserver', class { constructor(cb: () => void) { notify = cb } observe() {} disconnect() {} })
@@ -92,7 +92,7 @@ describe('EventFeed', () => {
     vi.spyOn(root, 'clientWidth', 'get').mockImplementation(() => width)
     act(() => notify())
     expect(el.querySelector('.feed-sep')).toBeNull()
-    width = 300
+    width = 400
     act(() => notify())
     expect(el.querySelector('.feed-sep')).not.toBeNull()
   })

@@ -95,3 +95,4 @@
 .roster-bare[data-hover] .roster-row { background: var(--color-raised); }
 .roster-bare[data-hover] .roster-more { opacity: 1; }
 .roster-row .app-tag { font-size: 11px; line-height: 16px; }
+.roster-sub { margin: 0; padding: var(--space-2) var(--space-3) var(--space-1); font-size: var(--fs-s); font-weight: 400; color: var(--color-text-3); }

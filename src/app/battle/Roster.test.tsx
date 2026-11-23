@@ -51,6 +51,12 @@ describe('Roster', () => {
     expect(ship.querySelector('span.app-portrait')).not.toBeNull()
     expect(ship.querySelector('img.app-type-icon')?.getAttribute('src')).toContain('/types/587/icon')
     expect(ship.querySelector('.roster-more')).toBeNull()
+    const enemy = mounted.container.querySelectorAll('section')[1]!
+    expect(enemy.querySelector('.roster-count')?.textContent).toBe('2')
+    const sub = enemy.querySelector('.roster-sub')!
+    expect(sub.textContent).toBe('未识别 2')
+    expect(sub.nextElementSibling?.textContent).toContain('Hidden')
+    expect(sub.previousElementSibling?.textContent).toContain('Pilot4')
   })
 
   it('orders by stats of the Shift-drag range when one is set', () => {
