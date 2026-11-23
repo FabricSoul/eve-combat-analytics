@@ -1,5 +1,5 @@
 import { useContext, useEffect, useMemo, useState } from 'react'
-import type { BattleSummary, Entity, FitEntry, FitStats, Interaction, RepairType } from '@/core/contract'
+import type { BattleSummary, Entity, FitEntry, FitStats, Interaction, KillmailFit, RepairType } from '@/core/contract'
 import { parseEft, type EftModule, type ParsedEft } from '@/fit/eft'
 import { fmtHms, fmtNum } from '../lib/format'
 import { useBattleContext } from '../state/battle-store'
@@ -60,7 +60,8 @@ function PilotFit({ pilot, charId, summary, interactions }: {
   const [saved, setSaved] = useState<FitEntry>()
   const fit = remote && (!saved || remote.setAt >= saved.setAt) ? remote : saved
   const [draft, setDraft] = useState<string | null>(null)
-  const [importSource, setImportSource] = useState<number>()
+  const [draftImport, setDraftImport] = useState<KillmailFit>()
+  const [savedImport, setSavedImport] = useState<{ result: KillmailFit; setAt: number }>()
   const [killId, setKillId] = useState<number>()
   const [busy, setBusy] = useState<'import' | 'save' | null>(null)
   const [error, setError] = useState<string>()
@@ -72,7 +73,9 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     .sort((a, b) => b.t - a.t || b.id - a.id), [summary.meta.killmails, charId])
   const loss = losses.find(({ id }) => id === killId) ?? losses[0]
   const headerId = /^\[[^\r\n]+,\s*Killmail (\d+)\]/m.exec(text)?.[1]
-  const sourceId = importSource ?? (headerId === undefined ? undefined : Number(headerId))
+  const currentImport = editor ? draftImport : savedImport?.setAt === fit?.setAt ? savedImport?.result : undefined
+  const importDetails = currentImport?.eft === text ? currentImport : undefined
+  const sourceId = importDetails?.killmailId ?? (headerId === undefined ? undefined : Number(headerId))
   const sourceLoss = losses.find(({ id }) => id === sourceId)
   const imported = sourceId !== undefined
   const theoryEft = fit?.eft
@@ -101,7 +104,7 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     try {
       const result = await services.load(loss.id, loss.hash)
       setDraft(result.eft)
-      setImportSource(result.killmailId)
+      setDraftImport(result)
     } catch {
       setError('无法从击毁报告带入配装，请重试。')
     } finally {
@@ -114,9 +117,11 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     setBusy('save')
     setError(undefined)
     try {
-      setSaved(await services.save(summary.meta.brId, charId, text))
+      const entry = await services.save(summary.meta.brId, charId, text)
+      setSaved(entry)
+      setSavedImport(importDetails ? { result: importDetails, setAt: entry.setAt } : undefined)
       setDraft(null)
-      setImportSource(undefined)
+      setDraftImport(undefined)
     } catch {
       setError('无法保存配装，请检查 EFT 文本后重试。')
     } finally {
@@ -124,12 +129,14 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     }
   }
 
-  const shouldWarn = imported || parsed?.modules.some(({ name }) => /\bAbyssal\b|深渊/i.test(name))
+  const mutated = importDetails
+    ? importDetails.mutated ?? []
+    : parsed?.modules.map(({ name }) => name).filter((name) => /\bAbyssal\b|深渊/i.test(name)) ?? []
   return <div className="u7-fit">
     <div className="u7-fit-actions">
       {(!editor || loss) && <Button disabled={busy !== null} onClick={() => {
         setDraft(fit?.eft ?? '')
-        setImportSource(undefined)
+        setDraftImport(undefined)
         setError(undefined)
       }}>粘贴 EFT</Button>}
       {losses.length > 1 && <label>击毁时间 <select className="app-select" disabled={busy !== null}
@@ -153,7 +160,7 @@ function PilotFit({ pilot, charId, summary, interactions }: {
       <div className="u7-fit-confirm">
         {fit && <Button disabled={busy !== null} onClick={() => {
           setDraft(null)
-          setImportSource(undefined)
+          setDraftImport(undefined)
           setError(undefined)
         }}>取消</Button>}
         <Button type="submit" variant="primary" disabled={busy !== null || tooLarge || !parsed}>
@@ -161,7 +168,7 @@ function PilotFit({ pilot, charId, summary, interactions }: {
         </Button>
       </div>
     </form>}
-    {shouldWarn && <p className="u7-fit-hint">{warning}</p>}
+    {mutated.length > 0 && <p className="u7-fit-hint">{warning} {Array.from(new Set(mutated)).join("、")}</p>}
     <div className="u7-fit-columns">
       {parsed && <section className="u7-person-card u7-fit-racks">
         <h3>{parsed.ship}</h3>

@@ -24,7 +24,7 @@ function FitPreview({ saved, name = demoName }: { saved: boolean; name?: string 
   const services = {
     load: async (id: number) => {
       if (id !== killmailId) throw new Error('Gallery killmail is unavailable')
-      return { eft, killmailId, charId, shipTypeId }
+      return { eft, killmailId, charId, shipTypeId, mutated: ['Entropic Radiation Sink II'] }
     },
     save: async (_brId: string, id: number, text: string) => ({ eft: text, charId: id, setAt: Date.now() }),
     compute: async (text: string) => {
