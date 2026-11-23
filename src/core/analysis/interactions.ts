@@ -155,7 +155,7 @@ function distinctEvents(events: LogEvent[], retained: Set<string> | undefined): 
 }
 
 export function collectInteractions(
-  state: BattleState, entities: Map<EntityKey, Entity>, assignments: SideAssignments, sideCount: number,
+  state: BattleState, entities: Map<EntityKey, Entity>, assignments: SideAssignments,
 ): Interaction[] {
   const logs = [...state.logs].sort((a, b) => a.charId - b.charId || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const splitListeners = new Set<number>()
@@ -171,6 +171,7 @@ export function collectInteractions(
   }
 
   const identities = indexIdentities(state, logs, entities, assignments)
+  const brTeamCount = state.meta.teams.length
   let previousListener: number | undefined
   let retained: Set<string> | undefined
   for (const log of logs) {
@@ -182,7 +183,7 @@ export function collectInteractions(
     const listener = charKey(listenerId)
     const side = entities.get(listener)!.side
     for (const event of distinctEvents(log.parsed.events, retained)) {
-      const otherSide = expectedSide(event.kind, side, sideCount)
+      const otherSide = expectedSide(event.kind, side, brTeamCount)
       const other = identities.resolve(event.other, otherSide, event.t, log)
       if (event.kind === 'ewar_seen') {
         const from = identities.resolve(event.source, otherSide, event.t, log)

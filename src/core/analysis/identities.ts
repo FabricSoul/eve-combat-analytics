@@ -70,9 +70,9 @@ function uniqueCandidate(
   return match
 }
 
-export function expectedSide(kind: LogEvent['kind'], listenerSide: number, sides: number): number {
+export function expectedSide(kind: LogEvent['kind'], listenerSide: number, brTeamCount: number): number {
   if (kind === 'repair') return listenerSide
-  if (kind === 'damage' && sides === 2 && (listenerSide === 0 || listenerSide === 1)) return 1 - listenerSide
+  if (kind === 'damage' && brTeamCount === 2 && (listenerSide === 0 || listenerSide === 1)) return 1 - listenerSide
   return UNKNOWN_SIDE
 }
 

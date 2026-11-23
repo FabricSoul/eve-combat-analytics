@@ -37,14 +37,14 @@ export const analyze: Analyze = (state) => {
   const entities = new Map<EntityKey, Entity>()
   const { assignments, sideCount } = indexSideAssignments(state)
   const sideOverrides: SideOverride[] = []
-  let interactions = collectInteractions(state, entities, assignments, sideCount)
+  let interactions = collectInteractions(state, entities, assignments)
   for (let pass = 0; pass < 2; pass++) {
     const corrections = deriveSideOverrides(state, interactions, entities, assignments, sideCount)
     if (corrections.length === 0) break
     sideOverrides.push(...corrections)
     // Ship-only identities depend on the listener's side.
     entities.clear()
-    interactions = collectInteractions(state, entities, assignments, sideCount)
+    interactions = collectInteractions(state, entities, assignments)
   }
   const { totals, deaths, firstKill } = indexKillmails(state.meta, entities, assignments)
   const ewarSpans = collectEwarSpans(interactions)

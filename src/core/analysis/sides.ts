@@ -119,6 +119,7 @@ export function deriveSideOverrides(
   state: BattleState, interactions: Interaction[], entities: Map<EntityKey, Entity>, sides: SideAssignments, teamCount: number,
 ): SideOverride[] {
   if (teamCount < 2) return []
+  const binaryBr = state.meta.teams.length === 2
 
   const evidence = new Map<EntityKey, SideEvidence>()
   for (const { id, charId, uploadedAt } of state.logs) {
@@ -132,19 +133,20 @@ export function deriveSideOverrides(
     } else {
       evidence.set(key, {
         charId, logIds: new Set([id]), uploadedAt,
-        repairs: Array<number>(teamCount).fill(0), damage: Array<number>(teamCount).fill(0),
+        repairs: Array<number>(teamCount).fill(0), damage: binaryBr ? [0, 0] : [],
       })
     }
   }
   if (evidence.size === 0) return []
 
   for (const { kind, from, to, sources } of interactions) {
-    if (kind !== 'repair' && (kind !== 'damage' || teamCount !== 2)) continue
+    if (kind !== 'repair' && (kind !== 'damage' || !binaryBr)) continue
     const own = evidence.get(from)
     if (!own || from === to || !sources.some(({ logId }) => own.logIds.has(logId))) continue
     const { side, sideSource } = entities.get(to)!
-    if (side < 0 || side >= teamCount || sideSource === 'unknown' || sideSource === 'log') continue
     const counts = kind === 'repair' ? own.repairs : own.damage
+    // Override-only sides can supply repair evidence, but are outside the BR damage pair.
+    if (side < 0 || side >= counts.length || sideSource === 'unknown' || sideSource === 'log') continue
     counts[side] = counts[side]! + 1
   }
 
@@ -158,7 +160,7 @@ export function deriveSideOverrides(
     if (confirmed < 0 || confirmed === assignedSide(sides, charId).side) continue
 
     const repairReason = `repaired side ${confirmed}: ${repairs[confirmed]} events`
-    const reason = teamCount === 2
+    const reason = binaryBr && confirmed < 2
       ? `${repairReason}, damaged side ${1 - confirmed}: ${damage[1 - confirmed]} events`
       : repairReason
     overrides.push({ subject: charKey(charId), side: confirmed, source: 'log', reason, setAt: uploadedAt })

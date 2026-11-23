@@ -83,7 +83,7 @@ it('includes a side created by a manual override in assignments, coverage, and d
     'char:1': { side: 2, sideSource: 'manual' },
     'char:2': { side: 2, sideSource: 'log' },
     'char:5': { side: 0, sideSource: 'esi' },
-    'ship:1001:-1': { side: -1, sideSource: 'unknown' },
+    'ship:1001:1': { side: 1, sideSource: 'unknown' },
   })
   expect(result.coverage).toHaveLength(3)
   expect(result.coverage[2]).toEqual({ side: 2, known: 2, withLog: 2 })
@@ -93,6 +93,25 @@ it('includes a side created by a manual override in assignments, coverage, and d
   const removed = analyze(state)
   expect(removed.coverage).toHaveLength(2)
   expect(removed.timeline.damageBySide).not.toHaveProperty('2')
+})
+
+it('keeps two-BR-team inference when a neutral is assigned to a third side', () => {
+  const state = battle([
+    log(1, 'Ace', 0, [
+      ...Array.from({ length: 50 }, (_, i) => hit(i, 'Medic', 8)),
+      ...Array.from({ length: 12 }, (_, i) => hit(50 + i, 'Knight', 8)),
+    ]),
+    log(2, 'Wing', 0, [hit(0, other(null, 'Cruiser', 'Cruiser', 1001), 10)]),
+  ])
+  state.names = { ...state.names, Knight: { charId: 6, side: -1 } }
+  state.sideOverrides = [manual('char:6', 2, 1)]
+
+  const result = analyze(state)
+  expect(result.sideOverrides).toMatchObject([
+    { subject: 'char:1', side: 1, reason: 'repaired side 1: 0 events, damaged side 0: 50 events' },
+  ])
+  expect(result.entities['char:6']).toMatchObject({ side: 2, sideSource: 'manual' })
+  expect(result.interactions).toContainEqual(expect.objectContaining({ from: 'char:2', to: 'ship:1001:1' }))
 })
 
 it.each([
