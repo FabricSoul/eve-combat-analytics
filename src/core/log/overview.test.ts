@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { realLogTexts } from '../../../fixtures/real/j125990-20250622/load'
 import { describe, expect, it } from 'vitest'
 import type { Counterparty } from '../contract'
 import shipTypes from '../data/ship-types.json'
@@ -105,19 +106,14 @@ describe('dictionary-backed overview labels', () => {
   })
 })
 
-const realLogs = [
-  new URL('../../../fixtures/local/real-20250622/', import.meta.url),
-  new URL('../../../../revive/fixtures/local/real-20250622/', import.meta.url),
-].find(existsSync)
-
 function escapeRegex(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-it.skipIf(!realLogs)('resolves dictionary ships and known listeners in the 17 local PvP logs', () => {
-  if (!realLogs) return
-  const files = readdirSync(realLogs).filter((file) => file.endsWith('.txt') && !file.includes('(1)'))
-  const logs = files.map((file) => parseGamelog(readFileSync(new URL(file, realLogs), 'utf8')))
+it('resolves dictionary ships and known listeners in the 17 real PvP logs (fixtures/real/j125990-20250622)', () => {
+  const texts = realLogTexts()
+  const files = texts.map((t) => t.file)
+  const logs = texts.map((t) => parseGamelog(t.text))
   const events = logs.flatMap(({ events }) => events)
   const unparsed = logs.reduce((sum, log) => sum + log.unparsed.length, 0)
   expect(files).toHaveLength(17)

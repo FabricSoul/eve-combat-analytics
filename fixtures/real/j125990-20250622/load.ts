@@ -1,0 +1,76 @@
+// Offline loader for the real J125990 fight (see README.md). Node-only: tests use it, product code does not.
+import { readFileSync, readdirSync } from 'node:fs'
+import { gunzipSync } from 'node:zlib'
+import { parseGamelog } from '../../../src/core/log/parse'
+import type { BattleMeta, BattleState, Killmail, KillmailParticipant, NameIndex, ParsedLog, TeamMember, UploadedLog } from '../../../src/core/contract'
+
+const root = new URL('./', import.meta.url)
+
+export function realLogTexts(): { file: string; text: string }[] {
+  const dir = new URL('logs/', root)
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.txt.gz'))
+    .sort()
+    .map((f) => ({ file: f.replace(/\.gz$/, ''), text: gunzipSync(readFileSync(new URL(f, dir))).toString('utf8') }))
+}
+
+interface EsiFixture {
+  windows: BattleMeta['windows']
+  teams: TeamMember[][]
+  names: BattleMeta['names']
+  nameIndex: NameIndex
+  listeners: { file: string; charId: number; charName: string; side: number }[]
+}
+
+type RawParticipant = Partial<Record<'char' | 'corp' | 'ally' | 'ship' | 'weap' | 'dmg', number>>
+interface RawKm { id: number; hash: string; system: number; time: number; totalValue: number; victim: RawParticipant; attackers?: RawParticipant[] }
+
+const participant = (x: RawParticipant): KillmailParticipant => ({
+  charId: x.char || null,
+  corpId: x.corp || null,
+  allyId: x.ally || null,
+  shipTypeId: x.ship || null,
+  weaponTypeId: x.weap || null,
+  damage: x.dmg ?? 0,
+})
+
+/** The whole fight as a BattleState, parsed with the current parser. */
+export function realBattleState(): BattleState {
+  const esi = JSON.parse(readFileSync(new URL('esi.json', root), 'utf8')) as EsiFixture
+  const related = JSON.parse(readFileSync(new URL('related.json', root), 'utf8')) as { kms: RawKm[] }
+  const killmails: Killmail[] = related.kms
+    .map((k) => ({
+      id: k.id,
+      hash: k.hash,
+      systemId: k.system,
+      t: k.time,
+      value: k.totalValue,
+      victim: participant(k.victim),
+      attackers: (k.attackers ?? []).map(participant),
+    }))
+    .sort((a, b) => a.t - b.t || a.id - b.id)
+  const meta: BattleMeta = {
+    brId: 'related-31002058-202506221600',
+    source: 'br.evetools',
+    fetchedAt: 0,
+    windows: esi.windows,
+    teams: esi.teams,
+    killmails,
+    names: esi.names,
+  }
+  const { start, end } = esi.windows[0]!
+  const logs: UploadedLog[] = realLogTexts().map(({ file, text }) => {
+    const who = esi.listeners.find((l) => l.file === file)
+    if (!who) throw new Error(`no listener record for ${file}`)
+    const parsed: ParsedLog = parseGamelog(text)
+    return {
+      id: file,
+      charId: who.charId,
+      charName: who.charName,
+      side: who.side,
+      uploadedAt: 0,
+      parsed: { ...parsed, events: parsed.events.filter((e) => e.t >= start && e.t <= end) },
+    }
+  })
+  return { meta, logs, fits: [], names: esi.nameIndex }
+}
