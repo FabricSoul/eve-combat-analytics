@@ -2,7 +2,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { gunzipSync } from 'node:zlib'
 import { parseGamelog } from '../../../src/core/log/parse'
-import { normalizeBrComposition } from '../../../src/core/br/normalize'
+import { normalizeBrComposition, sideOf } from '../../../src/core/br/normalize'
 import type { BattleMeta, BattleState, Killmail, KillmailParticipant, NameIndex, ParsedLog, TeamMember, UploadedLog } from '../../../src/core/contract'
 
 const root = new URL('./', import.meta.url)
@@ -20,7 +20,7 @@ interface EsiFixture {
   teams: TeamMember[][]
   names: BattleMeta['names']
   nameIndex: NameIndex
-  listeners: { file: string; charId: number; charName: string; side: number }[]
+  listeners: { file: string; charId: number; charName: string; side: number; corpId?: number | null; allyId?: number | null }[]
 }
 
 type RawParticipant = Partial<Record<'char' | 'corp' | 'ally' | 'ship' | 'weap' | 'dmg', number>>
@@ -69,6 +69,7 @@ export function realBattleState(): BattleState {
       charId: who.charId,
       charName: who.charName,
       side: who.side,
+      ...(who.corpId ? { corpId: who.corpId, allyId: who.allyId ?? null } : {}),
       uploadedAt: 0,
       parsed: { ...parsed, events: parsed.events.filter((e) => e.t >= start && e.t <= end) },
     }
@@ -85,6 +86,11 @@ export function realBattleState(): BattleState {
 export function realBattleStateWithBr(): BattleState {
   const base = realBattleState()
   const raw = JSON.parse(readFileSync(new URL('br-6b03a9aff85099ccb2b7e763.composition.json', root), 'utf8'))
-  const meta = normalizeBrComposition(raw, base.meta.names, 0)
-  return { ...base, meta: { ...meta, windows: base.meta.windows } }
+  const meta = { ...normalizeBrComposition(raw, base.meta.names, 0), windows: base.meta.windows }
+  // Re-derive every side from the stored affiliation ids against the BR teams.
+  const side = (corpId?: number | null, allyId?: number | null) => (corpId ? sideOf({ corpId, allyId: allyId ?? null }, meta.teams) : -1)
+  const logs = base.logs.map((l) => ({ ...l, side: side(l.corpId, l.allyId) }))
+  const names: NameIndex = {}
+  for (const [k, v] of Object.entries(base.names)) names[k] = v ? { ...v, side: side(v.corpId, v.allyId) } : null
+  return { ...base, meta, logs, names }
 }
