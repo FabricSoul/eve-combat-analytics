@@ -8,6 +8,7 @@ export interface BattleView {
   status: 'loading' | 'ready' | 'error'
   error: ApiFailure | null
   live: boolean
+  reconnecting: boolean
 }
 
 export interface BattleData {
@@ -15,7 +16,14 @@ export interface BattleData {
   analysis: Analysis
 }
 
-const initialBattle: BattleView = { summary: null, analysis: null, status: 'loading', error: null, live: false }
+const initialBattle: BattleView = {
+  summary: null, analysis: null, status: 'loading', error: null, live: false, reconnecting: false,
+}
+const socketRetryStart = 1000
+const analysisRetryStart = 2000
+const pollInterval = 15_000
+const failedReconnectLimit = 3
+const nextDelay = (delay: number) => Math.min(delay * 2, 15_000)
 
 function applyMessage(summary: BattleSummary, message: Exclude<ServerMessage, { type: 'snapshot' }>): BattleSummary {
   switch (message.type) {
@@ -52,13 +60,17 @@ export function useBattle(brId: string | null): BattleView {
     let current = initialBattle
     let socket: WebSocket | undefined
     let reconnect: ReturnType<typeof setTimeout> | undefined
+    let poll: ReturnType<typeof setTimeout> | undefined
+    let pollGeneration = 0
     let retryAnalysis: ReturnType<typeof setTimeout> | undefined
-    let reconnectDelay = 1000
+    let reconnectDelay = socketRetryStart
+    let analysisDelay = analysisRetryStart
+    let failedReconnects = 0
+    let missing = false
     let etag: string | undefined
     let analysisVersion = -1
     let wantedVersion = 0
     let fetching = false
-    let receivedSnapshot = false
 
     function update(patch: Partial<BattleView>) {
       if (!active) return
@@ -66,24 +78,37 @@ export function useBattle(brId: string | null): BattleView {
       setResult({ brId, battle: current })
     }
 
-    async function refreshAnalysis(version: number) {
+    function requestAnalysis(version: number) {
       wantedVersion = Math.max(wantedVersion, version)
-      if (!active || fetching || analysisVersion >= wantedVersion) return
-      clearTimeout(retryAnalysis)
+      if (retryAnalysis === undefined) void refreshAnalysis()
+    }
+
+    function deferAnalysis() {
+      retryAnalysis = setTimeout(() => {
+        retryAnalysis = undefined
+        void refreshAnalysis()
+      }, analysisDelay)
+      analysisDelay = nextDelay(analysisDelay)
+    }
+
+    async function refreshAnalysis() {
+      if (!active || missing || fetching || analysisVersion >= wantedVersion) return
       fetching = true
       const requestedVersion = wantedVersion
       try {
         const value = await api.getAnalysis(id, etag)
         if (!active) return
-        analysisVersion = requestedVersion
         if (value !== 'not_modified') {
           etag = value.etag ?? undefined
           const published = /^"v(\d+)"$/.exec(etag ?? '')?.[1]
-          if (published) analysisVersion = Number(published)
-          update({ analysis: value.analysis, error: current.summary ? null : current.error })
+          analysisVersion = published ? Number(published) : requestedVersion
+          update({ analysis: value.analysis })
         }
-        if (analysisVersion < requestedVersion) {
-          retryAnalysis = setTimeout(() => void refreshAnalysis(wantedVersion), 2000)
+        if (analysisVersion >= requestedVersion) {
+          analysisDelay = analysisRetryStart
+          if (current.error && current.summary) update({ error: null })
+        } else {
+          deferAnalysis()
         }
       } catch (error) {
         if (!active) return
@@ -91,17 +116,17 @@ export function useBattle(brId: string | null): BattleView {
         // A new room can have a snapshot before the first analysis alarm fires.
         if (failure.status !== 503 && current.summary) update({ error: failure })
         if (failure.code !== 'br_not_found') {
-          retryAnalysis = setTimeout(() => void refreshAnalysis(wantedVersion), 2000)
+          deferAnalysis()
         }
       } finally {
         fetching = false
-        if (active && requestedVersion < wantedVersion) void refreshAnalysis(wantedVersion)
+        if (requestedVersion < wantedVersion && retryAnalysis === undefined) void refreshAnalysis()
       }
     }
 
     function applySnapshot(state: BattleSummary) {
       update({ summary: state, status: 'ready', error: null })
-      void refreshAnalysis(state.analysisVersion)
+      requestAnalysis(state.analysisVersion)
     }
 
     function receive(event: MessageEvent<string>) {
@@ -112,51 +137,93 @@ export function useBattle(brId: string | null): BattleView {
         return
       }
       if (message?.type === 'snapshot') {
-        receivedSnapshot = true
         applySnapshot(message.state)
       } else if (message && current.summary) {
         update({ summary: applyMessage(current.summary, message) ?? current.summary })
-        if (message.type === 'analysis_ready') void refreshAnalysis(message.version)
+        if (message.type === 'analysis_ready') requestAnalysis(message.version)
       }
     }
 
-    function connect() {
-      if (!active) return
+    async function pollSummary(generation: number) {
+      const stillPolling = () => active && generation === pollGeneration && !current.live && !missing
+      if (!stillPolling()) return
+      try {
+        const state = await api.getBattle(id)
+        if (stillPolling()) applySnapshot(state)
+      } catch (error) {
+        if (stillPolling() && !current.summary) update({ status: 'error', error: asFailure(error) })
+      } finally {
+        if (stillPolling()) poll = setTimeout(() => void pollSummary(generation), pollInterval)
+      }
+    }
+
+    function stopPolling() {
+      pollGeneration++
+      clearTimeout(poll)
+    }
+
+    function disconnected(isReconnect: boolean) {
+      if (!active || missing) return
+      if (isReconnect && !current.live) failedReconnects++
+      update({ live: false, reconnecting: true })
+      reconnect = setTimeout(() => connect(true), reconnectDelay)
+      reconnectDelay = nextDelay(reconnectDelay)
+      if (failedReconnects === failedReconnectLimit && isReconnect) {
+        // The first fallback read is immediate. Later reads wait for the previous one to finish.
+        void pollSummary(pollGeneration)
+      }
+    }
+
+    function connect(isReconnect: boolean) {
+      if (!active || missing) return
       const address = new URL(`${battleApiPath(id)}/ws`, window.location.href)
       address.protocol = address.protocol === 'https:' ? 'wss:' : 'ws:'
-      const connection = new WebSocket(address.href)
+      let connection: WebSocket
+      try {
+        connection = new WebSocket(address.href)
+      } catch {
+        disconnected(isReconnect)
+        return
+      }
       socket = connection
       connection.addEventListener('open', () => {
-        reconnectDelay = 1000
-        update({ live: true })
+        if (!active || missing || socket !== connection) return
+        reconnectDelay = socketRetryStart
+        failedReconnects = 0
+        stopPolling()
+        update({ live: true, reconnecting: false })
       })
       connection.addEventListener('message', receive)
       connection.addEventListener('error', () => connection.close())
       connection.addEventListener('close', () => {
-        update({ live: false })
-        if (!active || current.error?.code === 'br_not_found') return
-        reconnect = setTimeout(connect, reconnectDelay)
-        reconnectDelay = Math.min(reconnectDelay * 2, 15_000)
+        connection.removeEventListener('message', receive)
+        if (socket !== connection) return
+        socket = undefined
+        disconnected(isReconnect)
       })
     }
 
-    void api.getBattle(brId).then((state) => {
-      if (active && !receivedSnapshot) applySnapshot(state)
+    void api.getBattle(id).then((state) => {
+      if (active && !current.summary) applySnapshot(state)
     }, (error: unknown) => {
-      if (receivedSnapshot) return
+      if (!active || current.summary) return
       const failure = asFailure(error)
       update({ status: 'error', error: failure })
       if (failure.code === 'br_not_found') {
+        missing = true
         clearTimeout(reconnect)
+        stopPolling()
         socket?.close()
+        update({ live: false, reconnecting: false })
       }
     })
-    connect()
+    connect(false)
 
     return () => {
       active = false
       clearTimeout(reconnect)
       clearTimeout(retryAnalysis)
+      stopPolling()
       socket?.removeEventListener('message', receive)
       socket?.close()
     }
@@ -173,7 +240,7 @@ export type BattleProviderProps = {
 
 export function BattleProvider({ brId, static: data, children }: BattleProviderProps) {
   const battle = useBattle(brId ?? null)
-  const value: BattleView = data ? { ...data, status: 'ready', error: null, live: false } : battle
+  const value: BattleView = data ? { ...initialBattle, ...data, status: 'ready' } : battle
   return createElement(BattleContext.Provider, { value }, children)
 }
 
