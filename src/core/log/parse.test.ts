@@ -26,8 +26,9 @@ function party(
   corpTicker: string | null = null,
   allianceTicker: string | null = null,
   shipType: string | null = null,
+  shipTypeId: number | null = null,
 ): Counterparty {
-  return { raw, name, corpTicker, allianceTicker, shipType, shipTypeId: null }
+  return { raw, name, corpTicker, allianceTicker, shipType, shipTypeId }
 }
 
 function damage(dir: 'in' | 'out', amount: number, weapon: string | null, quality: HitQuality) {
@@ -44,22 +45,22 @@ type FixtureEvent = LogEvent extends infer Event
 
 const merin = party('Merin Vale')
 const coreli = party('Coreli Initiate')
-const merinRich = party('Merin Vale[COAL](Hurricane)', 'Merin Vale', 'COAL', null, 'Hurricane')
+const merinRich = party('Merin Vale[COAL](Hurricane)', 'Merin Vale', 'COAL', null, 'Hurricane', 24702)
 const autumn = party('秋杉')
 const sentinel = party('天蛇哨兵')
-const autumnRich = party('秋杉[TIDE](飓风级)', '秋杉', 'TIDE', null, '飓风级')
+const autumnRich = party('秋杉[TIDE](飓风级)', '秋杉', 'TIDE', null, '飓风级', 16231)
 
 const enEvents: [string, FixtureEvent][] = [
   ['outgoing turret', { ...damage('out', 366, '425mm AutoCannon II', 'Hits'), other: merinRich }],
-  ['incoming turret', { ...damage('in', 12, '720mm Howitzer Artillery II', 'Wrecks'), other: party('Talin Roe [CROW] [SABLE] (Muninn)', 'Talin Roe', 'CROW', 'SABLE', 'Muninn') }],
+  ['incoming turret', { ...damage('in', 12, '720mm Howitzer Artillery II', 'Wrecks'), other: party('Talin Roe [CROW] [SABLE] (Muninn)', 'Talin Roe', 'CROW', 'SABLE', 'Muninn', 12015) }],
   ['incoming damage with no weapon', { ...damage('in', 5, null, 'Glances Off'), other: coreli }],
-  ['ship-first label and escaped markup', { ...damage('out', 9, 'Railgun', 'Grazes'), other: party('Stabber [Alsie North]', 'Alsie North', null, null, 'Stabber') }],
+  ['ship-first label and escaped markup', { ...damage('out', 9, 'Railgun', 'Grazes'), other: party('Stabber [Alsie North]', 'Alsie North', null, null, 'Stabber', 622) }],
   ['corp-first label', { ...damage('in', 30, 'Railgun', 'Smashes'), other: party('[COAL] Merin Vale', 'Merin Vale', 'COAL') }],
-  ['label with no corp', { ...damage('out', 21, 'Railgun', 'Penetrates'), other: party('Orin Far (Ferox)', 'Orin Far', null, null, 'Ferox') }],
-  ['missile and custom ship label containing separators', { ...damage('out', 200, 'Scourge Fury Heavy Missile', 'none'), other: party('Rupture Run - Run [ALL] [Alsie North]', null) }],
-  ['drone with no hit quality', { ...damage('in', 80, 'Hobgoblin II', 'none'), other: party('Torin Est (Osprey)', 'Torin Est', null, null, 'Osprey') }],
-  ['structure with partial deflection and system prefix', { ...damage('out', 230, 'Nova Cruise Missile', 'Hits'), other: party('J112233 - Moon & Anchor[COAL](Fortizar)', 'Moon & Anchor', 'COAL', null, 'Fortizar') }],
-  ['structure with full deflection and no weapon', { ...damage('out', 0, null, 'Hits'), other: party('Long Watch[COAL](Astrahus)', 'Long Watch', 'COAL', null, 'Astrahus') }],
+  ['label with no corp', { ...damage('out', 21, 'Railgun', 'Penetrates'), other: party('Orin Far (Ferox)', 'Orin Far', null, null, 'Ferox', 16227) }],
+  ['missile and custom ship label containing separators', { ...damage('out', 200, 'Scourge Fury Heavy Missile', 'none'), other: party('Rupture Run - Run [ALL] [Alsie North]', 'Alsie North', null, null, 'Rupture', 629) }],
+  ['drone with no hit quality', { ...damage('in', 80, 'Hobgoblin II', 'none'), other: party('Torin Est (Osprey)', 'Torin Est', null, null, 'Osprey', 620) }],
+  ['structure with partial deflection and system prefix', { ...damage('out', 230, 'Nova Cruise Missile', 'Hits'), other: party('J112233 - Moon & Anchor[COAL](Fortizar)', 'Moon & Anchor', 'COAL', null, 'Fortizar', 35833) }],
+  ['structure with full deflection and no weapon', { ...damage('out', 0, null, 'Hits'), other: party('Long Watch[COAL](Astrahus)', 'Long Watch', 'COAL', null, 'Astrahus', 35832) }],
   ['outgoing group miss', { ...miss('out', 'Dual 180mm AutoCannon II'), other: merinRich }],
   ['outgoing single miss', { ...miss('out', 'Light Ion Blaster II'), other: coreli }],
   ['incoming bare miss', { ...miss('in', null), other: coreli }],
@@ -85,7 +86,7 @@ const enEvents: [string, FixtureEvent][] = [
   ['incoming ECM lock break', { kind: 'ewar', dir: 'in', ewar: 'jam', other: merin }],
   ['outgoing ECM lock break', { kind: 'ewar', dir: 'out', ewar: 'jam', other: merin }],
   ['smartbomb with no hit quality', { ...damage('out', 72, 'Large Plasma Smartbomb II', 'none'), other: merin }],
-  ['drone miss keeps the printed counterparty with owner details', { ...miss('in', 'Hobgoblin II'), other: party('Hobgoblin II belonging to Merin Vale', 'Merin Vale') }],
+  ['drone miss keeps the printed counterparty with owner details', { ...miss('in', 'Hobgoblin II'), other: party('Hobgoblin II belonging to Merin Vale', 'Merin Vale', null, null, 'Hobgoblin II', 2456) }],
   ['legacy quality leaves weapon intact', { ...damage('in', 42, 'Turret', 'none'), other: merin }],
   ['explicit incoming neut', { kind: 'neut', dir: 'in', amount: 43, module: 'Medium Energy Neutralizer II', other: merin }],
   ['outgoing remote energy transfer in GJ', { kind: 'repair', dir: 'out', amount: 37, repairType: 'capacitor', module: 'Remote Capacitor Transmitter II', other: merin }],
@@ -94,13 +95,13 @@ const enEvents: [string, FixtureEvent][] = [
 
 const zhEvents: [string, FixtureEvent][] = [
   ['outgoing turret', { ...damage('out', 36, '425毫米自动加农炮 II', 'Hits'), other: autumnRich }],
-  ['incoming turret', { ...damage('in', 22, '720毫米榴弹炮 II', 'Wrecks'), other: party('白桥 [TIDE] [HUSH] (缪宁级)', '白桥', 'TIDE', 'HUSH', '缪宁级') }],
+  ['incoming turret', { ...damage('in', 22, '720毫米榴弹炮 II', 'Wrecks'), other: party('白桥 [TIDE] [HUSH] (缪宁级)', '白桥', 'TIDE', 'HUSH', '缪宁级', 12015) }],
   ['incoming damage with no weapon', { ...damage('in', 2, null, 'Glances Off'), other: sentinel }],
-  ['ship-first label and adjacent tags', { ...damage('out', 9, '磁轨炮', 'Grazes'), other: party('刺客级 [迟夜星]', '迟夜星', null, null, '刺客级') }],
+  ['ship-first label and adjacent tags', { ...damage('out', 9, '磁轨炮', 'Grazes'), other: party('刺客级 [迟夜星]', '迟夜星', null, null, '刺客级', 622) }],
   ['corp-first label', { ...damage('in', 12, '磁轨炮', 'Smashes'), other: party('[TIDE] 秋杉', '秋杉', 'TIDE') }],
-  ['label with no corp', { ...damage('out', 77, '磁轨炮', 'Penetrates'), other: party('暮霜 (巨鸟级)', '暮霜', null, null, '巨鸟级') }],
-  ['missile and ambiguous custom ship label', { ...damage('out', 200, '雷神重型导弹', 'none'), other: party('断崖级 远夜 [ALL] [迟夜星]', null) }],
-  ['structure with deflection and system prefix', { ...damage('out', 230, '巡航导弹', 'Hits'), other: party('J112233 - 深空灯塔[TIDE](铁壁)', '深空灯塔', 'TIDE', null, '铁壁') }],
+  ['label with no corp', { ...damage('out', 77, '磁轨炮', 'Penetrates'), other: party('暮霜 (巨鸟级)', '暮霜', null, null, '巨鸟级', 623) }],
+  ['missile and custom ship name beside a pilot label', { ...damage('out', 200, '雷神重型导弹', 'none'), other: party('断崖级 远夜 [ALL] [迟夜星]', '迟夜星', null, null, '断崖级', 629) }],
+  ['structure with deflection and system prefix', { ...damage('out', 230, '巡航导弹', 'Hits'), other: party('J112233 - 深空灯塔[TIDE](铁壁)', '深空灯塔', 'TIDE', null, '铁壁', 35833) }],
   ['drone with no hit quality', { ...damage('in', 51, '地精灵 II', 'none'), other: autumn }],
   ['outgoing group miss', { ...miss('out', '磁轨炮'), other: autumnRich }],
   ['outgoing single miss', { ...miss('out', '磁轨炮'), other: autumn }],
@@ -129,7 +130,7 @@ const zhEvents: [string, FixtureEvent][] = [
   ['outgoing ECM lock break', { kind: 'ewar', dir: 'out', ewar: 'jam', other: autumn }],
   ['outgoing remote energy transfer in GJ', { kind: 'repair', dir: 'out', amount: 32, repairType: 'capacitor', module: '远程电容传输装置 II', other: autumn }],
   ['incoming remote energy transfer in GJ', { kind: 'repair', dir: 'in', amount: 33, repairType: 'capacitor', module: '远程电容传输装置 II', other: autumn }],
-  ['owned-drone miss in localized order', { ...miss('in', '地精灵 II'), other: party('秋杉的地精灵 II', '秋杉') }],
+  ['owned-drone miss in localized order', { ...miss('in', '地精灵 II'), other: party('秋杉的地精灵 II', '秋杉', null, null, '地精灵 II', 2456) }],
 ]
 
 describe.each([
@@ -218,7 +219,7 @@ describe('Gamelog envelope', () => {
       '  ' + entry('12 to Coreli Initiate - Hits'),
     ))
     expect(result.events).toEqual([
-      { ...damage('in', 12, null, 'Hits'), t: sessionStart + 1_000, line: 6, other: party('Merin Vale [COAL] (Hurricane)', 'Merin Vale', 'COAL', null, 'Hurricane') },
+      { ...damage('in', 12, null, 'Hits'), t: sessionStart + 1_000, line: 6, other: party('Merin Vale [COAL] (Hurricane)', 'Merin Vale', 'COAL', null, 'Hurricane', 24702) },
       { ...damage('out', 12, null, 'Hits'), t: sessionStart + 1_000, line: 8, other: coreli },
     ])
   })
@@ -235,32 +236,39 @@ describe('Gamelog envelope', () => {
       entry(''),
       entry('8 to <i></i> - Hits'),
     ))
-    expect(result.events).toEqual([])
+    expect(result.events).toEqual([{
+      kind: 'ewar_seen', ewar: 'warp_scramble', t: sessionStart + 1_000, line: 11,
+      source: merin, other: party('Talin Roe'),
+    }])
     expect(result.unparsed).toEqual([
       { line: 6, text: 'Unknown & < 5 > more text' },
       { line: 9, text: '9 to Coreli Initiate - Hits' },
       { line: 10, text: 'unfinished' },
-      { line: 11, text: 'Warp scramble attempt from Merin Vale to Talin Roe!' },
       { line: 12, text: '41 GJ energy neutralized Coreli Initiate - Neutralizer' },
       { line: 13, text: '' },
       { line: 14, text: '8 to - Hits' },
     ])
   })
 
-  it('leaves ambiguous counterparty fields empty', () => {
+  it('leaves ambiguous names empty while resolving dictionary ships', () => {
     const labels = ['Loki [AB]', 'Loki [ALLY] [CORP]', 'Gale [TOOLONG] (Confessor)', 'Talin [ROE] Loki']
     const result = parseGamelog(log(...labels.map((label) => entry(`12 from <b>${label}</b> - Hits`))))
     expect(result.unparsed).toEqual([])
-    expect(result.events.map(({ other }) => other)).toEqual(labels.map((label) => party(label, null)))
+    expect(result.events.map(({ other }) => other)).toEqual([
+      party('Loki [AB]', null, 'AB', null, 'Loki', 29990),
+      party('Loki [ALLY] [CORP]', null, 'CORP', 'ALLY', 'Loki', 29990),
+      party('Gale [TOOLONG] (Confessor)', null, null, null, 'Confessor', 34317),
+      party('Talin [ROE] Loki', 'Talin', 'ROE', null, 'Loki', 29990),
+    ])
   })
 
-  it('keeps literal decoded angle labels and preserves dashes inside weapon names', () => {
+  it('reads an escaped angle alliance ticker and preserves dashes inside weapon names', () => {
     const result = parseGamelog(log(entry('15 to <b>Loki &lt;AB&gt;[CORP] Arden Gale</b> - Standup - Missile - Hits')))
     expect(result.events).toEqual([{
       ...damage('out', 15, 'Standup - Missile', 'Hits'),
       t: sessionStart + 1_000,
       line: 6,
-      other: party('Loki <AB>[CORP] Arden Gale', null),
+      other: party('Loki <AB>[CORP] Arden Gale', 'Arden Gale', 'CORP', 'AB', 'Loki', 29990),
     }])
   })
 
@@ -298,13 +306,14 @@ it.skipIf(!pvePath)('accounts for all 3,075 local PvE combat entries and their t
     neut: 0,
     nos: 0,
     ewar: 0,
+    ewar_seen: 0,
   }
   for (const event of events) {
     if (event.kind === 'damage') {
       counts.damage[event.dir]++
       counts.damageHp[event.dir] += event.amount
     } else if (event.kind === 'miss') counts.miss[event.dir]++
-    else if (event.kind !== "ewar_seen") counts[event.kind]++
+    else counts[event.kind]++
   }
   expect(unparsed).toEqual([])
   expect(events).toHaveLength(3_075)
@@ -316,5 +325,6 @@ it.skipIf(!pvePath)('accounts for all 3,075 local PvE combat entries and their t
     neut: 0,
     nos: 0,
     ewar: 1,
+    ewar_seen: 0,
   })
 })

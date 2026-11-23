@@ -1,0 +1,15 @@
+# Synthetic F2 overview sample. Names, timestamps, damage and tickers are invented.
+  游戏记录
+  收听者: 泊潮星
+  进程开始: 2025.06.22 15:38:00
+[ 2025.06.22 15:38:01 ] (combat) <b>44</b> 来自 <b><localized hint="Leshak">勒沙克级* [WISP] [C57] Kite-in-Dusk 7</b> - 命中
+[ 2025.06.22 15:38:02 ] (combat) <b>44</b> 来自 <b><i>Kite-in-Dusk 7</i><localized hint="Leshak">勒沙克级*</b> - 命中
+[ 2025.06.22 15:38:03 ] (combat) <b>44</b> 来自 <b>Root Copper<localized hint="Cenotaph">纪念碑级*</b> - 命中
+[ 2025.06.22 15:38:04 ] (combat) <b>44</b> 来自 <b>Vos Tar'len[WISP]'[HA] Absolution - midnight'(<localized hint="Absolution">救赎级*)</b> - 命中
+[ 2025.06.22 15:38:05 ] (combat) <b>44</b> 来自 <b>Vos Tar'len <localized hint="Devoter">奉献级* &lt;WISP&gt;</b> - 命中
+[ 2025.06.22 15:38:06 ] (combat) <b>44</b> 来自 <b>涅斯托级* [WISP] [250MM] Vera Moon</b> - 命中
+[ 2025.06.22 15:38:07 ] (combat) <b>44</b> 来自 <b>帝国海军监护官*</b> - 命中
+[ 2025.06.22 15:38:08 ] (combat) 来自 <b>奉献级* [WISP] [C57] Vos Tar'len -</b> 试图跃迁扰频 <b>纪念碑级* [END] [MOON] Root Copper -</b>
+[ 2025.06.22 15:38:09 ] (combat) 来自 <b>Vos Tar'len[WISP]'[HA] Dune'(奉献级*)</b> 试图跃迁扰断 <b>Root Copper[END]'北灯'(纪念碑级*)</b>
+[ 2025.06.22 15:38:10 ] (combat) <b>奉献级* [WISP] [C57] Vos Tar'len -</b>的<localized hint="Hornet EC-300">大黄蜂EC-300*正在干扰你
+[ 2025.06.22 15:38:11 ] (combat) <b>Root Copper</b>的<localized hint="Imperial Navy Curator">帝国海军监护官*完全没有击中你

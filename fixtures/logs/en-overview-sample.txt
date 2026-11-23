@@ -1,0 +1,13 @@
+# Synthetic F2 overview sample. Names, timestamps, damage and tickers are invented.
+  Gamelog
+  Listener: River Fleet
+  Session Started: 2025.06.22 15:38:00
+[ 2025.06.22 15:38:01 ] (combat) <b>44</b> from <b>Bhaalgorn [ALY] [C57] Reed Vesper</b> - Hits
+[ 2025.06.22 15:38:02 ] (combat) <b>56</b> from <b>Maris Sol [C57] (ALY)Leshak</b> - Hits
+[ 2025.06.22 15:38:03 ] (combat) <b>56</b> from <b>Vey R'not [C57]&lt;ALY&gt;(Absolution)</b> - Hits
+[ 2025.06.22 15:38:04 ] (combat) <b>56</b> from <b>Leshak <Kestrel One></b> - Hits
+[ 2025.06.22 15:38:05 ] (combat) <b>56</b> from <b>Hurricane Nox [C57]<ALY>(Hurricane Fleet Issue)</b> - Hits
+[ 2025.06.22 15:38:06 ] (combat) Warp scramble attempt from <b>Leshak</b> to <b>Bhaalgorn</b>
+[ 2025.06.22 15:38:07 ] (combat) Warp disruption attempt from <b>Devoter [ALY] [C57] [Rook V'orn-7] -</b> to <b>Cenotaph [END] [MOON] [Vale Oriel]</b>
+[ 2025.06.22 15:38:08 ] (combat) <b>Devoter [ALY] [C57] Rook V'orn-7</b> - jammed - Magnetometric ECM II
+[ 2025.06.22 15:38:09 ] (combat) You're jammed by <b>Devoter [ALY] [C57] Rook V'orn-7</b> - - Gravimetric ECM II

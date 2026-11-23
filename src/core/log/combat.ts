@@ -8,8 +8,9 @@ interface CombatMatch {
   event: WithoutLocation<LogEvent> | null
 }
 
-const escapedTag = /&lt;(\/?(?:a|b|br|color|font|fontsize|i|loc|size|span|s|strong|em|u|url)(?=\s|=|\/|&gt;)[^&<>]*)&gt;/gi
-const literalTag = /<(?!\/?i(?=[\s=/>]))\/?[a-z][a-z0-9-]*(?=[\s=/>])[^<>]*>/gi
+const clientTags = 'a|b|br|color|font|fontsize|loc|localized|size|span|s|strong|em|u|url'
+const escapedTag = new RegExp(`&lt;(\\/?(?:${clientTags}|i)(?=\\s|=|\\/|&gt;)[^&<>]*)&gt;`, 'gi')
+const literalTag = new RegExp(`<\\/?(?:${clientTags})(?=[\\s=/>])[^<>]*>`, 'gi')
 const italicTag = /<\/?i(?=[\s=/>])[^<>]*>/gi
 const excessSpace = /\s{2,}|[^\S ]/g
 const entities: Record<string, string> = { nbsp: ' ', amp: '&', gt: '>', lt: '<' }
@@ -41,14 +42,17 @@ function label(text: string) {
 }
 
 function payloadParts(payload: string): string[] {
-  if (!payload.includes('<i>')) return payload.split(' - ')
+  const quoteEnd = /'\s*\([^()]+\)/.exec(payload)?.index
+  const quoteStart = quoteEnd === undefined ? undefined : payload.indexOf("'")
+  if (!payload.includes('<i>') && quoteStart === undefined) return payload.split(' - ')
   const parts: string[] = []
   let start = 0
   let italicDepth = 0
   for (const match of payload.matchAll(/<\/?i>| - /g)) {
     if (match[0] === '<i>') italicDepth++
     else if (match[0] === '</i>') italicDepth = Math.max(0, italicDepth - 1)
-    else if (italicDepth === 0) {
+    else if (italicDepth === 0 && !(quoteStart !== undefined && quoteEnd !== undefined &&
+      quoteStart < match.index && match.index < quoteEnd)) {
       parts.push(payload.slice(start, match.index))
       start = match.index + match[0].length
     }
@@ -222,43 +226,62 @@ function misses(text: string): CombatMatch | null {
       language: 'zh',
       event: {
         kind: 'miss', dir: 'in', weapon: visibleText(zhDrone[3] ?? zhDrone[2]) || null,
-        other: counterparty(zhDrone[1].trim(), visibleText(zhDrone[1] + '的' + zhDrone[2])),
+        other: counterparty(zhDrone[1].trim(), visibleText(zhDrone[1] + '的' + zhDrone[2]), visibleText(zhDrone[2])),
       },
     }
   }
   if (!incoming?.[1]) return null
-  const ownedDrone = enIn ? /^.+? belonging to (.+)$/.exec(incoming[1])?.[1] : undefined
+  const ownedDrone = enIn ? /^(.+?) belonging to (.+)$/.exec(incoming[1]) : null
   return {
     language: enIn ? 'en' : 'zh',
     event: {
       kind: 'miss', dir: 'in', weapon: visibleText(incoming[2] ?? '') || null,
-      other: counterparty(ownedDrone ?? incoming[1], visibleText(incoming[1])),
+      other: counterparty(ownedDrone?.[2] ?? incoming[1], visibleText(incoming[1]), ownedDrone?.[1]),
     },
   }
 }
 
 function warp(language: CombatMatch['language'], ewar: EwarType, from: string, to: string): CombatMatch {
-  const isListener = (name: string) => /^(?:you|你)$/i.test(name.trim())
-  if (isListener(from) === isListener(to)) return { language, event: null }
-  const dir = isListener(from) ? 'out' : 'in'
-  const other = label(dir === 'out' ? to : from)
+  const isListener = (name: string) => /^(?:you|你)(?: -)?$/i.test(name.trim())
+  const fromListener = isListener(from)
+  const toListener = isListener(to)
+  if (!fromListener && !toListener) {
+    const source = label(from)
+    const other = label(to)
+    return { language, event: source.raw && other.raw ? { kind: 'ewar_seen', ewar, source, other } : null }
+  }
+  if (fromListener && toListener) return { language, event: null }
+  const dir = fromListener ? 'out' : 'in'
+  const other = label(fromListener ? to : from)
   return { language, event: other.raw ? { kind: 'ewar', ewar, dir, other } : null }
 }
 
-function electronicWarfare(text: string): CombatMatch | null {
+function englishWarpParties(suffix: string, raw: string): [string, string] | undefined {
+  const delimiters = [...suffix.matchAll(/ to /gi)]
+  if (delimiters.length === 0) return [suffix, 'you']
+  const match = delimiters[0]
+  if (match && delimiters.length === 1) return [suffix.slice(0, match.index), suffix.slice(match.index + 4)]
+
+  // The actual client renders the separator in a font span, independently
+  // of any " to " inside a pilot or cosmetic label.
+  const marked = /<font(?:size)?\b[^>]*>\s*to(?=\s|<)/i.exec(raw)
+  if (marked) {
+    const leading = /^Warp (?:scramble|disruption) attempt from (.+)$/i.exec(combatText(raw.slice(0, marked.index)))?.[1]
+    if (leading && suffix.startsWith(leading + ' to ')) return [leading, suffix.slice(leading.length + 4)]
+  }
+  const explicit = /^(you(?: -)?) to (.+)$/i.exec(suffix) ?? /^(.+) to (you)$/i.exec(suffix)
+    ?? /^(.+? -) to (.+)$/i.exec(suffix)
+  if (explicit?.[1] && explicit[2]) return [explicit[1], explicit[2]]
+  return undefined
+}
+
+function electronicWarfare(text: string, raw: string): CombatMatch | null {
   const notice = text.replace(/[!！]$/, '')
   const en = /^Warp (scramble|disruption) attempt from (.+)$/i.exec(notice)
   if (en?.[2]) {
     const ewar = en[1]?.toLowerCase() === 'scramble' ? 'warp_scramble' : 'warp_disrupt'
-    const suffix = en[2]
-    const outgoing = /^you(?: *-)? to (.+)$/i.exec(suffix)
-    if (outgoing?.[1]) return warp('en', ewar, 'you', outgoing[1])
-    const incoming = /^(.+?)(?: *-)? to you$/i.exec(suffix)
-    if (incoming?.[1]) return warp('en', ewar, incoming[1], 'you')
-    // A third-party attempt has two named parties and the contract can only
-    // describe interactions involving the listener.
-    if (suffix.includes(' to ')) return { language: 'en', event: null }
-    return warp('en', ewar, suffix, 'you')
+    const parties = englishWarpParties(en[2], raw)
+    return parties ? warp('en', ewar, ...parties) : { language: 'en', event: null }
   }
 
   const zh = /^(?:来自 )?(.+?)\s*试图跃迁(扰频|扰断)\s*(.+)$/.exec(notice)
@@ -266,12 +289,12 @@ function electronicWarfare(text: string): CombatMatch | null {
     return warp('zh', zh[2] === '扰频' ? 'warp_scramble' : 'warp_disrupt', zh[1], zh[3])
   }
 
-  const jamIn = /^Your target locks broken by (.+)$/.exec(notice)
+  const jamIn = /^(?:Your target locks broken by|You're jammed by) (.+)$/.exec(notice)
   if (jamIn?.[1]) {
     const { other } = effectPayload(jamIn[1])
     return { language: 'en', event: other.raw ? { kind: 'ewar', dir: 'in', ewar: 'jam', other } : null }
   }
-  const jamOut = /^(.+?)(?: -)? target locks broken - .+$/.exec(notice)
+  const jamOut = /^(.+?)(?: -)? (?:target locks broken|jammed) - .+$/.exec(notice)
   if (jamOut?.[1]) {
     const other = label(jamOut[1])
     return { language: 'en', event: other.raw ? { kind: 'ewar', dir: 'out', ewar: 'jam', other } : null }
@@ -281,6 +304,10 @@ function electronicWarfare(text: string): CombatMatch | null {
   const zhSource = zhJamIn?.[1] ?? zhJamIn?.[2]
   if (zhSource) {
     return { language: 'zh', event: { kind: 'ewar', dir: 'in', ewar: 'jam', other: label(zhSource) } }
+  }
+  const zhDroneJam = /^(.+?)的.+正在干扰你$/.exec(notice)
+  if (zhDroneJam?.[1]) {
+    return { language: 'zh', event: { kind: 'ewar', dir: 'in', ewar: 'jam', other: label(zhDroneJam[1]) } }
   }
   const zhJamOut = /^[^对]+对([^对]+?)\s*目标锁定丢失$/.exec(notice)
   if (zhJamOut?.[1]) {
@@ -294,5 +321,5 @@ export function matchCombat(text: string, raw: string): CombatMatch | null {
     const quantitative = damage(text) ?? repair(text) ?? capacitor(text, raw) ?? remoteEnergy(text)
     if (quantitative) return quantitative
   }
-  return misses(text) ?? electronicWarfare(text) ?? explicitNeutralization(text)
+  return misses(text) ?? electronicWarfare(text, raw) ?? explicitNeutralization(text)
 }
