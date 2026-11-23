@@ -50,7 +50,7 @@ export function SidesPanel({ onClose }: SidesPanelProps) {
     [summary, analysis, view.oursSide],
   )
   const dialogProps = {
-    ref: dialog, className: 'sides', role: 'dialog', 'aria-label': '排边', tabIndex: -1,
+    ref: dialog, className: 'sides', role: 'dialog', 'aria-modal': true, 'aria-label': '排边', tabIndex: -1,
   }
   if (!summary || !data) {
     return <div {...dialogProps}>

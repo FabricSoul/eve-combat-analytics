@@ -158,6 +158,7 @@ describe('SidesPanel', () => {
     opener.focus()
     act(() => opener.click())
     expect(document.activeElement).toBe(mounted.container.querySelector('[role="dialog"]'))
+    expect(mounted.container.querySelector('[role="dialog"]')?.getAttribute('aria-modal')).toBe('true')
     const done = [...mounted.container.querySelectorAll('button')].find((button) => button.textContent === '完成')!
     act(() => done.click())
     expect(document.activeElement).toBe(opener)
