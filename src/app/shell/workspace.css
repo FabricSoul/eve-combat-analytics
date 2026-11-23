@@ -5,6 +5,16 @@
 
 .app-shell .upload-tray { box-shadow: none; }
 
+.app-topbar-github {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--row);
+  padding-inline: var(--space-2);
+  border-radius: var(--radius-ctl);
+  color: var(--color-text-2);
+}
+.app-topbar-github:hover { background: var(--color-raised); color: var(--color-text); }
+
 .app-topbar-connection {
   flex: none;
   color: var(--color-text-2);

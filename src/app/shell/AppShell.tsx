@@ -18,10 +18,11 @@ function storedAppearance(): Appearance | null {
 export interface AppShellProps {
   children: ReactNode
   battle?: boolean
-  topBar?: Omit<TopBarProps, 'appearance' | 'onToggleAppearance'>
+  home?: boolean
+  topBar?: Omit<TopBarProps, 'appearance' | 'onToggleAppearance' | 'home'>
 }
 
-export function AppShell({ children, battle = false, topBar }: AppShellProps) {
+export function AppShell({ children, battle = false, home = false, topBar }: AppShellProps) {
   const [override, setOverride] = useState(storedAppearance)
   const [systemDark, setSystemDark] = useState(() => window.matchMedia?.(preference).matches ?? false)
   const appearance = override ?? (systemDark ? 'dark' : 'light')
@@ -49,7 +50,7 @@ export function AppShell({ children, battle = false, topBar }: AppShellProps) {
 
   return (
     <div className={battle ? 'app-shell app-shell--battle' : 'app-shell'}>
-      <TopBar {...topBar} appearance={appearance} onToggleAppearance={toggleAppearance} />
+      <TopBar {...topBar} home={home} appearance={appearance} onToggleAppearance={toggleAppearance} />
       <main className="app-shell-body">{children}</main>
     </div>
   )

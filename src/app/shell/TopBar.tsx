@@ -10,6 +10,7 @@ import { SidePicker } from './SidePicker'
 
 export interface TopBarProps {
   appearance: Appearance
+  home?: boolean
   onToggleAppearance(): void
   summary?: BattleSummary | null
   analysis?: Analysis | null
@@ -27,13 +28,13 @@ export interface TopBarProps {
 
 export function TopBar({
   appearance, onToggleAppearance, summary, analysis, oursSide, onOursSideChange, onUpload, onOpenSides, shareUrl,
-  live, reconnecting, menuOpen = false, onMenuOpenChange, menuTrigger,
+  home = false, live, reconnecting, menuOpen = false, onMenuOpenChange, menuTrigger,
 }: TopBarProps) {
   const [share, setShare] = useState('')
   const [copied, setCopied] = useState(false)
   const system = summary?.meta.windows[0]
   const date = system ? fmtDate(system.start) : ''
-  const name = summary ? battleTitle(summary.meta) : 'EVE Combat Analytics'
+  const name = summary ? battleTitle(summary.meta) : 'EVE 舰队战复盘'
   const title = date ? `${name} · ${date}` : name
   const sides = useMemo(() => {
     if (!summary || !analysis) return []
@@ -94,6 +95,7 @@ export function TopBar({
             <Button onClick={() => void copyShare()}>{copied ? '已复制' : '分享'}</Button>
           </div>
         )}
+        {home && <a className="app-topbar-github" href="https://github.com/FabricSoul/eve-combat-analytics">GitHub</a>}
         <Button variant="ghost" onClick={onToggleAppearance} aria-label={appearance === 'dark' ? '切换到浅色' : '切换到深色'}>
           {appearance === 'dark' ? '浅色' : '深色'}
         </Button>

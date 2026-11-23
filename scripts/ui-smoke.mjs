@@ -165,6 +165,30 @@ export class BattleRoom extends ProductionRoom {
   await a.page.getByRole('button', { name: 'D 方伤害' }).waitFor()
   const fourSides = await (await fetch(`${origin}/api/battles/${brId}/analysis`)).json()
   assert.deepEqual(Object.keys(fourSides.timeline.damageBySide).sort(), ['0', '1', '2', '3'])
+  await a.page.getByRole('button', { name: '排边', exact: true }).click()
+  const fourSidePanel = a.page.getByRole('dialog', { name: '排边' })
+  const viewport = fourSidePanel.locator('.sides-viewport')
+  const columns = fourSidePanel.getByRole('region', { name: '阵营列' })
+  assert.equal(await viewport.getAttribute('data-more-right'), 'true', 'more columns to the right have an edge fade')
+  assert.ok(await columns.evaluate((node) => node.scrollWidth > node.clientWidth))
+  const scrollbar = fourSidePanel.getByRole('slider', { name: '横向滚动阵营列' })
+  assert.ok((await scrollbar.boundingBox())?.height > 0, 'the four-side panel has a visible horizontal scrollbar')
+  await scrollbar.press('End')
+  await fourSidePanel.locator('.sides-viewport[data-more-left]:not([data-more-right])').waitFor()
+  await scrollbar.press('Home')
+  await fourSidePanel.locator('.sides-viewport[data-more-right]:not([data-more-left])').waitFor()
+  const unassigned = fourSidePanel.getByRole('region', { name: '未分边', exact: true })
+  const newSide = fourSidePanel.getByRole('region', { name: '新建一方', exact: true })
+  await fourSidePanel.getByRole('region', { name: /^D 方 · / }).locator('button').last().focus()
+  await a.page.keyboard.press('Tab')
+  assert.ok(await unassigned.evaluate((node) => document.activeElement === node), 'Tab reaches 未分边')
+  await unassigned.locator('button').last().focus()
+  await a.page.keyboard.press('Tab')
+  assert.ok(await newSide.evaluate((node) => document.activeElement === node), 'Tab reaches 新建一方')
+  assert.ok(await columns.evaluate((node) => node.scrollLeft > 0))
+  await fourSidePanel.locator('.sides-viewport[data-more-left]').waitFor()
+  await fourSidePanel.getByRole('button', { name: '完成' }).click()
+  console.log('Four-side panel: visible scrollbar, edge fades and keyboard access to both trailing columns')
   for (const [subject] of [['ally:99013753'], ['corp:98775057']]) {
     await fetch(`${origin}/api/battles/${brId}/sides`, {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ subject, side: -1 }),
@@ -281,6 +305,23 @@ export class BattleRoom extends ProductionRoom {
       console.log(`Desktop feed (${theme}): ${viewportHeight}px viewport, ${headerHeight}px header, ${columnHeight}px column`)
     }
     if (width === 1280 && theme === 'dark') {
+      await shot.page.getByRole('button', { name: '排边', exact: true }).click()
+      const sides = shot.page.getByRole('dialog', { name: '排边' })
+      const header = shot.page.getByRole('banner')
+      const expectPageFixed = async () => {
+        const scrollTop = await shot.page.evaluate(() => document.scrollingElement.scrollTop)
+        const top = (await header.boundingBox())?.y
+        assert.deepEqual({ scrollTop, top }, { scrollTop: 0, top: 0 }, 'sides popover keeps the battle page and top bar in place')
+      }
+      await expectPageFixed()
+      const panelBox = await sides.boundingBox()
+      assert.ok(panelBox && panelBox.y >= 48 && panelBox.y + panelBox.height <= height - 24,
+        'sides popover fits below the top bar with a bottom margin')
+      await sides.locator('.sides-col-body').first().hover()
+      await shot.page.mouse.wheel(0, 1000)
+      await expectPageFixed()
+      await sides.getByRole('button', { name: '完成' }).click()
+      console.log('Sides popover: 1280×800 page and top bar stay fixed')
       const column = shot.page.getByRole('complementary', { name: '事件流' })
       const feedBounds = await column.boundingBox()
       await shot.page.locator('.roster-main').filter({ hasText: pilot }).click()

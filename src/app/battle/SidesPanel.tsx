@@ -1,12 +1,11 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from 'react'
 import type { SideSubject } from '@/core/contract'
 import { allianceLogoUrl, corpLogoUrl } from '../lib/images'
-import { sideColor, sideLetter } from '../lib/sides'
+import { sideColor, sideLetter, sideName } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
 import { useView } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { Portrait } from '../ui/Portrait'
-import { sideName } from './roster/model'
 import { SideMenu, type SideMenuSection } from './roster/SideMenu'
 import { buildSideColumns, manualSubjects, newSideIndex, type CharRow, type SideColumn, type SideGroup } from './roster/sides-model'
 import { useSideMove } from './roster/use-side-move'
@@ -25,6 +24,56 @@ function Logo({ group }: { group: SideGroup }) {
   return <img className="app-image app-portrait" src={src} width={20} height={20} alt="" loading="lazy" />
 }
 
+function sideRole(side: number, order: readonly number[]): string {
+  if (side < 0) return '未分边'
+  if (side === order[0]) return '我方'
+  if (side === order[1]) return '敌方'
+  return `${sideLetter(side, order) ?? 'C'} 方`
+}
+
+function SideColumns({ count, children }: { count: number; children: ReactNode }) {
+  const scroll = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState({ left: 0, max: 0, fraction: 1 })
+
+  const updatePosition = useCallback(() => {
+    const node = scroll.current
+    if (!node) return
+    const { scrollLeft, clientWidth, scrollWidth } = node
+    const max = Math.max(0, scrollWidth - clientWidth)
+    const left = Math.min(max, Math.max(0, scrollLeft))
+    const fraction = max ? clientWidth / scrollWidth : 1
+    setPosition((previous) => previous.left === left && previous.max === max && previous.fraction === fraction
+      ? previous : { left, max, fraction })
+  }, [])
+
+  useLayoutEffect(() => {
+    const node = scroll.current
+    if (!node) return
+    updatePosition()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(updatePosition)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [count, updatePosition])
+
+  return (
+    <div className="sides-viewport" data-more-left={position.left > 1 || undefined}
+      data-more-right={position.left < position.max - 1 || undefined}>
+      <div ref={scroll} className="sides-cols" role="region" aria-label="阵营列" tabIndex={0}
+        style={{ gridTemplateColumns: `repeat(${count}, minmax(200px, 1fr))` }} onScroll={updatePosition}>
+        {children}
+      </div>
+      {position.max > 1 && <input className="sides-scrollbar" type="range" aria-label="横向滚动阵营列"
+        min={0} max={position.max} step="any" value={position.left}
+        style={{ '--sides-scroll-thumb': `${position.fraction * 100}%` } as CSSProperties}
+        onChange={(event) => {
+          if (scroll.current) scroll.current.scrollLeft = event.currentTarget.valueAsNumber
+          updatePosition()
+        }} />}
+    </div>
+  )
+}
+
 export function SidesPanel({ onClose }: SidesPanelProps) {
   const { summary, analysis } = useBattleContext()
   const view = useView()
@@ -38,9 +87,9 @@ export function SidesPanel({ onClose }: SidesPanelProps) {
   useLayoutEffect(() => {
     if (!canClose) return
     const opener = document.activeElement
-    dialog.current?.focus()
+    dialog.current?.focus({ preventScroll: true })
     return () => {
-      if (opener instanceof HTMLElement && opener.isConnected) opener.focus()
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus({ preventScroll: true })
     }
   }, [canClose])
 
@@ -49,6 +98,10 @@ export function SidesPanel({ onClose }: SidesPanelProps) {
     () => summary && analysis ? buildSideColumns(summary, analysis, view.oursSide) : null,
     [summary, analysis, view.oursSide],
   )
+  const names = useMemo(() => summary && analysis && data
+    ? new Map(data.order.map((side) => [side, sideName(side, summary, analysis)]))
+    : new Map<number, string>(), [summary, analysis, data])
+
   const dialogProps = {
     ref: dialog, className: 'sides', role: 'dialog', 'aria-modal': true, 'aria-label': '排边', tabIndex: -1,
   }
@@ -166,10 +219,13 @@ export function SidesPanel({ onClose }: SidesPanelProps) {
       </div>
       {unassigned && <div className="sides-notice" role="status">还有 {unassigned.pilotCount} 人未分边</div>}
       {mover.error && <div className="sides-notice" role="alert">{mover.error}</div>}
-      <div className="sides-cols" style={{ gridTemplateColumns: `repeat(${shown.length}, minmax(220px, 1fr))` }}>
+      <SideColumns count={shown.length}>
         {shown.map((column) => {
           const key = column === 'new' ? 'new' : column.side
-          const letter = column === 'new' ? null : sideLetter(column.side, order)
+          const special = key === 'new' || key < 0
+          const role = key === 'new' ? '新建一方' : sideRole(key, order)
+          const name = special ? undefined : names.get(key)
+          const label = name ? `${role} · ${name}` : role
           const enabled = acceptsDrop(key)
           const handlers = enabled ? {
             onDragOver: (event: DragEvent) => { if (drag) { event.preventDefault(); setDropOn(key) } },
@@ -178,13 +234,13 @@ export function SidesPanel({ onClose }: SidesPanelProps) {
           } : {}
           return (
             <section key={key} className="sides-col" data-side={key} data-drop={enabled && dropOn === key ? '' : undefined}
-              data-hollow={column === 'new' || column.side < 0 ? '' : undefined}
-              aria-disabled={column === 'new' && !enabled ? true : undefined} {...handlers}>
+              data-hollow={special ? '' : undefined} aria-label={label} tabIndex={special ? 0 : undefined}
+              aria-disabled={key === 'new' && !enabled ? true : undefined} {...handlers}>
               <div className="sides-col-head">
                 <i className="side-dot" aria-hidden="true"
-                  style={column !== 'new' && column.side >= 0 ? { background: sideColor(column.side, order) } : undefined} />
-                <span>{column === 'new' ? '新建一方' : sideName(column.side, order)}</span>
-                {letter && <span className="side-letter">{letter}</span>}
+                  style={special ? undefined : { background: sideColor(key, order) }} />
+                <span className="sides-col-role">{role}</span>
+                {name && <span className="sides-col-name"> · {name}</span>}
                 {column !== 'new' && (
                   <span className="roster-count">{column.side >= 0 ? `有日志 ${column.withLog} · ` : ''}{column.pilotCount} 人</span>
                 )}
@@ -197,7 +253,7 @@ export function SidesPanel({ onClose }: SidesPanelProps) {
             </section>
           )
         })}
-      </div>
+      </SideColumns>
       <div className="roster-note">改动立刻对所有正在看这场的人生效，分析会重算。人数是这场击毁报告和日志里出现的飞行员。</div>
       {menu && (
         <SideMenu x={menu.x} y={menu.y} sections={menu.sections} order={order}

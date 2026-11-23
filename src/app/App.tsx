@@ -32,5 +32,5 @@ export function App() {
       <BattlePage key={brId} brId={brId} />
     </Suspense>
   }
-  return <AppShell>{path === '/' ? <HomePage /> : <div className="app-home"><h1>页面未找到</h1></div>}</AppShell>
+  return <AppShell home={path === '/'}>{path === '/' ? <HomePage /> : <div className="app-home"><h1>页面未找到</h1></div>}</AppShell>
 }

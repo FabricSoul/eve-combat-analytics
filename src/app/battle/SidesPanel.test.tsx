@@ -26,6 +26,33 @@ describe('SidesPanel', () => {
     expect(mounted.container.querySelector('.sides-notice')?.textContent).toBe('还有 1 人未分边')
   })
 
+  it('makes unassigned pilots and the new-side drop target keyboard destinations', () => {
+    mounted = mountApp(createElement(SidesPanel))
+    expect(column('-1').tabIndex).toBe(0)
+    expect(column('-1').getAttribute('aria-label')).toBe('未分边')
+    expect(column('new').tabIndex).toBe(0)
+    expect(column('new').getAttribute('aria-label')).toBe('新建一方')
+  })
+
+  it('uses replay side letters and the shared affiliation name for reported sides', () => {
+    // Invented teams and assignments from the small roster fixture.
+    const summary: BattleSummary = { ...tinySummary, meta: { ...tinySummary.meta, teams: [[], [], ['ally:20'], ['corp:10']] } }
+    const analysis = {
+      ...tinyAnalysis,
+      entities: { ...tinyAnalysis.entities,
+        'char:3': { ...tinyAnalysis.entities['char:3']!, side: 2 },
+        'char:4': { ...tinyAnalysis.entities['char:4']!, side: 3 },
+      },
+      coverage: [{ side: 0, known: 2, withLog: 1 }, { side: 1, known: 1, withLog: 0 },
+        { side: 2, known: 1, withLog: 1 }, { side: 3, known: 1, withLog: 0 }],
+    }
+    mounted = mountApp(createElement(SidesPanel), { summary, analysis })
+    expect(column('0').getAttribute('aria-label')).toBe('我方 · Alpha Corp 等 2 人')
+    expect(column('1').getAttribute('aria-label')).toBe('敌方 · Beta Alliance · 1 人')
+    expect(column('2').querySelector('.sides-col-head')?.textContent).toContain('C 方 · Beta Alliance · 1 人')
+    expect(column('3').querySelector('.sides-col-head')?.textContent).toContain('D 方 · Alpha Corp · 1 人')
+  })
+
   it('has no notice and no 未分边 column when everyone has a side', () => {
     const entities = { ...tinyAnalysis.entities }
     delete entities['char:6']
