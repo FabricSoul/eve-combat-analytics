@@ -65,7 +65,16 @@
 .u7-compare td { text-align: right; }
 .u7-compare-who { display: inline-flex; vertical-align: middle; align-items: center; gap: var(--space-1); min-width: 0; max-width: 185px; }
 .u7-ellipsis { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.u7-no-value { color: var(--color-text-3); cursor: help; }
+.u7-no-value { display: inline-block; vertical-align: middle; }
+.u7-no-value summary { list-style: none; color: var(--color-text-3); cursor: pointer; }
+.u7-no-value summary::-webkit-details-marker { display: none; }
+.u7-no-value-reason {
+  display: block;
+  max-width: 7rem;
+  white-space: normal;
+  color: var(--color-text-2);
+  font: var(--fs-s)/var(--lh) var(--font-ui);
+}
 .u7-compare-bar {
   width: 36px; margin-inline-start: var(--space-1);
   display: inline-block; position: relative; height: 8px; background: var(--color-raised);

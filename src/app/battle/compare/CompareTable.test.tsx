@@ -37,3 +37,33 @@ it('groups and sorts columns, shows a median, and recomputes logged stats for a 
   act(() => host.querySelector<HTMLButtonElement>('#range')!.click())
   expect(statsForRange).toHaveBeenCalledWith(fixture.analysis, fixture.summary.meta.killmails, 1000, 2000)
 })
+
+it('uses a single roving tab stop per populated distribution metric', () => {
+  render()
+  const distributionTab = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((el) => el.textContent === '分布')!
+  act(() => distributionTab.click())
+  const strips = [...host.querySelectorAll('.u7-distribution-strip')]
+  expect(strips.length).toBeGreaterThan(1)
+  for (const strip of strips) expect([...strip.querySelectorAll('button')].filter((el) => el.tabIndex === 0)).toHaveLength(1)
+  const points = strips[0]!.querySelectorAll<HTMLButtonElement>('button')
+  expect(points.length).toBeGreaterThan(1)
+  act(() => points[0]!.focus())
+  act(() => points[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })))
+  expect(document.activeElement).toBe(points[1])
+  expect(points[0]!.tabIndex).toBe(-1)
+  expect(points[1]!.tabIndex).toBe(0)
+})
+
+it('describes an unavailable value to assistive tech and reveals its reason on tap', () => {
+  render()
+  const missing = host.querySelector('.u7-no-value')!
+  expect(missing).not.toBeNull()
+  const toggle = missing.querySelector<HTMLElement>('summary')!
+  const reason = document.getElementById(toggle?.getAttribute('aria-describedby') ?? '')
+  expect(reason?.textContent).toBe('他没修过队友，或被修的人没有可对应的掉血记录')
+  expect(reason?.classList.contains('sr-only')).toBe(true)
+  const panel = missing.querySelector('.u7-no-value-reason')
+  expect(panel?.textContent).toBe(reason?.textContent)
+  act(() => toggle.click())
+  expect(missing.hasAttribute('open')).toBe(true)
+})
