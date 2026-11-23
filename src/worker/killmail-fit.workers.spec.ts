@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { env } from 'cloudflare:workers'
 import { expect, it, vi } from 'vitest'
+import typeNames from '../core/data/killmail-types.json'
 import leshak from '../../fixtures/real/j125990-20250622/killmail-128067587.json'
 import { createWorker } from './index'
 
@@ -33,4 +34,31 @@ it('reports a missing ESI killmail without caching the error', async () => {
     expect(await response.json()).toMatchObject({ error: 'killmail_unavailable' })
   }
   expect(esiFetch).toHaveBeenCalledTimes(2)
+})
+
+it('reuses only the cache namespace keyed to the current type table hash', async () => {
+  const hash = '1'.repeat(40)
+  const req = request(`/api/killmails/128067587/${hash}/fit`)
+  const headers = { 'Cache-Control': 'public, max-age=31536000' }
+  const oldCache = await caches.open('killmail-fits-v1')
+  await oldCache.put(req, Response.json({ eft: 'obsolete catalog result' }, { headers }))
+  const fingerprint = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(typeNames)))
+  const name = [...new Uint8Array(fingerprint)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  const currentCache = await caches.open(`killmail-fits-${name}`)
+  const current = { killmailId: 128067587, eft: 'current catalog result' }
+  await currentCache.put(req, Response.json(current, { headers }))
+
+  const esiFetch = vi.fn<typeof fetch>()
+  const response = await createWorker(esiFetch).fetch(req, env)
+  expect(await response.json()).toEqual(current)
+  expect(esiFetch).not.toHaveBeenCalled()
+})
+
+it('rejects a cross-origin API request with 403 bad_request before contacting ESI', async () => {
+  const esiFetch = vi.fn<typeof fetch>()
+  const req = new Request(request(path), { headers: { Origin: 'https://other.example' } })
+  const response = await createWorker(esiFetch).fetch(req, env)
+  expect(response.status).toBe(403)
+  expect(await response.json()).toMatchObject({ error: 'bad_request' })
+  expect(esiFetch).not.toHaveBeenCalled()
 })

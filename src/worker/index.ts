@@ -17,7 +17,7 @@ async function routeRequest(request: Request, env: Env, esiFetch: typeof fetch):
   try {
     const origin = request.headers.get('Origin')
     if (origin !== null && origin !== url.origin) {
-      throw new ApiFailure('br_unavailable', 'Only same-origin requests are allowed', 403)
+      throw new ApiFailure('bad_request', 'Only same-origin requests are allowed', 403)
     }
     if (request.method === 'GET') {
       const fit = killmailFitPath.exec(url.pathname)
