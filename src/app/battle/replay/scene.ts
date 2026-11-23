@@ -80,7 +80,15 @@ export function buildScene(analysis: Analysis, killmails: readonly Killmail[], o
 
   const pilots = entities.map(pilot)
   const pointSpans = analysis.ewarSpans.filter(({ ewar }) => ewar === 'warp_disrupt' || ewar === 'warp_scramble')
-  return { pilots, edges, pointSpans, visibleAt: makePresence(pilots, edges, order[0]) }
+  function recentOpponents(recent: ReadonlyMap<EntityKey, number>) {
+    const ranked = [...recent].filter(([key]) => {
+      const side = analysis.entities[key]?.side
+      return side !== undefined && side >= 0 && side !== order[0]
+    })
+    ranked.sort((a, b) => b[1] - a[1])
+    return new Set(ranked.slice(0, 8).map(([key]) => key))
+  }
+  return { pilots, edges, pointSpans, recentOpponents, visibleAt: makePresence(pilots, edges, order[0]) }
 }
 
 interface LayoutPositions {

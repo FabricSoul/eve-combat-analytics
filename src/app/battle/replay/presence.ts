@@ -15,6 +15,17 @@ export function deathAt(deaths: readonly { t: number }[], t: number) {
   return deaths[upperTimeIndex(deaths, t) - 1]
 }
 
+export function recentEngagement(interactions: readonly Interaction[], t: number) {
+  const counts = new Map<EntityKey, number>()
+  for (let index = upperTimeIndex(interactions, t) - 1; index >= 0; index--) {
+    const event = interactions[index]!
+    if (event.t < t - 10_000) break
+    counts.set(event.from, (counts.get(event.from) ?? 0) + 1)
+    if (event.to !== event.from) counts.set(event.to, (counts.get(event.to) ?? 0) + 1)
+  }
+  return counts
+}
+
 export function makePresence(
   pilots: readonly PilotPresence[], interactions: readonly Interaction[], ours: number | undefined,
 ) {
@@ -38,10 +49,12 @@ export function makePresence(
     if (from !== to) record(to, t)
   }
 
-  return (t: number, selected: EntityKey | null): ReadonlySet<EntityKey> => {
+  return (
+    t: number, selected: EntityKey | null, recent: ReadonlyMap<EntityKey, number> = recentEngagement(interactions, t),
+  ): ReadonlySet<EntityKey> => {
     const visible = new Set<EntityKey>()
     for (const { entity: { key, side, hasLog }, deaths } of pilots) {
-      if (key === selected) {
+      if (key === selected || recent.has(key)) {
         visible.add(key)
         continue
       }

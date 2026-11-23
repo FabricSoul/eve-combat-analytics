@@ -9,7 +9,7 @@ import { useReplayKeyboard, type ReplayFocusTarget } from './keyboard'
 import { makePainter } from './paint'
 import type { ReplayFrame } from './paint'
 import { placePilotLabel } from './placement'
-import { deathAt } from './presence'
+import { deathAt, recentEngagement } from './presence'
 import type { Rect } from './placement'
 import { buildScene, makeLayout } from './scene'
 import type { ReplayLayout, ReplayNode } from './scene'
@@ -26,13 +26,14 @@ interface PilotMarkerProps {
   node: ReplayNode
   selected: boolean
   inspected: boolean
+  labelEligible: boolean
   register: (key: EntityKey, element: HTMLDivElement | null) => void
   onInspect: (key: EntityKey | null) => void
   onSelect: (key: EntityKey) => void
 }
 
-const PilotMarker = memo(function PilotMarker({ node, selected, inspected, register, onInspect, onSelect }: PilotMarkerProps) {
-  const { entity: { key, name, charId, hasLog, side }, color, radius, labeled, ship, shipId, letter } = node
+const PilotMarker = memo(function PilotMarker({ node, selected, inspected, labelEligible, register, onInspect, onSelect }: PilotMarkerProps) {
+  const { entity: { key, name, charId, hasLog, side }, color, radius, ship, shipId, letter } = node
 
   return (
     <div ref={(element) => { register(key, element) }} className="replay-marker" data-selected={selected} inert
@@ -50,7 +51,7 @@ const PilotMarker = memo(function PilotMarker({ node, selected, inspected, regis
         <span className="replay-death-mark" aria-hidden="true">×</span>
         {letter && <span className="replay-side-letter" aria-hidden="true">{letter}</span>}
       </button>
-      {(selected || inspected || labeled) && (
+      {(selected || inspected || labelEligible) && (
         <span key={selected ? 'selected' : 'plain'} className="replay-pilot-label" aria-hidden="true">
           {selected && <Portrait charId={charId} size={16} />}
           <span>{name}</span>
@@ -173,7 +174,9 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
       const { detailKey, lockedKey, ...current } = frame.current
       const { t, playing, selected, focusOnly } = current
       const reducedMotion = reduced.matches
-      const present = scene.visibleAt(t, selected)
+      const recent = recentEngagement(scene.edges, t)
+      const present = scene.visibleAt(t, selected, recent)
+      const opponents = scene.recentOpponents(recent)
       const membershipChanged = layout.setVisible(present)
       const layoutTime = playing ? Math.floor(t / 250) * 250 : t
       const firstFrame = lastLayoutTime === null
@@ -241,7 +244,11 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
           }
         }
         const label = marker.querySelector<HTMLElement>('.replay-pilot-label')
-        if (label) labels.push({ element: label, node, priority: key === selected ? 2 : key === detailKey ? 1 : 0 })
+        if (label) {
+          if (key === selected || key === detailKey || (height >= 420 && (node.entity.hasLog || opponents.has(key)))) {
+            labels.push({ element: label, node, priority: key === selected ? 2 : key === detailKey ? 1 : 0 })
+          } else label.removeAttribute('data-positioned')
+        }
       }
 
       updateTargets(focusTargets, selected, previouslyFocused)
@@ -300,6 +307,7 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
         onFocus={onFocus} onBlur={onBlur} onKeyDown={onKeyDown}>
         {layout?.nodes.map((node) => (
           <PilotMarker key={node.entity.key} node={node} selected={selected === node.entity.key} inspected={detailKey === node.entity.key}
+            labelEligible={height >= 420 && (node.entity.hasLog || (node.entity.side >= 0 && node.entity.side !== order[0]))}
             register={register} onInspect={inspect} onSelect={select} />
         ))}
       </div>
