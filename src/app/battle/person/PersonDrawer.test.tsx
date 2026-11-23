@@ -36,7 +36,7 @@ it('opens a selected pilot, toggles replay focus, expands, and closes with its b
   }
 })
 
-it('colors counterparty bars by viewing side and keeps aggregate incoming damage neutral', () => {
+it('keeps repair green while damage bars follow side and aggregate damage stays neutral', () => {
   const fixture = loadUiFixture()
   const pilot = Object.values(fixture.analysis.entities).find(({ name }) => name === 'MoQingXL moqing')!
   const host = document.createElement('div')
@@ -54,9 +54,17 @@ it('colors counterparty bars by viewing side and keeps aggregate incoming damage
       section.querySelector('h3')?.textContent === '谁对他造成伤害（前 5）')!
     const bar = (name: string) => [...attackerList.querySelectorAll('.u7-person-top')].find((row) =>
       row.querySelector('button')?.textContent === name)!.querySelector('i')!.style.background
+    const repairList = [...host.querySelectorAll('section')].find((section) =>
+      section.querySelector('h3')?.textContent === '维修给了谁（前 5）')!
+    const repairColors = () => [...repairList.querySelectorAll<HTMLElement>('.u7-top-track i')]
+      .map((track) => track.style.background)
+    expect(repairColors().length).toBeGreaterThan(0)
+    expect(new Set(repairColors())).toEqual(new Set(['var(--color-repair)']))
+    expect(host.querySelectorAll('.u7-series polyline')[0]?.getAttribute('stroke')).toBe('var(--color-repair)')
     expect(bar('zethx')).toBe('var(--color-side-1)')
     expect(bar('Blanchard2213')).toBe('var(--color-side-0)')
     act(() => host.querySelector<HTMLButtonElement>('.flip')!.click())
+    expect(new Set(repairColors())).toEqual(new Set(['var(--color-repair)']))
     expect(bar('zethx')).toBe('var(--color-side-0)')
     expect(bar('Blanchard2213')).toBe('var(--color-side-1)')
     expect(host.querySelectorAll('.u7-series polyline')[1]?.getAttribute('stroke')).toBe('var(--color-side-n)')

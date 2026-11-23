@@ -53,6 +53,7 @@ export function PersonStats({ analysis, pilot, rows, interactions, bounds, order
   const team = useMemo(() => rows.filter(({ entity }) => entity.side === pilot.side && entity.side >= 0), [rows, pilot.side])
   const details = useMemo(() => relationship(pilot, interactions), [pilot, interactions])
   const points = useMemo(() => pointSpans(analysis.ewarSpans, pilot.key, bounds), [analysis.ewarSpans, pilot.key, bounds])
+  const counterpartyColor = (key: EntityKey) => sideColor(analysis.entities[key]?.side ?? -1, order)
   return <div className="u7-person-stack">
     <div className="u7-stat-tiles">
       {tileMetrics.map((metric) => {
@@ -74,9 +75,9 @@ export function PersonStats({ analysis, pilot, rows, interactions, bounds, order
           .map((time) => <time key={time}>{fmtHms(time).slice(0, 5)}</time>)}
       </div>
     </section>
-    <TopList title="维修给了谁" rows={details.repaired} entities={analysis.entities} select={select} order={order} />
-    <TopList title="伤害给了谁" rows={details.attacked} entities={analysis.entities} select={select} order={order} />
-    <TopList title="谁对他造成伤害" rows={details.attackers} entities={analysis.entities} select={select} order={order} />
+    <TopList title="维修给了谁" rows={details.repaired} entities={analysis.entities} select={select} colorFor={() => "var(--color-repair)"} />
+    <TopList title="伤害给了谁" rows={details.attacked} entities={analysis.entities} select={select} colorFor={counterpartyColor} />
+    <TopList title="谁对他造成伤害" rows={details.attackers} entities={analysis.entities} select={select} colorFor={counterpartyColor} />
     <section className="u7-person-card">
       <h3>承伤构成</h3>
       {!row?.damage && <p className="u7-secondary">这段时间没有可用的承伤记录。</p>}
@@ -137,8 +138,8 @@ function CompactEntity({ entity, fallback }: { entity?: Entity; fallback: Entity
   </span>
 }
 
-function TopList({ title, rows, entities, select, order }: {
-  title: string; rows: Related[]; entities: Analysis['entities']; select(key: EntityKey): void; order: readonly number[]
+function TopList({ title, rows, entities, select, colorFor }: {
+  title: string; rows: Related[]; entities: Analysis['entities']; select(key: EntityKey): void; colorFor(key: EntityKey): string
 }) {
   const max = Math.max(rows[0]?.[1].amount ?? 0, 1)
   return <section className="u7-person-card">
@@ -146,7 +147,7 @@ function TopList({ title, rows, entities, select, order }: {
     {!rows.length && <p className="u7-secondary">这段时间没有相关记录。</p>}
     {rows.map(([key, { amount, count }]) => <div className="u7-person-top" key={key}>
       <button type="button" onClick={() => select(key)}><CompactEntity entity={entities[key]} fallback={key} /></button>
-      <span className="u7-top-track"><i style={{ width: `${amount / max * 100}%`, background: sideColor(entities[key]?.side ?? -1, order) }} /></span>
+      <span className="u7-top-track"><i style={{ width: `${amount / max * 100}%`, background: colorFor(key) }} /></span>
       <span className="app-number">{num(amount)}</span><span className="app-number">{fmtNum(count)} 次</span>
     </div>)}
   </section>
