@@ -1,3 +1,4 @@
+import { ANALYZER_VERSION } from '../core/analysis/version'
 import type {
   BattleMeta, BattleState, BattleSummary, EntityKey, FitEntry, IdentityMerge, LogEvent, NameIndex, ParsedLog, SideOverride,
   SideSubject, UploadedLog, UploadedLogSummary,
@@ -21,6 +22,18 @@ export interface MetaNameResolution {
 
 export function affiliationNameIds({ charId, corpId, allyId }: { charId: number } & StoredAffiliation): number[] {
   return [charId, corpId, allyId].filter((id): id is number => id != null && id > 0)
+}
+
+type AnalysisStatus = {
+  revision: number
+  analyzedRevision: number
+  version: number
+  /** Absent on rows written before the analyzer version was stored. */
+  analyzerVersion?: number
+}
+
+export function needsAnalysis(status: AnalysisStatus): boolean {
+  return status.revision !== status.analyzedRevision || status.analyzerVersion !== ANALYZER_VERSION
 }
 
 const CHUNK_BYTES = 1024 * 1024
@@ -287,20 +300,20 @@ export class BattleStorage {
     })
   }
 
-  analysisStatus(): { revision: number; analyzedRevision: number; version: number } {
+  analysisStatus(): AnalysisStatus {
     if (!this.hasTable('analysis_state')) return { revision: 0, analyzedRevision: -1, version: 0 }
-    return this.sql.exec<{ revision: number; analyzedRevision: number; version: number }>(
-      'SELECT revision, analyzedRevision, version FROM analysis_state WHERE id = 1',
-    ).one()
+    // Old schemas omit analyzerVersion, so read the row without naming that column.
+    return this.sql.exec<AnalysisStatus>('SELECT * FROM analysis_state WHERE id = 1').one()
   }
 
   private setupAnalysis(): void {
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS analysis_state (
         id INTEGER PRIMARY KEY CHECK (id = 1),
-        revision INTEGER NOT NULL, analyzedRevision INTEGER NOT NULL, version INTEGER NOT NULL
+        revision INTEGER NOT NULL, analyzedRevision INTEGER NOT NULL, version INTEGER NOT NULL,
+        analyzerVersion INTEGER NOT NULL DEFAULT 0
       );
-      INSERT OR IGNORE INTO analysis_state VALUES (1, 0, -1, 0);
+      INSERT OR IGNORE INTO analysis_state (id, revision, analyzedRevision, version) VALUES (1, 0, -1, 0);
       CREATE TABLE IF NOT EXISTS analysis_chunks (seq INTEGER PRIMARY KEY, data BLOB NOT NULL);
     `)
   }
@@ -318,12 +331,18 @@ export class BattleStorage {
   publishAnalysis(revision: number, chunks: PackedJson): number | undefined {
     return this.storage.transactionSync(() => {
       const status = this.analysisStatus()
-      if (status.revision !== revision || status.analyzedRevision === revision) return undefined
-      if (status.version === 0) this.setupAnalysis()
+      if (status.revision !== revision || !needsAnalysis(status)) return undefined
+      if (!this.hasTable('analysis_state')) this.setupAnalysis()
+      else if (status.analyzerVersion === undefined) {
+        this.sql.exec('ALTER TABLE analysis_state ADD COLUMN analyzerVersion INTEGER NOT NULL DEFAULT 0')
+      }
       const version = status.version + 1
       this.sql.exec('DELETE FROM analysis_chunks')
       chunks.forEach((data, seq) => this.sql.exec('INSERT INTO analysis_chunks VALUES (?, ?)', seq, data))
-      this.sql.exec('UPDATE analysis_state SET version = ?, analyzedRevision = ? WHERE id = 1', version, revision)
+      this.sql.exec(
+        'UPDATE analysis_state SET version = ?, analyzedRevision = ?, analyzerVersion = ? WHERE id = 1',
+        version, revision, ANALYZER_VERSION,
+      )
       return version
     })
   }

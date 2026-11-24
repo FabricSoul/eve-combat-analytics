@@ -14,7 +14,7 @@ import { ApiFailure, battlePath, errorResponse, readText, upstreamFailure } from
 import type { Env } from './index'
 import { abortable, createServices } from './services'
 import type { Services } from './services'
-import { affiliationNameIds, BattleStorage, packJson, packStream } from './storage'
+import { affiliationNameIds, BattleStorage, needsAnalysis, packJson, packStream } from './storage'
 import type { MetaNameResolution, StoredAffiliation, StoredLog } from './storage'
 
 const NAME_LIMIT = 2000
@@ -95,6 +95,7 @@ export class BattleRoom extends DurableObject<Env> {
   private serviceInstance?: Services
   private battleCache?: Battle
   private tail: Promise<void> = Promise.resolve()
+  private readonly analyzingRevisions = new Set<number>()
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -153,6 +154,7 @@ export class BattleRoom extends DurableObject<Env> {
       if (!this.store.exists()) throw new ApiFailure('br_not_found', 'Battle has not been created')
       const route = battlePath.exec(new URL(request.url).pathname)?.[2] ?? ''
       if (request.method === 'GET' && !route) {
+        await this.ensureAnalysisScheduled()
         return Response.json(this.store.summary((await this.battle()).meta))
       }
       if (request.method === 'GET' && route.startsWith('logs/')) {
@@ -189,7 +191,10 @@ export class BattleRoom extends DurableObject<Env> {
         if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
           throw new ApiFailure('bad_request', 'WebSocket upgrade required', 426)
         }
-        return await this.inOrder(async () => this.openWebSocket((await this.battle()).meta))
+        return await this.inOrder(async () => {
+          await this.scheduleMissingAnalysis()
+          return this.openWebSocket((await this.battle()).meta)
+        })
       }
       throw new ApiFailure('br_not_found', 'Battle API route not found')
     } catch (error) {
@@ -201,16 +206,37 @@ export class BattleRoom extends DurableObject<Env> {
     return this.ctx.storage.setAlarm(Date.now() + this.analysisDelayMs)
   }
 
+  private analysisNeedsAlarm(): boolean {
+    const status = this.store.analysisStatus()
+    return needsAnalysis(status) && !this.analyzingRevisions.has(status.revision)
+  }
+
+  private async scheduleMissingAnalysis(): Promise<void> {
+    if (this.analysisNeedsAlarm() && await this.ctx.storage.getAlarm() === null && this.analysisNeedsAlarm()) {
+      await this.scheduleAnalysis()
+    }
+  }
+
+  private async ensureAnalysisScheduled(): Promise<void> {
+    if (this.analysisNeedsAlarm()) await this.inOrder(() => this.scheduleMissingAnalysis())
+  }
+
   override async alarm(): Promise<void> {
     if (!this.store.exists()) return
-    const { revision, analyzedRevision } = this.store.analysisStatus()
-    if (revision === analyzedRevision) return
+    const status = this.store.analysisStatus()
+    const { revision } = status
+    if (!needsAnalysis(status) || this.analyzingRevisions.has(revision)) return
 
-    const analysis = await this.analyzeRevision(revision)
-    if (!analysis) return
-    const chunks = await packStream(analysisJson(analysis))
-    const version = this.store.publishAnalysis(revision, chunks)
-    if (version !== undefined) this.broadcast({ type: 'analysis_ready', version })
+    this.analyzingRevisions.add(revision)
+    try {
+      const analysis = await this.analyzeRevision(revision)
+      if (!analysis) return
+      const chunks = await packStream(analysisJson(analysis))
+      const version = this.store.publishAnalysis(revision, chunks)
+      if (version !== undefined) this.broadcast({ type: 'analysis_ready', version })
+    } finally {
+      this.analyzingRevisions.delete(revision)
+    }
   }
 
   private async analyzeRevision(revision: number): Promise<Analysis | undefined> {
@@ -222,11 +248,7 @@ export class BattleRoom extends DurableObject<Env> {
   // RPC keeps the stored bytes compressed across the DO-to-Worker hop.
   async readAnalysis(ifNoneMatch: string | null): Promise<AnalysisRead> {
     if (!this.store.exists()) return { status: 404 }
-    const status = this.store.analysisStatus()
-    if (status.revision !== status.analyzedRevision && await this.ctx.storage.getAlarm() === null) {
-      // Rooms created by older versions can build their first result without changing battle data.
-      await this.scheduleAnalysis()
-    }
+    await this.ensureAnalysisScheduled()
     // Read the version and its chunks together, after any scheduling awaits.
     const { version } = this.store.analysisStatus()
     if (version === 0) return { status: 503 }

@@ -879,3 +879,55 @@ it('deletes a saved fit and broadcasts its removal to another viewer', async () 
     viewer.close()
   }
 })
+
+it.each([
+  ['analysis', false], ['summary', true], ['socket', true],
+] as const)('refreshes stale analyzer output on the first %s request and keeps serving the old analysis', async (trigger, versioned) => {
+  const id = await prepare(0xa50 + ['analysis', 'summary', 'socket'].indexOf(trigger))
+  const stub = env.BATTLE.getByName(id)
+  const uploadResponse = await upload(id, 'valid log')
+  expect(uploadResponse.status).toBe(200)
+  await uploadResponse.json()
+  expect(await runDurableObjectAlarm(stub)).toBe(true)
+  const current = (await decodeAnalysis(await rawAnalysis(id))).value
+  expect(current.stats.length).toBeGreaterThan(0)
+  const old = await packJson({ ...current, stats: [] })
+  const viewer = await connect(id)
+  try {
+    expect(await viewer.next()).toMatchObject({ type: 'snapshot', state: { analysisVersion: 1 } })
+    await runInDurableObject(stub, (_, { storage }) => {
+      const hasAnalyzerVersion = storage.sql.exec<{ name: string }>('PRAGMA table_info(analysis_state)').toArray()
+        .some(({ name }) => name === 'analyzerVersion')
+      if (hasAnalyzerVersion && !versioned) storage.sql.exec('ALTER TABLE analysis_state DROP COLUMN analyzerVersion')
+      if (!hasAnalyzerVersion && versioned) storage.sql.exec('ALTER TABLE analysis_state ADD COLUMN analyzerVersion INTEGER DEFAULT 0')
+      if (versioned) storage.sql.exec('UPDATE analysis_state SET analyzerVersion = 0 WHERE id = 1')
+      storage.sql.exec('DELETE FROM analysis_chunks')
+      old.forEach((chunk, seq) => storage.sql.exec('INSERT INTO analysis_chunks VALUES (?, ?)', seq, chunk))
+    })
+
+    if (trigger === 'summary') {
+      expect((await state(id)).analysisVersion).toBe(1)
+    } else if (trigger === 'socket') {
+      const other = await connect(id)
+      try {
+        expect(await other.next()).toMatchObject({ type: 'snapshot', state: { analysisVersion: 1 } })
+      } finally {
+        other.close()
+      }
+    } else {
+      const oldResponse = await rawAnalysis(id)
+      expect(oldResponse.headers.get('etag')).toBe('"v1"')
+      expect((await decodeAnalysis(oldResponse)).value.stats).toEqual([])
+    }
+    expect(await runDurableObjectAlarm(stub)).toBe(true)
+    expect(await viewer.next()).toEqual({ type: 'analysis_ready', version: 2 })
+    const refreshed = await rawAnalysis(id)
+    expect(refreshed.headers.get('etag')).toBe('"v2"')
+    expect((await decodeAnalysis(refreshed)).value).toEqual(current)
+
+    expect((await state(id)).analysisVersion).toBe(2)
+    expect(await runDurableObjectAlarm(stub)).toBe(false)
+  } finally {
+    viewer.close()
+  }
+})
