@@ -1,0 +1,135 @@
+import {
+  useEffect, useId, useRef, useState, type Dispatch, type KeyboardEvent,
+  type PointerEvent, type ReactNode, type RefObject,
+} from 'react'
+import { clampWindow, dockTarget, windowDragClass, windowHeight, type DockEdge, type Viewport,
+  type WindowAction, type WindowId, type WindowRect, type WindowState } from './layout'
+
+interface WindowFrameProps {
+  id: WindowId
+  title: string
+  subtitle?: ReactNode
+  kind: 'aside' | 'section'
+  region: string
+  desk: RefObject<HTMLDivElement | null>
+  viewport: Viewport
+  zIndex: number
+  dispatch: Dispatch<WindowAction>
+  state: WindowState
+  children: ReactNode
+}
+
+interface Gesture {
+  pointer: number
+  x: number
+  y: number
+  start: WindowRect
+  rect: WindowRect
+  mode: 'move' | 'resize'
+  target: DockEdge | null
+}
+
+const movement: Record<string, readonly [number, number]> = {
+  ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
+}
+
+export function WindowFrame({ id, title, subtitle, kind: Surface, region, desk, viewport, zIndex, dispatch, state, children }: WindowFrameProps) {
+  const body = useId()
+  const gesture = useRef<Gesture | null>(null)
+  const [preview, setPreview] = useState<{ rect: WindowRect; target: DockEdge | null } | null>(null)
+  const stored = state.rect && clampWindow(state.rect, viewport, state.minimized)
+  const rect = preview?.rect ?? stored
+  const { floating, minimized } = state
+
+  useEffect(() => () => {
+    if (gesture.current) document.body.classList.remove(windowDragClass)
+  }, [])
+
+  function raise() {
+    if (floating) dispatch({ type: 'focus', id })
+  }
+
+  function start(event: PointerEvent<HTMLElement>, mode: Gesture['mode']) {
+    if (!floating || !rect || event.button !== 0 || gesture.current
+      || (event.target as Element).closest('button') || document.body.classList.contains(windowDragClass)) return
+    event.preventDefault()
+    if (mode === 'move') event.currentTarget.focus({ preventScroll: true })
+    event.currentTarget.setPointerCapture(event.pointerId)
+    document.getSelection()?.removeAllRanges()
+    document.body.classList.add(windowDragClass)
+    gesture.current = {
+      pointer: event.pointerId, x: event.clientX, y: event.clientY, start: rect,
+      rect, mode, target: null,
+    }
+  }
+
+  function move(event: PointerEvent<HTMLElement>) {
+    const active = gesture.current
+    const bounds = desk.current?.getBoundingClientRect()
+    if (!active || active.pointer !== event.pointerId || !bounds) return
+    const dx = event.clientX - active.x
+    const dy = event.clientY - active.y
+    const startRect = active.start
+    if (active.mode === 'resize') {
+      active.rect = clampWindow({ ...startRect,
+        width: Math.min(viewport.width - startRect.x, startRect.width + dx),
+        height: Math.min(viewport.height - startRect.y, startRect.height + dy),
+      }, viewport)
+    } else {
+      active.rect = clampWindow({ ...startRect, x: startRect.x + dx, y: startRect.y + dy }, viewport, minimized)
+      active.target = dockTarget(id, { x: event.clientX - bounds.left, y: event.clientY - bounds.top }, viewport)
+    }
+    setPreview({ rect: active.rect, target: active.target })
+  }
+
+  function end(event: PointerEvent<HTMLElement>) {
+    const active = gesture.current
+    if (!active || active.pointer !== event.pointerId) return
+    gesture.current = null
+    document.body.classList.remove(windowDragClass)
+    setPreview(null)
+    if (event.type !== 'pointerup') return
+    if (active.target) dispatch({ type: 'dock', id })
+    else dispatch({ type: 'position', id, rect: active.rect })
+  }
+
+  function moveByKey(event: KeyboardEvent<HTMLElement>) {
+    const delta = movement[event.key]
+    if (!floating || !stored || !delta || event.currentTarget !== event.target) return
+    event.preventDefault()
+    const step = event.shiftKey ? 32 : 8
+    dispatch({ type: 'position', id, rect: clampWindow({
+      ...stored, x: stored.x + delta[0] * step, y: stored.y + delta[1] * step,
+    }, viewport, minimized) })
+  }
+
+  const handlers = { onPointerMove: move, onPointerUp: end, onPointerCancel: end, onLostPointerCapture: end }
+  const action = floating ? '停靠' : '弹出'
+  const size = minimized ? '还原' : '最小化'
+  return (
+    <>
+      <Surface className={`battle-window ${id === 'feed' ? 'battle-feed' : id === 'timeline' ? 'battle-timeline' : 'battle-panel'}`}
+        aria-label={region} data-window={id} data-floating={floating} data-minimized={minimized}
+        style={floating && rect ? { left: rect.x, top: rect.y, width: rect.width, height: minimized ? Math.min(windowHeight, viewport.height) : rect.height, zIndex } : undefined}
+        onPointerDown={raise} onFocusCapture={raise}>
+        <div className="battle-window-titlebar" tabIndex={floating ? 0 : undefined} role="group"
+          aria-label={`${title} 标题栏`} aria-keyshortcuts={floating ? 'ArrowLeft ArrowRight ArrowUp ArrowDown' : undefined}
+          onPointerDown={(event) => start(event, 'move')} onKeyDown={moveByKey} {...handlers}>
+          <span className="battle-window-heading">{title}
+            {subtitle && <span className="battle-window-subtitle">{subtitle}</span>}
+          </span>
+          <button type="button" aria-label={`${action} ${title}`} title={action}
+            onClick={() => floating ? dispatch({ type: 'dock', id }) : dispatch({ type: 'pop', id, viewport })}>{floating ? '×' : '⧉'}</button>
+          <button type="button" aria-label={`${size} ${title}`} title={size} aria-controls={body} aria-expanded={!minimized}
+            onClick={() => dispatch({ type: 'minimize', id })}>{minimized ? '+' : '–'}</button>
+        </div>
+        <div id={body} className={`battle-window-body${id === 'feed' ? ' battle-feed-content' : ''}`} hidden={minimized}>
+          {children}
+        </div>
+        {floating && !minimized && <div className="battle-window-grip" aria-hidden="true"
+          onPointerDown={(event) => start(event, 'resize')} {...handlers} />}
+      </Surface>
+      {preview?.target && <div className="battle-window-guide" data-dock-guide={preview.target} aria-hidden="true" />}
+    </>
+  )
+}

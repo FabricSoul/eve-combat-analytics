@@ -1,0 +1,117 @@
+.battle-layout[data-layout="desktop"] {
+  isolation: isolate;
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-columns: var(--battle-panel-width, 280px) minmax(0, 1fr) var(--battle-feed-width);
+}
+.battle-layout[data-layout="desktop"][data-panel-docked="false"] { --battle-panel-width: 0px; }
+.battle-layout[data-layout="desktop"][data-feed-docked="false"] { --battle-feed-width: 0px; }
+
+.battle-window {
+  --window-bar-height: 34px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-surface);
+}
+.battle-window[data-minimized="true"] { align-self: start; }
+.battle-window[data-floating="true"] {
+  position: absolute;
+  grid-area: auto;
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-card);
+}
+.battle-window[data-floating="true"]:focus-within {
+  border-color: color-mix(in srgb, var(--color-accent-line) 65%, var(--color-hair));
+}
+.battle-window-titlebar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--window-bar-height);
+  padding-inline: var(--space-3) var(--space-1);
+  border-bottom: 1px solid var(--color-hair);
+  font-size: var(--fs-s);
+  font-weight: 500;
+}
+.battle-window[data-floating="true"] .battle-window-titlebar {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.battle-window-titlebar:focus-visible { outline-offset: -2px; }
+.battle-window-heading { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.battle-window-subtitle { margin-inline-start: var(--space-2); color: var(--color-text-3); font-weight: 400; }
+.battle-window-titlebar button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--space-6);
+  height: var(--space-6);
+  border-radius: var(--radius-ctl);
+  color: var(--color-text-2);
+  font-size: var(--fs-l);
+  cursor: pointer;
+}
+.battle-window-titlebar button:hover { background: var(--color-raised); color: var(--color-text); }
+.battle-window-body { flex: 1; min-width: 0; min-height: 0; overflow: auto; }
+.battle-window.battle-timeline[data-floating="false"] > .battle-window-body { overflow: visible; }
+.battle-window.battle-panel > .battle-window-body { display: flex; flex-direction: column; overflow: visible; }
+.battle-window.battle-panel .battle-panel-content { min-width: 0; }
+
+.battle-window-grip {
+  position: absolute;
+  inset: auto 0 0 auto;
+  width: var(--space-4);
+  height: var(--space-4);
+  touch-action: none;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 55%, var(--color-text-3) 55% 61%, transparent 61% 73%, var(--color-text-3) 73% 79%, transparent 79%);
+}
+.battle-window-guide {
+  position: absolute;
+  z-index: 11;
+  pointer-events: none;
+  border: 1px dashed var(--color-accent-line);
+  border-radius: var(--radius-card);
+  background: var(--color-sel);
+}
+.battle-window-guide[data-dock-guide="left"] { inset: var(--space-2) auto var(--space-2) var(--space-2); width: 280px; }
+.battle-window-guide[data-dock-guide="right"] { inset: var(--space-2) var(--space-2) var(--space-2) auto; width: 340px; }
+.battle-window-guide[data-dock-guide="bottom"] { inset: auto var(--space-2) var(--space-2); height: min(188px, 35%); }
+
+body.battle-window-dragging,
+body.battle-window-dragging * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  cursor: grabbing !important;
+}
+
+/* Selected pilot, upload and side-editing overlays sit above the detached panes. */
+[data-layout="desktop"] .battle-drawer { z-index: 12; }
+[data-layout="desktop"] .battle-upload { z-index: 13; }
+[data-layout="desktop"] .battle-sides { z-index: 14; }
+
+.app-window-controls { display: flex; align-items: center; gap: var(--space-1); }
+.app-window-controls button {
+  height: 28px;
+  padding-inline: var(--space-1);
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-ctl);
+  color: var(--color-text-2);
+  font-size: var(--fs-s);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.app-window-controls button:hover, .app-window-controls button[aria-pressed="true"] {
+  background: var(--color-raised);
+  color: var(--color-text);
+}
+@media (width < 1270px) {
+  .app-topbar:has(.app-window-controls) .app-topbar-isk { display: none; }
+}
+@media (width < 1150px) {
+  .app-topbar:has(.app-window-controls) .app-topbar-meta { display: none; }
+}

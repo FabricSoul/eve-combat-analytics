@@ -1,4 +1,4 @@
-import { useMemo, useState, type Ref } from 'react'
+import { useMemo, useState, type ReactNode, type Ref } from 'react'
 import type { Analysis, BattleSummary } from '@/core/contract'
 import { Icon } from '../battle/upload/icons'
 import { fmtDate, fmtIsk, fmtNum } from '../lib/format'
@@ -23,12 +23,13 @@ export interface TopBarProps {
   menuOpen?: boolean
   onMenuOpenChange?(open: boolean): void
   menuTrigger?: Ref<HTMLButtonElement>
+  windowControls?: ReactNode
   shareUrl?(): string
 }
 
 export function TopBar({
   appearance, onToggleAppearance, summary, analysis, oursSide, onOursSideChange, onUpload, onOpenSides, shareUrl,
-  home = false, live, reconnecting, menuOpen = false, onMenuOpenChange, menuTrigger,
+  home = false, live, reconnecting, menuOpen = false, onMenuOpenChange, menuTrigger, windowControls,
 }: TopBarProps) {
   const [share, setShare] = useState('')
   const [copied, setCopied] = useState(false)
@@ -86,6 +87,7 @@ export function TopBar({
         aria-expanded={menuOpen} aria-controls="battle-topbar-actions" onClick={() => onMenuOpenChange?.(!menuOpen)}>⋯</Button>}
       <div className="app-topbar-actions" id={summary ? 'battle-topbar-actions' : undefined} data-menu-open={menuOpen}>
         {stats && <span className="app-topbar-menu-meta">{stats}</span>}
+        {windowControls}
         {onOursSideChange && sides.length > 1 && <SidePicker choices={sides} value={oursSide} onChange={onOursSideChange} />}
         {onOpenSides && <Button variant="ghost" onClick={(event) => onOpenSides(event.currentTarget)}>排边</Button>}
         {onUpload && <Button className="app-topbar-upload-desktop" onClick={onUpload}>上传日志</Button>}

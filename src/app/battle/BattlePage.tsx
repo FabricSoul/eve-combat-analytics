@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { recordRecent } from '../home/recent'
+import { fmtNum } from '../lib/format'
 import { defaultOursSide } from '../lib/sides'
 import { AppShell } from '../shell/AppShell'
 import { battleTitle } from '../shell/battle-title'
 import { PhonePersonPage } from '../shell/PhonePersonPage'
 import { RosterRail } from '../shell/RosterRail'
 import { useBattleLayout } from '../shell/useBattleLayout'
+import { DesktopWindows, WindowControls, useWindowViewport } from '../shell/windows/DesktopWindows'
+import { loadWindowLayout, saveWindowLayout, windowLayoutReducer, windowVisible, type WindowId } from '../shell/windows/layout'
+import '../shell/windows/windows.css'
 import { BattleProvider, useBattleContext } from '../state/battle-store'
 import { ViewProvider, useView, writeReplayNoise, type PanelTab } from '../state/view-store'
 import { BottomSheet } from '../ui/BottomSheet'
@@ -54,7 +58,26 @@ function BattleWorkspace() {
   const desktopDrawerOpen = Boolean(summary && view.selected && layout !== 'phone')
   const picker = useRef<HTMLInputElement>(null)
   const openPicker = () => picker.current?.click()
-  const Panel = panels[view.panelTab]
+  const desk = useRef<HTMLDivElement>(null)
+  const desktop = layout === 'desktop'
+  const [windows, dispatchWindow] = useReducer(windowLayoutReducer, undefined, () => loadWindowLayout())
+  const viewport = useWindowViewport(desk, desktop && Boolean(summary))
+  const activeDock = windows.activePanel
+  const docked = (id: WindowId) => windowVisible(windows, id) && !windows.windows[id].floating
+  const nextTabFocus = useRef<PanelTab | null>(null)
+
+  useEffect(() => {
+    if (desktop) saveWindowLayout(windows)
+  }, [desktop, windows])
+
+  useLayoutEffect(() => {
+    const tab = nextTabFocus.current
+    if (!tab) return
+    nextTabFocus.current = null
+    const target = windows.windows[tab].floating
+      ? `[data-window="${tab}"] .battle-window-titlebar` : `#${panelId}-tab-${tab}`
+    desk.current?.querySelector<HTMLElement>(target)?.focus({ preventScroll: true })
+  }, [windows])
   const opened = useRef<string | null>(null)
   const meta = summary?.meta
   const logCount = summary?.logs.length
@@ -121,6 +144,33 @@ function BattleWorkspace() {
     return () => window.removeEventListener('keydown', closeOrClear)
   }, [sidesOpen, closeSides, menuOpen, view.range, view.selected, view.select, view.setRange])
 
+  function renderPanel(tab: PanelTab, floating = false) {
+    const Panel = panels[tab]
+    return <div className="battle-panel-content" role={floating ? undefined : 'tabpanel'}
+      id={floating ? undefined : `${panelId}-panel-${tab}`}
+      aria-labelledby={floating ? undefined : `${panelId}-tab-${tab}`}
+      data-overlay={layout === 'tablet'}>
+      {tab === 'fit' && view.selected
+        ? <Button variant="ghost" onClick={() => {
+          view.setDrawerTab('fit')
+          desktopDrawer.current?.focus({ preventScroll: true })
+        }}>在个人详情中编辑配装</Button>
+        : <Panel />}
+    </div>
+  }
+
+  function renderDesktopWindow(id: WindowId, floating: boolean) {
+    if (id === 'feed') return <EventFeed />
+    if (id === 'timeline') return <Timeline />
+    return <>
+      {!floating && <Tabs id={panelId} tabs={tabs} value={id} label="战斗数据" onChange={(tab) => {
+        nextTabFocus.current = tab
+        dispatchWindow({ type: 'show', id: tab })
+      }} />}
+      {renderPanel(id, floating)}
+    </>
+  }
+
   function shareUrl() {
     const url = new URL(window.location.href)
     url.searchParams.set('ours', String(view.oursSide))
@@ -141,6 +191,7 @@ function BattleWorkspace() {
       menuOpen,
       onMenuOpenChange: setMenuOpen,
       menuTrigger,
+      windowControls: desktop && summary ? <WindowControls layout={windows} dispatch={dispatchWindow} /> : undefined,
       oursSide: view.oursSide,
       onOursSideChange: view.setOursSide,
       onUpload: summary ? openPicker : undefined,
@@ -148,37 +199,36 @@ function BattleWorkspace() {
       shareUrl: summary ? shareUrl : undefined,
     }}>
       {summary ? (
-        <div className="battle-layout" data-layout={layout}>
-          {layout !== 'phone' && (
+        <div ref={desk} className="battle-layout" data-layout={layout}
+          data-panel-docked={desktop ? docked(activeDock) : undefined}
+          data-feed-docked={desktop ? docked('feed') : undefined}>
+          {desktop && <DesktopWindows desk={desk} viewport={viewport} layout={windows} dispatch={dispatchWindow}
+            subtitles={{
+              roster: analysis ? `${fmtNum(analysis.coverage.find(({ side }) => side === view.oursSide)?.known ?? 0)} 人` : '',
+              feed: { merged: '合并同类', raw: '逐条', key: '只看关键' }[view.feedMode],
+              timeline: view.range ? '选段' : '全场',
+              compare: analysis ? `${fmtNum(analysis.stats.length)} 人` : '',
+              kills: `${fmtNum(summary.meta.killmails.length)} 次击毁`,
+              fit: view.selected ? analysis?.entities[view.selected]?.name ?? '' : '选择飞行员',
+            }} content={renderDesktopWindow} />}
+          {layout === 'tablet' && (
             <aside className="battle-panel" aria-label="战斗数据">
               <Tabs id={panelId} tabs={tabs} value={view.panelTab} onChange={view.setPanelTab} label="战斗数据" />
-              {layout === 'tablet' && (
-                <div className="battle-rail-panel" id={`${panelId}-panel-roster`}
-                  role={view.panelTab === 'roster' ? 'tabpanel' : undefined}
-                  aria-labelledby={view.panelTab === 'roster' ? `${panelId}-tab-roster` : undefined}>
-                  <RosterRail />
-                </div>
-              )}
-              {(layout === 'desktop' || view.panelTab !== 'roster') && (
-                <div className="battle-panel-content" role="tabpanel" id={`${panelId}-panel-${view.panelTab}`}
-                  aria-labelledby={`${panelId}-tab-${view.panelTab}`} data-overlay={layout === 'tablet'}>
-                  {view.panelTab === 'fit' && view.selected
-                    ? <Button variant="ghost" onClick={() => {
-                      view.setDrawerTab('fit')
-                      desktopDrawer.current?.focus({ preventScroll: true })
-                    }}>在个人详情中编辑配装</Button>
-                    : <Panel />}
-                </div>
-              )}
+              <div className="battle-rail-panel" id={`${panelId}-panel-roster`}
+                role={view.panelTab === 'roster' ? 'tabpanel' : undefined}
+                aria-labelledby={view.panelTab === 'roster' ? `${panelId}-tab-roster` : undefined}>
+                <RosterRail />
+              </div>
+              {view.panelTab !== 'roster' && renderPanel(view.panelTab)}
             </aside>
           )}
           <section className="battle-replay" aria-label="回放">
             {summary.logs.length === 0 ? <EmptyBattle onUpload={openPicker} /> : <ReplayCanvas />}
           </section>
-          {layout !== 'phone' && <aside className="battle-feed" aria-label="事件流">
+          {layout === 'tablet' && <aside className="battle-feed" aria-label="事件流">
             <div className="battle-feed-content"><EventFeed /></div>
           </aside>}
-          <section className="battle-timeline" aria-label="时间轴"><Timeline compact={layout === 'phone'} /></section>
+          {!desktop && <section className="battle-timeline" aria-label="时间轴"><Timeline compact={layout === 'phone'} /></section>}
           {layout === 'phone' && (
             <BottomSheet<PhoneTab> tabs={phoneTabs} value={phoneTab} onChange={setPhoneTab}>
               <PhonePanel />

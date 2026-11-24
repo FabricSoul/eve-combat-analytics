@@ -324,18 +324,60 @@ export class BattleRoom extends ProductionRoom {
     assert.deepEqual(shot.errors, [])
     if (width === 1280) {
       const column = shot.page.getByRole('complementary', { name: '事件流' })
-      const { columnHeight, headerHeight, viewportHeight } = await column.evaluate((node) => {
+      const { columnHeight, headerHeight, rowViewportHeight } = await column.evaluate((node) => {
         const viewport = node.querySelector('.battle-feed-content')
-        const header = viewport.querySelector('.feed-head')
-        const headerHeight = header.getBoundingClientRect().bottom - viewport.getBoundingClientRect().top
-        return { columnHeight: node.clientHeight, headerHeight, viewportHeight: viewport.clientHeight }
+        const headerBottom = viewport.querySelector('.feed-head').getBoundingClientRect().bottom
+        const headerHeight = headerBottom - node.getBoundingClientRect().top
+        return { columnHeight: node.clientHeight, headerHeight, rowViewportHeight: viewport.getBoundingClientRect().bottom - headerBottom }
       })
-      const rowViewportHeight = viewportHeight - headerHeight
       assert.ok(rowViewportHeight >= columnHeight - headerHeight,
-        `Desktop feed needs ${columnHeight - headerHeight}px below the header, has ${rowViewportHeight}px`)
-      console.log(`Desktop feed (${theme}): ${viewportHeight}px viewport, ${headerHeight}px header, ${columnHeight}px column`)
+        `Desktop feed needs ${columnHeight - headerHeight}px below the headers, has ${rowViewportHeight}px`)
+      console.log(`Desktop feed (${theme}): ${rowViewportHeight}px below the headers, ${columnHeight}px column`)
     }
     if (width === 1280 && theme === 'dark') {
+      const feed = shot.page.getByRole('complementary', { name: '事件流' })
+      const replay = shot.page.getByRole('region', { name: '回放', exact: true })
+      const originalReplay = await replay.boundingBox()
+      await feed.getByRole('button', { name: '弹出 事件' }).click()
+      assert.equal(await feed.getAttribute('data-floating'), 'true')
+      assert.ok((await replay.boundingBox()).width > originalReplay.width, 'popping a feed gives its dock space to the canvas')
+
+      const handle = feed.getByRole('group', { name: '事件 标题栏' })
+      const title = await handle.boundingBox()
+      const position = await feed.boundingBox()
+      await shot.page.evaluate(() => window.getSelection().selectAllChildren(document.querySelector('.app-topbar-title')))
+      await shot.page.mouse.move(title.x + 64, title.y + 16)
+      await shot.page.mouse.down()
+      await shot.page.mouse.move(title.x - 24, title.y + 58, { steps: 8 })
+      assert.ok(await shot.page.evaluate(() => document.body.classList.contains('battle-window-dragging')))
+      assert.equal(await shot.page.evaluate(() => window.getSelection().toString()), '')
+      assert.equal(await shot.page.locator('.app-topbar-title').evaluate((node) => getComputedStyle(node).userSelect), 'none')
+      await shot.page.mouse.up()
+      assert.ok((await feed.boundingBox()).x < position.x)
+      assert.equal(await shot.page.evaluate(() => document.body.classList.contains('battle-window-dragging')), false)
+
+      const beforeKey = await feed.boundingBox()
+      await handle.press('ArrowLeft')
+      assert.equal((await feed.boundingBox()).x, beforeKey.x - 8)
+      const grip = await feed.locator('.battle-window-grip').boundingBox()
+      const beforeResize = await feed.boundingBox()
+      await shot.page.mouse.move(grip.x + 8, grip.y + 8)
+      await shot.page.mouse.down()
+      await shot.page.mouse.move(grip.x + 34, grip.y + 22, { steps: 6 })
+      await shot.page.mouse.up()
+      assert.equal((await feed.boundingBox()).width, beforeResize.width + 26)
+
+      const moved = await handle.boundingBox()
+      await shot.page.mouse.move(moved.x + 64, moved.y + 16)
+      await shot.page.mouse.down()
+      await shot.page.mouse.move(width - 5, moved.y + 16, { steps: 10 })
+      await shot.page.locator('[data-dock-guide="right"]').waitFor()
+      await shot.page.mouse.up()
+      assert.equal(await feed.getAttribute('data-floating'), 'false')
+      assert.equal((await replay.boundingBox()).width, originalReplay.width)
+      assert.equal(await shot.page.evaluate(() => document.body.classList.contains('battle-window-dragging')), false)
+      console.log('Desktop windows: canvas reflow, drag without selection, keyboard move, resize and snap to dock')
+
       await shot.page.getByRole('button', { name: '排边', exact: true }).click()
       const sides = shot.page.getByRole('dialog', { name: '排边' })
       const header = shot.page.getByRole('banner')
