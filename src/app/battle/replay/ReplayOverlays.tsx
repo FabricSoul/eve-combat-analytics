@@ -15,6 +15,8 @@ export const ReplayOverlayWorkspace = createContext<{
 } | null>(null)
 
 const titles = { legend: '交互图例', fights: '此刻交火' }
+const overlayGap = 8
+const fightsWidth = 220
 
 export function ReplayOverlays({ stage, closeFights, fightTime }: {
   stage: RefObject<HTMLDivElement | null>
@@ -30,25 +32,32 @@ export function ReplayOverlays({ stage, closeFights, fightTime }: {
   const baseId = useId()
   const anchoredToPage = workspace !== null
   const [geometry, setGeometry] = useState(() => ({
-    width: window.innerWidth, height: window.innerHeight, left: 24, right: window.innerWidth - 24, top: 112,
+    width: window.innerWidth, height: window.innerHeight, left: 24, right: window.innerWidth - 12,
+    legendTop: 120, fightsTop: 92,
   }))
 
   useLayoutEffect(() => {
-    const host = stage.current
     const trigger = legendButton.current
-    if (!host || !trigger) return
-    function measure() {
-      const bounds = host!.getBoundingClientRect()
+    const controls = trigger?.closest('.replay-header-actions')
+    // The stage's parent ref can still be unattached during this child layout effect.
+    const host = controls?.closest('.replay-stage')
+    if (!host || !trigger || !controls) return
+    const sides = host.querySelector('.replay-legend')
+    const measure = () => {
+      const bounds = host.getBoundingClientRect()
       const next = { width: window.innerWidth, height: window.innerHeight,
-        left: trigger!.getBoundingClientRect().left, right: bounds.right - 12,
-        top: trigger!.getBoundingClientRect().bottom + 4 }
+        left: trigger.getBoundingClientRect().left, right: bounds.right - 12,
+        legendTop: controls.getBoundingClientRect().bottom + overlayGap,
+        fightsTop: (sides?.getBoundingClientRect().bottom ?? bounds.top) + overlayGap }
       setGeometry((previous) => previous.width === next.width && previous.height === next.height
-        && previous.left === next.left && previous.right === next.right && previous.top === next.top ? previous : next)
+        && previous.left === next.left && previous.right === next.right
+        && previous.legendTop === next.legendTop && previous.fightsTop === next.fightsTop ? previous : next)
     }
     measure()
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
     observer?.observe(host)
-    observer?.observe(trigger)
+    observer?.observe(controls)
+    if (sides) observer?.observe(sides)
     window.addEventListener('resize', measure)
     if (!anchoredToPage) window.addEventListener('scroll', measure, true)
     return () => {
@@ -56,7 +65,7 @@ export function ReplayOverlays({ stage, closeFights, fightTime }: {
       window.removeEventListener('resize', measure)
       if (!anchoredToPage) window.removeEventListener('scroll', measure, true)
     }
-  }, [stage, anchoredToPage])
+  }, [anchoredToPage])
 
   useLayoutEffect(() => {
     const id = keyboardOpen.current
@@ -72,8 +81,8 @@ export function ReplayOverlays({ stage, closeFights, fightTime }: {
     const state = layout.overlays[id]
     const domId = `${baseId}-${id}`
     const rect = state.rect ?? (id === 'legend'
-      ? { x: geometry.left, y: geometry.top, width: 236, height: 424 }
-      : { x: geometry.right - 260, y: geometry.top, width: 260, height: 168 })
+      ? { x: geometry.left, y: geometry.legendTop, width: 236, height: Math.min(424, geometry.height - geometry.legendTop - overlayGap) }
+      : { x: geometry.right - fightsWidth, y: geometry.fightsTop, width: fightsWidth, height: 164 })
 
     function onWindowAction(action: ReplayOverlayAction) {
       dispatch(action)

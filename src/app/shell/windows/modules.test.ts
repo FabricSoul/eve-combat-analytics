@@ -54,10 +54,10 @@ describe('battle modules', () => {
     expect(moduleLayoutReducer(reopened, { type: 'reset' })).toEqual(defaults)
   })
 
-  it('budgets the timeline and 220px of modules before applying the replay height cap', () => {
-    expect(replayHeightBounds(800, 752, 176)).toEqual({ min: 220, max: 346, initial: 346 })
-    expect(replayHeightBounds(940, 892, 176)).toEqual({ min: 220, max: 486, initial: 486 })
-    expect(replayHeightBounds(1500, 1452, 150)).toEqual({ min: 220, max: 1072, initial: 930 })
+  it('budgets the timeline inside the default stage height and leaves at least 220px for modules where possible', () => {
+    expect(replayHeightBounds(800, 752, 176)).toEqual({ min: 220, max: 346, initial: 318 })
+    expect(replayHeightBounds(940, 892, 176)).toEqual({ min: 220, max: 486, initial: 405 })
+    expect(replayHeightBounds(1500, 1452, 150)).toEqual({ min: 220, max: 1072, initial: 778 })
     expect(replayHeightBounds(400, 352, 150)).toEqual({ min: 120, max: 120, initial: 120 })
   })
 })
