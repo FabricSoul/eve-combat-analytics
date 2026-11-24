@@ -4,7 +4,7 @@ import { MAX_BATTLE_SIDES } from '../core/analysis/sides'
 import { sideOf } from '../core/br/normalize'
 import { GamelogFormatError } from '../core/contract'
 import type {
-  Analysis, ApiError, BattleMeta, FitEntry, KillmailParticipant, LogEvent, NameIndex, ServerMessage,
+  Analysis, ApiError, BattleMeta, EntityKey, FitEntry, IdentityMerge, KillmailParticipant, LogEvent, NameIndex, ServerMessage,
   SideOverride, SideSubject, UploadResult,
 } from '../core/contract'
 import { analysisJson } from './analysis-json'
@@ -62,12 +62,20 @@ function isSideSubject(subject: unknown): subject is SideSubject {
   return match?.[0] === subject && Number.isSafeInteger(Number(match[1]))
 }
 
-async function readSideEdit(request: Request): Promise<unknown> {
+async function readEdit(request: Request, kind: 'side' | 'identity'): Promise<unknown> {
   try {
-    return JSON.parse(await readText(request, 1024, 'Side edits must be at most 1 KiB'))
+    return JSON.parse(await readText(request, 1024, 'Battle edits must be at most 1 KiB'))
   } catch {
-    throw new ApiFailure('bad_request', 'Expected a JSON side edit')
+    throw new ApiFailure('bad_request', `Expected a JSON ${kind} edit`)
   }
+}
+
+function isMergeSource(from: unknown): from is EntityKey {
+  return typeof from === 'string' && (/^ship:[1-9]\d*:-?\d+$/.test(from) || (from.startsWith('name:') && !!from.slice(5).trim()))
+}
+
+function isMergeTarget(to: unknown): to is IdentityMerge['to'] {
+  return isSideSubject(to) && to.startsWith('char:')
 }
 
 type Battle = { meta: BattleMeta; sides: Map<number, SideAssignment> }
@@ -167,8 +175,12 @@ export class BattleRoom extends DurableObject<Env> {
         return await this.inOrder(() => this.setFit(charId, eft))
       }
       if (request.method === 'PUT' && route === 'sides') {
-        const data = await readSideEdit(request)
+        const data = await readEdit(request, 'side')
         return await this.inOrder(() => this.setSide(data))
+      }
+      if (request.method === 'PUT' && route === 'identities') {
+        const data = await readEdit(request, 'identity')
+        return await this.inOrder(() => this.setIdentity(data))
       }
       if (request.method === 'GET' && route === 'ws') {
         if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
@@ -401,6 +413,31 @@ export class BattleRoom extends DurableObject<Env> {
     const overrides = this.store.setSide(override)
     this.broadcast({ type: 'sides_set', overrides })
     return Response.json(override)
+  }
+
+  private async setIdentity(data: unknown): Promise<Response> {
+    if (!data || typeof data !== 'object' || !('from' in data) || !isMergeSource(data.from)
+      || !('to' in data) || (data.to !== null && !isMergeTarget(data.to))) {
+      throw new ApiFailure('bad_request', 'Expected an unresolved source and a character target or null')
+    }
+    const { from, to } = data
+    const current = this.store.identityMerges()
+    if (to !== null || !current?.some((merge) => merge.from === from)) {
+      const { meta } = await this.battle()
+      const state = await this.store.state(meta)
+      // Check the original source even when it has already disappeared into a merge.
+      const { entities } = analyze({ ...state, identityMerges: current?.filter((merge) => merge.from !== from) })
+      if (!Object.hasOwn(entities, from) || (to !== null && !Object.hasOwn(entities, to))) {
+        throw new ApiFailure('bad_request', 'The source and target must be entities in this battle')
+      }
+    }
+
+    if (to === null && !current?.some((merge) => merge.from === from)) return Response.json({ removed: from })
+    const setAt = this.services.now()
+    await this.scheduleAnalysis()
+    const merges = this.store.setIdentity(from, to, setAt)
+    this.broadcast({ type: 'identities_set', merges })
+    return Response.json(to === null ? { removed: from } : { from, to, setAt } satisfies IdentityMerge)
   }
 
   private openWebSocket(meta: BattleMeta): Response {

@@ -1,4 +1,4 @@
-import type { BattleState, Counterparty, Entity, EntityKey, LogEvent, UploadedLog } from '../contract'
+import type { BattleState, Counterparty, Entity, EntityKey, IdentityMerge, LogEvent, UploadedLog } from '../contract'
 import { isEquipmentType } from '../log/counterparty'
 import { addShip, charKey } from './entities'
 import { assignedSide, type SideAssignments } from './sides'
@@ -90,6 +90,22 @@ export function indexIdentities(
     listenersByName.set(charName, character)
     listenersById.set(charId, character)
   }
+  const merges = new Map<EntityKey, IdentityMerge['to']>(state.identityMerges?.map(({ from, to }) => [from, to]))
+  const namesById = new Map<number, string>()
+  if (merges.size) {
+    for (const [name, entry] of Object.entries(names)) if (entry) namesById.set(entry.charId, name)
+  }
+
+  function mergedCharacter(key: EntityKey): Character | undefined {
+    const target = merges.get(key)
+    if (!target) return
+    const charId = Number(target.slice(5))
+    return listenersById.get(charId) ?? {
+      charId, side: assignedSide(assignments, charId).side,
+      name: meta.names[charId]?.name ?? namesById.get(charId) ?? String(charId),
+    }
+  }
+
   const namedSightings = new Map<string, Character | null>()
   const byName = new Map<string, Character | null>()
   const equipmentLabels = new Map<string, boolean>()
@@ -166,17 +182,14 @@ export function indexIdentities(
     const name = item ? null : label.name
     const shipType = item ? null : label.shipType
     const shipOnly = name === null && shipTypeId != null
-    const character = name !== null
+    const unresolved = shipOnly ? `ship:${shipTypeId}:${side}` as const : `name:${name ?? raw}` as const
+    const character = mergedCharacter(unresolved) ?? (name !== null
       ? named(name)
       : shipOnly
         ? uniqueCandidate(ships.get(shipTypeId)?.get(side), t, observer)
-        : null
+        : null)
     const shipName = shipTypeId == null ? undefined : meta.names[shipTypeId]?.name
-    const key = character
-      ? charKey(character.charId)
-      : shipOnly
-        ? `ship:${shipTypeId}:${side}` as const
-        : `name:${name ?? raw}` as const
+    const key = character ? charKey(character.charId) : unresolved
     let entity = entities.get(key)
     if (!entity) {
       entity = {

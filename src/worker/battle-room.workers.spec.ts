@@ -788,3 +788,50 @@ it('saves the upload on an ESI name failure and resolves the previously indexed 
   expect((await upload(id, 'replacement')).status).toBe(200)
   expect((await state(id)).meta.names[1000165]).toEqual({ name: 'Hedion University', category: 'corporation' })
 })
+
+it('validates, persists, publishes and removes identity merges across eviction', async () => {
+  const id = await prepare(0x1d3)
+  const stub = env.BATTLE.getByName(id)
+  const put = (from: string, to: string | null) => worker.default.fetch(`${battle(id)}/identities`, {
+    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from, to }),
+  })
+  const log = await upload(id, 'valid log')
+  expect(log.status).toBe(200)
+  await log.json()
+  for (const [from, to] of [
+    ['char:100', 'char:101'], ['name:Missing', 'char:101'], ['name:NPC', 'name:Target'],
+    ['name:NPC', 'char:9999999999999999'], ['name:NPC', 'char:999999'],
+  ] as const) {
+    const bad = await put(from, to)
+    expect(bad.status).toBe(400)
+    expect(await bad.json()).toMatchObject({ error: 'bad_request' })
+  }
+  const viewer = await connect(id)
+  try {
+    expect(await viewer.next()).toMatchObject({ type: 'snapshot' })
+    const ok = await put('name:NPC', 'char:101')
+    expect(ok.status).toBe(200)
+    const merge = { from: 'name:NPC', to: 'char:101', setAt: now }
+    expect(await ok.json()).toEqual(merge)
+    expect(await viewer.next()).toEqual({ type: 'identities_set', merges: [merge] })
+  } finally {
+    viewer.close()
+  }
+  await evictDurableObject(stub)
+  const after = await connect(id)
+  try {
+    expect(await after.next()).toMatchObject({ type: 'snapshot', state: { identityMerges: [{ from: 'name:NPC', to: 'char:101' }] } })
+    expect(await runDurableObjectAlarm(stub)).toBe(true)
+    expect(await after.next()).toMatchObject({ type: 'analysis_ready' })
+    const { value } = await decodeAnalysis(await rawAnalysis(id))
+    expect(value.entities['name:NPC']).toBeUndefined()
+    expect(value.interactions.filter(({ to }) => to === 'char:101')).toHaveLength(3)
+    const remove = await put('name:NPC', null)
+    expect(remove.status).toBe(200)
+    expect(await remove.json()).toEqual({ removed: 'name:NPC' })
+    expect(await after.next()).toEqual({ type: 'identities_set', merges: [] })
+    expect((await state(id)).identityMerges).toEqual([])
+  } finally {
+    after.close()
+  }
+})

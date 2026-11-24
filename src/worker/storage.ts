@@ -1,5 +1,5 @@
 import type {
-  BattleMeta, BattleState, BattleSummary, FitEntry, LogEvent, NameIndex, ParsedLog, SideOverride,
+  BattleMeta, BattleState, BattleSummary, EntityKey, FitEntry, IdentityMerge, LogEvent, NameIndex, ParsedLog, SideOverride,
   SideSubject, UploadedLog, UploadedLogSummary,
 } from '../core/contract'
 
@@ -217,17 +217,18 @@ export class BattleStorage {
 
   summary(meta: BattleMeta): BattleSummary {
     const logs = this.logRows().map((row) => this.summarizeLog(row))
-    return { meta, logs, ...this.fitsAndNames(), sideOverrides: this.sideOverrides(), analysisVersion: this.analysisStatus().version }
+    return { meta, logs, ...this.fitsAndNames(), sideOverrides: this.sideOverrides(), identityMerges: this.identityMerges(), analysisVersion: this.analysisStatus().version }
   }
 
   async state(meta: BattleMeta): Promise<BattleState> {
     const rows = this.logRows()
     const { fits, names } = this.fitsAndNames()
     const sideOverrides = this.sideOverrides()
+    const identityMerges = this.identityMerges()
     const logs: StoredLog[] = []
     // Read one JSON value at a time to cap transient decompression and parsing memory.
     for (const row of rows) logs.push(await this.getLog(row))
-    return { meta, logs, fits, names, sideOverrides }
+    return { meta, logs, fits, names, sideOverrides, identityMerges }
   }
 
   sideOverrides(): SideOverride[] {
@@ -264,6 +265,25 @@ export class BattleStorage {
       }
       this.markAnalysisDirty()
       return this.sideOverrides()
+    })
+  }
+
+  identityMerges(): IdentityMerge[] | undefined {
+    if (!this.hasTable('identity_merges')) return undefined
+    return this.sql.exec<{ source: EntityKey; target: IdentityMerge['to']; setAt: number }>(
+      'SELECT source, target, setAt FROM identity_merges ORDER BY rowid',
+    ).toArray().map(({ source, target, setAt }) => ({ from: source, to: target, setAt }))
+  }
+
+  setIdentity(from: EntityKey, to: IdentityMerge['to'] | null, setAt: number): IdentityMerge[] {
+    return this.storage.transactionSync(() => {
+      this.sql.exec(`CREATE TABLE IF NOT EXISTS identity_merges (
+        source TEXT PRIMARY KEY, target TEXT NOT NULL, setAt INTEGER NOT NULL
+      )`)
+      if (to === null) this.sql.exec('DELETE FROM identity_merges WHERE source = ?', from)
+      else this.sql.exec('INSERT OR REPLACE INTO identity_merges VALUES (?, ?, ?)', from, to, setAt)
+      this.markAnalysisDirty()
+      return this.identityMerges()!
     })
   }
 
