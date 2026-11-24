@@ -1,6 +1,6 @@
 import type { PanelTab } from '../../state/view-store'
 
-export const windowIds = ['roster', 'feed', 'timeline', 'compare', 'kills', 'fit'] as const
+export const windowIds = ['roster', 'feed', 'timeline', 'compare', 'hits', 'kills', 'fit'] as const
 export type WindowId = typeof windowIds[number]
 export type DockEdge = 'left' | 'right' | 'bottom'
 export interface Viewport { width: number; height: number }
@@ -26,13 +26,14 @@ export type WindowAction =
   | { type: 'reset' }
 
 export const windowTitles: Record<WindowId, string> = {
-  roster: '名单', feed: '事件', timeline: '时间轴', compare: '对比', kills: '击毁', fit: '配装',
+  roster: '名单', feed: '事件', timeline: '时间轴', compare: '对比', hits: '命中', kills: '击毁', fit: '配装',
 }
 
 export const windowHeight = 34
 export const windowStorageKey = 'eve-combat-analytics:window-layout'
 export const windowDragClass = 'battle-window-dragging'
-const storageVersion = 1
+// v2 adds the 命中 window; v1 layouts fall back to the default.
+const storageVersion = 2
 
 export function isPanel(id: WindowId): id is PanelTab {
   return id !== 'feed' && id !== 'timeline'
@@ -65,6 +66,7 @@ const sizes: Record<WindowId, Viewport> = {
   feed: { width: 380, height: 420 },
   timeline: { width: 720, height: 230 },
   compare: { width: 570, height: 400 },
+  hits: { width: 620, height: 460 },
   kills: { width: 360, height: 420 },
   fit: { width: 420, height: 420 },
 }

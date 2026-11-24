@@ -208,6 +208,7 @@ function BattleWorkspace() {
               feed: { merged: '合并同类', raw: '逐条', key: '只看关键' }[view.feedMode],
               timeline: view.range ? '选段' : '全场',
               compare: analysis ? `${fmtNum(analysis.stats.length)} 人` : '',
+              hits: '我方 · 敌方',
               kills: `${fmtNum(summary.meta.killmails.length)} 次击毁`,
               fit: view.selected ? analysis?.entities[view.selected]?.name ?? '' : '选择飞行员',
             }} content={renderDesktopWindow} />}

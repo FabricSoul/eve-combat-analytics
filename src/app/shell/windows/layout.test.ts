@@ -1,10 +1,26 @@
 import { describe, expect, it, vi } from 'vitest'
-import { clampWindow, defaultWindowLayout, dockTarget, loadWindowLayout, saveWindowLayout,
-  windowLayoutReducer, windowStorageKey } from './layout'
+import { clampWindow, defaultWindowLayout, dockTarget, isPanel, loadWindowLayout, saveWindowLayout,
+  windowIds, windowLayoutReducer, windowStorageKey, windowTitles } from './layout'
+import type { PanelTab } from '../../state/view-store'
 
 const viewport = { width: 1280, height: 752 }
 
 describe('desktop window layout', () => {
+  it('has a window for every side-panel tab, including 命中', () => {
+    const tabs: PanelTab[] = ['roster', 'compare', 'hits', 'kills', 'fit']
+    for (const tab of tabs) expect(windowIds).toContain(tab)
+    expect(windowTitles.hits).toBe('命中')
+    expect(isPanel('hits')).toBe(true)
+    const popped = windowLayoutReducer(defaultWindowLayout(), { type: 'pop', id: 'hits', viewport })
+    expect(popped.windows.hits.floating).toBe(true)
+  })
+
+  it('falls back to the default for a layout saved before the 命中 window existed', () => {
+    const old = { version: 1, windows: Object.fromEntries(['roster', 'feed', 'timeline', 'compare', 'kills', 'fit'].map((id) => [id, { floating: false, hidden: false, minimized: false, rect: null }])), activePanel: 'roster', order: ['roster', 'feed', 'timeline', 'compare', 'kills', 'fit'] }
+    const layout = loadWindowLayout({ getItem: () => JSON.stringify(old) })
+    expect(layout).toEqual(defaultWindowLayout())
+  })
+
   it('pops, raises, minimizes and redocks the same pane', () => {
     const initial = defaultWindowLayout()
     let layout = windowLayoutReducer(initial, { type: 'pop', id: 'feed', viewport })
