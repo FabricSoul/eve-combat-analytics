@@ -256,3 +256,53 @@ it('shares URL-backed drone, smartbomb, small-hit and miss filters between the c
     window.history.replaceState(null, '', originalUrl)
   }
 })
+
+it('pans a zoomed touch drag that starts on a ship and keeps a tap selectable', async () => {
+  await render(analysis())
+  const stage = host.querySelector<HTMLDivElement>('.replay-stage')!
+  Object.assign(stage, { setPointerCapture: vi.fn(), hasPointerCapture: () => false })
+  const target = button(alpha.name)
+  const zoom = host.querySelector<HTMLButtonElement>('[aria-label="放大"]')!
+  await act(() => zoom.click())
+  await refresh()
+  const coordinates = () => marker(alpha.name).style.transform.match(/translate3d\(([^,]+), ([^,]+)/)!.slice(1).map(parseFloat)
+  const before = coordinates()
+
+  function touch(type: string, x: number, y: number, element = target) {
+    const event = new MouseEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true })
+    Object.defineProperties(event, { pointerType: { value: 'touch' }, pointerId: { value: 5 } })
+    element.dispatchEvent(event)
+  }
+
+  await act(() => {
+    touch('pointerdown', 100, 100)
+    touch('pointermove', 130, 120)
+    touch('pointerup', 130, 120)
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+  })
+  await refresh()
+  const [x, y] = coordinates()
+  expect(x).toBeCloseTo(before[0]! + 30, 3)
+  expect(y).toBeCloseTo(before[1]! + 20, 3)
+  expect(select).not.toHaveBeenCalled()
+
+  await act(() => {
+    touch('pointerdown', 130, 120)
+    touch('pointerup', 130, 120)
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+  })
+  expect(select).toHaveBeenCalledExactlyOnceWith(alpha.key)
+
+  // Touch drags can finish without a synthetic click. The next control tap still works.
+  const fit = [...stage.querySelectorAll('button')].find((button) => button.textContent === '适应全部')!
+  await act(() => {
+    touch('pointerdown', 130, 120)
+    touch('pointermove', 146, 140)
+    touch('pointerup', 146, 140)
+    touch('pointerdown', 10, 10, fit)
+    touch('pointerup', 10, 10, fit)
+    fit.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+  })
+  await refresh()
+  expect(stage.hasAttribute('data-zoomed')).toBe(false)
+})

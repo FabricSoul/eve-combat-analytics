@@ -71,16 +71,16 @@ export function useReplayCamera(host: RefObject<HTMLDivElement | null>) {
   }
 
   function onPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (!gesture.current) ignoreClick.current = false
     if (event.button !== 0 || onControl(event.target)) return
     const element = event.currentTarget
     const onPilot = event.target instanceof Element && Boolean(event.target.closest('.replay-pilot'))
-    if (!gesture.current) ignoreClick.current = false
     if (onPilot && event.pointerType !== 'touch') return
     const point = localPoint(element, event)
     if (!gesture.current) {
       gesture.current = {
         pointers: new Map(), origin: point,
-        canPan: !onPilot && (event.pointerType !== 'touch' || camera.scale > 1),
+        canPan: event.pointerType !== 'touch' || camera.scale > 1,
         moved: false,
       }
     }
