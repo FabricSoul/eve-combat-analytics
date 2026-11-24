@@ -20,11 +20,9 @@ export function useIdentity(brId: string, merges: readonly IdentityMerge[] = [],
     const previous = merges.find((merge) => merge.from === from)?.to ?? null
     const rollBack = applyLocal?.(from, to)
     const saving = api.putIdentity(brId, from, to)
-    const finish = begin()
-    if (previous === to) finish()
-    else finish({
+    // The shared toast starts its clock now and offers 撤销 at once; undo reverts the local change, then sends the removal.
+    const finish = begin(previous === to ? undefined : {
       label: label ?? (to ? '已合并身份' : '已取消合并'),
-      // Undo reverts the optimistic change at once, then sends the removal once the first call has settled.
       revert: async () => {
         const undo = applyLocal?.(from, previous)
         try {
@@ -36,12 +34,13 @@ export function useIdentity(brId: string, merges: readonly IdentityMerge[] = [],
         }
       },
     })
+    if (previous === to) finish()
     try {
       await saving
       return true
     } catch (failure) {
       rollBack?.()
-      begin()()
+      finish()
       setError(failure instanceof ApiFailure ? failure.message : '无法保存合并')
       return false
     }
