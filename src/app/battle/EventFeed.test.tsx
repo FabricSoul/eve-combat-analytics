@@ -26,7 +26,7 @@ let mounted: ReturnType<typeof mountApp>
 beforeEach(() => { vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true) })
 afterEach(() => { mounted?.unmount(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
-const mount = (props: { compact?: boolean } = {}) => {
+const mount = (props: { compact?: boolean; search?: boolean; onSearchClose?: () => void } = {}) => {
   mounted = mountApp(createElement(EventFeed, props), { summary, analysis }, { initialTime: T })
   return mounted.container
 }
@@ -100,6 +100,23 @@ describe('EventFeed', () => {
   it('says so when nothing happened in the window', () => {
     mounted = mountApp(createElement(EventFeed), { summary, analysis: { ...analysis, interactions: [] } }, { initialTime: T })
     expect(mounted.container.textContent).toContain('没有事件')
+  })
+})
+
+describe('EventFeed search', () => {
+  it('Esc clears the text first, then closes the search', () => {
+    const close = vi.fn()
+    const el = mount({ search: true, onSearchClose: close })
+    const input = el.querySelector<HTMLInputElement>('input[type="search"]')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'zzz')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    expect(input.value).toBe('')
+    expect(close).not.toHaveBeenCalled()
+    act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    expect(close).toHaveBeenCalledOnce()
   })
 })
 

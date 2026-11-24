@@ -161,7 +161,7 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
 
   function renderModule(id: ModuleId) {
     if (id === 'roster') return <Roster search={search === id} alphabetical={rosterAlphabetical} onSearchClose={() => setSearch(null)} />
-    if (id === 'feed') return <EventFeed search={search === id} showFilters={eventFilters} />
+    if (id === 'feed') return <EventFeed search={search === id} onSearchClose={() => setSearch(null)} showFilters={eventFilters} />
     if (id === 'kills') return <KillsList expanded={killsExpanded} onRestore={() => setKillsExpanded(false)} />
     const Module = modules[id]
     return <Module />

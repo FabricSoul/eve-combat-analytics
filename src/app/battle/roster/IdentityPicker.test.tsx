@@ -3,6 +3,7 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Analysis, BattleSummary, Interaction } from '@/core/contract'
 import { api } from '../../api/client'
+import { BattleUndo } from '../undo'
 import { Roster } from '../Roster'
 import { useView } from '../../state/view-store'
 import { entity, mountApp, stats, tinyAnalysis, tinySummary } from './testing'
@@ -197,6 +198,28 @@ describe('IdentityPicker', () => {
     mount()
     expect(row('Pilot2').querySelector('.roster-dot')?.getAttribute('title')).toContain('据我方日志')
     expect(row('Pilot1').querySelector('.roster-dot')?.getAttribute('title')).toBeNull()
+  })
+})
+
+describe('undo toast', () => {
+  it('shows 正在应用… while saving, then 撤销 once the row change is visible; 撤销 puts the merge away again', async () => {
+    let finish!: () => void
+    vi.spyOn(api, 'putIdentity').mockReturnValueOnce(new Promise((resolve) => { finish = () => resolve({ from: 'name:Hidden', to: 'char:2', setAt: 1 }) }))
+      .mockResolvedValue({ removed: 'name:Hidden' })
+    mounted = mountApp(createElement(BattleUndo, null, createElement(Roster)), { summary: tinySummary, analysis })
+    const toast = () => document.querySelector('[data-battle-toast]')?.textContent ?? ''
+    act(() => row('Hidden').querySelector<HTMLButtonElement>('.roster-more')!.click())
+    act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === '这是谁…')!.click())
+    await act(async () => picker()!.querySelector<HTMLButtonElement>('[data-suggestion]')!.click())
+    expect(toast()).toBe('正在应用…')
+    expect(mounted.container.textContent).not.toContain('Hidden')
+    await act(async () => finish())
+    expect(toast()).toBe('已合并身份撤销')
+    expect(row('Pilot2').querySelector('.app-tag')?.textContent).toBe('合并')
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[data-battle-toast] button')].find((b) => b.textContent === '撤销')!.click())
+    expect(api.putIdentity).toHaveBeenLastCalledWith('tiny', 'name:Hidden', null)
+    expect(row('Pilot2').querySelector('.app-tag')).toBeNull()
+    expect(toast()).toBe('已撤销')
   })
 })
 

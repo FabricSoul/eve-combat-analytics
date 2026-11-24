@@ -16,6 +16,7 @@ export interface EventFeedProps {
   /** Force the compact variant; otherwise it follows the column width. */
   compact?: boolean
   search?: boolean
+  onSearchClose?: () => void
   showFilters?: boolean
 }
 
@@ -42,7 +43,7 @@ function useNarrow(forced: boolean | undefined) {
   return { root, compact: forced ?? narrow }
 }
 
-export function EventFeed({ compact: forcedCompact, search, showFilters = true }: EventFeedProps) {
+export function EventFeed({ compact: forcedCompact, search, onSearchClose, showFilters = true }: EventFeedProps) {
   const { summary, analysis } = useBattleContext()
   const view = useView()
   const visibleAnalysis = useNoiseFilteredAnalysis(analysis)
@@ -145,7 +146,13 @@ export function EventFeed({ compact: forcedCompact, search, showFilters = true }
         </div>
       </div>
       {search && <input autoFocus type="search" className="battle-module-search" aria-label="搜索事件"
-        placeholder="飞行员或武器" value={query} onChange={(event) => setQuery(event.currentTarget.value)} />}
+        placeholder="飞行员或武器" value={query} onChange={(event) => setQuery(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Escape') return
+          event.stopPropagation()
+          if (query) setQuery('')
+          else { event.currentTarget.blur(); onSearchClose?.() }
+        }} />}
       {showFilters && <div className="feed-chips">
         {mode === 'key' ? <span>击毁 · 主目标切换 · 前 1% 的大额伤害</span> : kinds.map(({ value, label }) => (
           <button key={value} type="button" aria-pressed={active.includes(value)} onClick={() => toggleKind(value)}>{label}</button>
