@@ -6,16 +6,30 @@ type Visible = (summary: BattleSummary) => boolean
 type Revert = (publishedVersion: number) => Promise<Visible | void>
 type Toast = { label: string; revert?: Revert; visible?: Visible }
 type Begin = (optimistic?: Toast) => (result?: Toast) => void
-type Countdown = { deadline: number | undefined; remaining: number }
-type Notice = { toast: Toast; countdown: Countdown; expired: boolean; retainedEarlier: boolean }
+type Notice = {
+  id: number
+  toast: Toast
+  deadline?: number
+  remaining: number
+  undoStarted?: boolean
+}
+type Update = (id: number, change: (notice: Notice) => Notice | undefined) => void
 
 const UndoContext = createContext<Begin>(() => () => {})
 const applying: Toast = { label: '正在应用…' }
 const undoDuration = 10_000
-const retainedLabel = '先前改动将保留'
+const feedbackDuration = 2500
 
 function waiting(toast: Toast) {
   return toast === applying || toast.visible !== undefined
+}
+
+function expire(notice: Notice) {
+  if (waiting(notice.toast)) return { ...notice, deadline: undefined, remaining: 0 }
+}
+
+function canUndo({ toast, remaining }: Notice) {
+  return Boolean(toast.revert && remaining > 0 && !waiting(toast))
 }
 
 export function useBattleUndo() { return useContext(UndoContext) }
@@ -30,107 +44,162 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
   publishedVersion?: number
   host?: HTMLElement | null
 }) {
-  const [notice, setNotice] = useState<Notice | null>(null)
-  const [hovered, setHovered] = useState(false)
-  const [focused, setFocused] = useState(false)
-  const current = useRef<Notice | null>(null)
-  const show = useCallback((next: Notice | null) => {
+  const [notices, setNotices] = useState<Notice[]>([])
+  const [overflow, setOverflow] = useState<number>()
+  const current = useRef<Notice[]>([])
+  const nextId = useRef(0)
+  const show = useCallback((next: Notice[]) => {
     current.current = next
-    setNotice(next)
+    setNotices(next)
   }, [])
 
-  const start = useCallback((optimistic: Toast | undefined, retainedEarlier: boolean): ReturnType<Begin> => {
-    const countdown = { deadline: Date.now() + undoDuration, remaining: undoDuration }
-    show({ countdown, toast: optimistic ?? applying, expired: false, retainedEarlier })
-    return (result) => {
-      const latest = current.current
-      if (latest?.countdown !== countdown) return
-      if (result) show({ ...latest, toast: result })
-      else if (retainedEarlier) show({ ...latest, toast: { label: retainedLabel }, retainedEarlier: false })
-      else show(null)
-    }
+  const update = useCallback<Update>((id, change) => {
+    const notice = current.current.find((entry) => entry.id === id)
+    if (!notice) return
+    const next = change(notice)
+    if (next === notice) return
+    show(next
+      ? current.current.map((entry) => entry === notice ? next : entry)
+      : current.current.filter((entry) => entry !== notice))
   }, [show])
 
   const begin = useCallback<Begin>((optimistic) => {
-    const earlier = current.current
-    const replacing = earlier && !earlier.expired && (earlier.toast === applying || earlier.toast.revert !== undefined)
-    return start(optimistic, Boolean(replacing || earlier?.retainedEarlier))
-  }, [start])
+    const id = ++nextId.current
+    const notice: Notice = {
+      id, toast: optimistic ?? applying, deadline: Date.now() + undoDuration, remaining: undoDuration,
+    }
+    // Completed feedback yields its space when another action begins.
+    const active = current.current.filter((entry) => waiting(entry.toast) || canUndo(entry))
+    const evicted = active.length >= 3 ? active[0] : undefined
+    if (evicted && evicted.remaining > 0) setOverflow(id)
+    show([...active, notice].slice(-3))
+    return (result) => update(id, (latest) => {
+      if (latest.undoStarted) return latest
+      if (result) return { ...latest, toast: result }
+    })
+  }, [show, update])
 
-  const countdown = notice?.countdown
-  const paused = hovered || focused
   useEffect(() => {
-    if (!countdown || countdown.remaining === 0) return
-
-    function expire() {
-      if (!countdown) return
-      countdown.remaining = 0
-      const latest = current.current
-      if (latest?.countdown !== countdown) return
-      if (waiting(latest.toast)) show({ ...latest, expired: true })
-      else if (latest.toast.revert) show(null)
-    }
-
-    if (paused) {
-      if (countdown.deadline !== undefined) {
-        countdown.remaining = Math.max(0, countdown.deadline - Date.now())
-        countdown.deadline = undefined
-        if (countdown.remaining === 0) expire()
-      }
-      return
-    }
-    countdown.deadline ??= Date.now() + countdown.remaining
-    const timer = setTimeout(expire, Math.max(0, countdown.deadline - Date.now()))
+    if (overflow === undefined) return
+    const timer = setTimeout(() => setOverflow(undefined), feedbackDuration)
     return () => clearTimeout(timer)
-  }, [countdown, paused, show])
+  }, [overflow])
 
   useEffect(() => {
-    const visible = notice?.toast.visible
-    if (visible && analyzedSummary && visible(analyzedSummary)) {
-      show({ ...notice, toast: { ...notice.toast, visible: undefined } })
-    }
-  }, [analyzedSummary, notice, show])
+    if (!analyzedSummary) return
+    const next = current.current.map((notice) => notice.toast.visible?.(analyzedSummary)
+      ? { ...notice, toast: { ...notice.toast, visible: undefined } }
+      : notice)
+    if (next.some((notice, index) => notice !== current.current[index])) show(next)
+  }, [analyzedSummary, notices, show])
 
-  const pending = notice !== null && waiting(notice.toast)
-  const canUndo = Boolean(notice?.toast.revert && !notice.expired && !pending)
-  const showing = notice !== null
-  useEffect(() => {
-    if (!showing) setHovered(false)
-    if (!canUndo) setFocused(false)
-  }, [canUndo, showing])
-
-  useEffect(() => {
-    if (!notice || pending || canUndo) return
-    const timer = setTimeout(() => { if (current.current === notice) show(null) }, 2500)
-    return () => clearTimeout(timer)
-  }, [canUndo, notice, pending, show])
-
-  async function undo() {
-    const edit = current.current
-    if (!edit?.toast.revert || waiting(edit.toast) || edit.expired) return
-    if (edit.countdown.deadline !== undefined && Date.now() >= edit.countdown.deadline) return
-    const finish = start(undefined, edit.retainedEarlier)
+  async function undo(id: number) {
+    const edit = current.current.find((notice) => notice.id === id)
+    const revert = edit?.toast.revert
+    if (!edit || !revert || !canUndo(edit)) return
+    if (edit.deadline !== undefined && Date.now() >= edit.deadline) return
+    update(id, (notice) => ({ ...notice, toast: applying, undoStarted: true }))
     try {
-      const visible = await edit.toast.revert(publishedVersion)
-      finish({ label: '已撤销', visible: visible || undefined })
+      const visible = await revert(publishedVersion)
+      update(id, (notice) => ({
+        ...notice, deadline: undefined, remaining: 0, toast: { label: '已撤销', visible: visible || undefined },
+      }))
     } catch {
-      finish({ label: '撤销失败，请重试', revert: edit.toast.revert })
+      update(id, (notice) => ({
+        ...notice,
+        toast: notice.remaining > 0 ? { label: '撤销失败，请重试', revert } : { label: '撤销失败' },
+      }))
     }
   }
 
-  const element = notice && <div className="battle-undo" data-battle-toast=""
+  const element = notices.length > 0 && <div
+    className="pointer-events-none z-[100] mx-auto mt-[var(--space-2)] mb-[calc(var(--space-2)_+_env(safe-area-inset-bottom))] flex max-w-[calc(100%_-_var(--space-4))] flex-none flex-col items-center gap-[var(--space-2)]">
+    {notices.map((notice, index) => <UndoNotice key={notice.id} notice={notice} update={update}
+      overflow={overflow !== undefined && index === notices.length - 1} onUndo={() => void undo(notice.id)} />)}
+  </div>
+  // The footer takes up its own space so the stack stays clear of the battle's scrollable rows.
+  const workspace = element && !host
+    ? 'flex h-dvh flex-col [&>.app-shell--battle]:min-h-0! [&>.app-shell--battle]:flex-1'
+    : 'contents'
+  return <UndoContext value={begin}>
+    <div className={workspace}>
+      {children}
+      {host ? createPortal(element, host) : element}
+    </div>
+  </UndoContext>
+}
+
+function UndoNotice({ notice, update, overflow, onUndo }: {
+  notice: Notice
+  update: Update
+  overflow: boolean
+  onUndo: () => void
+}) {
+  const { id, deadline, remaining, toast } = notice
+  const [hovered, setHovered] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const [seconds, setSeconds] = useState(Math.ceil(remaining / 1000))
+  const paused = hovered || focused
+  const pending = waiting(toast)
+  const undoable = canUndo(notice)
+
+  useEffect(() => {
+    if (!undoable) setFocused(false)
+  }, [undoable])
+
+  useEffect(() => {
+    const now = Date.now()
+    update(id, (latest) => {
+      if (latest.remaining === 0) return latest
+      if (paused && latest.deadline !== undefined) {
+        const left = latest.deadline - now
+        return left > 0 ? { ...latest, deadline: undefined, remaining: left } : expire(latest)
+      }
+      if (!paused && latest.deadline === undefined) return { ...latest, deadline: now + latest.remaining }
+      return latest
+    })
+  }, [id, paused, update])
+
+  useEffect(() => {
+    if (deadline === undefined) return
+    let timer: ReturnType<typeof setTimeout>
+    const tick = () => {
+      const left = deadline - Date.now()
+      if (left <= 0) {
+        update(id, (latest) => latest.deadline === deadline ? expire(latest) : latest)
+        return
+      }
+      setSeconds(Math.ceil(left / 1000))
+      timer = setTimeout(tick, left % 1000 || 1000)
+    }
+    tick()
+    return () => clearTimeout(timer)
+  }, [deadline, id, update])
+
+  useEffect(() => {
+    if (pending || undoable) return
+    const timer = setTimeout(() => update(id, () => undefined), feedbackDuration)
+    return () => clearTimeout(timer)
+  }, [id, pending, undoable, update])
+
+  const secondsLeft = deadline === undefined ? Math.ceil(remaining / 1000) : seconds
+  return <div className="battle-undo pointer-events-auto"
+    style={{ position: 'static', translate: 'none', maxWidth: '100%', whiteSpace: 'normal' }} data-battle-toast=""
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     onFocusCapture={() => setFocused(true)} onBlurCapture={(event) => {
       if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false)
     }}>
-    <span role="status" style={notice.retainedEarlier ? { whiteSpace: 'normal' } : undefined}>
-      {notice.retainedEarlier && `${retainedLabel} · `}
-      {pending ? applying.label : notice.toast.label}
-    </span>
-    {canUndo && <button type="button" onClick={() => void undo()}>撤销</button>}
+    <div className="min-w-0 [overflow-wrap:anywhere]">
+      <span role="status">{pending ? applying.label : toast.label}</span>
+      {overflow && <div role="status" className="text-[var(--color-text-2)]">
+        最早一项改动的撤销时间已结束
+      </div>}
+    </div>
+    {remaining > 0 && (pending || undoable) && <span role="timer" aria-label={`撤销剩余时间 ${secondsLeft} 秒`}
+      data-seconds={`${secondsLeft}s`}
+      className="min-w-[3ch] shrink-0 text-right [font-family:var(--font-mono)] tabular-nums after:content-[attr(data-seconds)]" />}
+    {undoable && <button type="button"
+      className="shrink-0 text-[color:var(--color-accent-line)]! [@media(pointer:coarse)]:min-h-[44px]! [@media(pointer:coarse)]:min-w-[44px]"
+      onClick={onUndo}>撤销</button>}
   </div>
-  return <UndoContext value={begin}>
-    {children}
-    {host ? createPortal(element, host) : element}
-  </UndoContext>
 }
