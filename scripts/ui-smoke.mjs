@@ -320,8 +320,10 @@ export class BattleRoom extends ProductionRoom {
     return identityMerges?.some(({ from, to }) => from === key && to === 'char:2121605780')
   }, { id: brId, key: unresolvedKey })
   const notice = b.page.locator('[data-battle-toast]')
-  await notice.getByText('正在应用…', { exact: true }).waitFor()
-  assert.equal(await notice.getByRole('button', { name: '撤销' }).count(), 0)
+  // The row change is applied locally at once, so the toast offers 撤销 as soon as the mutation is saved, even while the analysis is held.
+  await notice.getByText('已合并身份', { exact: true }).waitFor()
+  assert.equal(await b.page.locator(`[data-module="roster"] [data-pilot-key="${unresolvedKey}"]`).count(), 0, 'merged row is gone before the analysis arrives')
+  await notice.getByRole('button', { name: '撤销' }).waitFor()
   const scrollBounds = await b.page.locator('.battle-module-scroll').boundingBox()
   const toastBounds = await notice.boundingBox()
   assert.ok(scrollBounds.y + scrollBounds.height <= toastBounds.y, 'toast does not cover module rows')
