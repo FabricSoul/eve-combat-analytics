@@ -750,6 +750,62 @@ it('F6b persists battle-time affiliations for historical uploaders and names', a
   })
 })
 
+it.each([
+  [0xb71, { corpId: 98108724, allyId: null, side: 0 }],
+  [0xb72, { corpId: 12345, allyId: null, side: 3 }],
+] as const)('assigns log-only pilots using history at battle start, with current affiliation as a fallback (%i)', async (fixtureId, target) => {
+  const id = await prepare(fixtureId)
+  const response = await upload(id, 'valid log')
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({ charId: 100, corpId: 98108724, allyId: null, side: 0 })
+  const stub = env.BATTLE.getByName(id)
+  await evictDurableObject(stub)
+  expect((await state(id)).names.Target).toEqual({ charId: 101, ...target })
+  const history = await runInDurableObject(stub, (_, { storage }) =>
+    storage.sql.exec('SELECT kind, id, owner FROM affiliation_history ORDER BY kind, id').toArray(),
+  )
+  expect(history).toEqual([
+    { kind: 'alliance', id: 98108724, owner: null },
+    { kind: 'corporation', id: 100, owner: 98108724 },
+    ...(fixtureId === 0xb71 ? [{ kind: 'corporation', id: 101, owner: 98108724 }] : []),
+  ])
+  expect(await runDurableObjectAlarm(stub)).toBe(true)
+  const analysis = (await decodeAnalysis(await rawAnalysis(id))).value
+  expect(analysis.entities['char:101']).toMatchObject({ side: target.side })
+})
+
+it('backfills affiliations in a previously analyzed room and publishes the corrected snapshot', async () => {
+  const id = await prepare(0xb73)
+  const response = await upload(id, 'valid log')
+  expect(response.status).toBe(200)
+  await response.json()
+  const stub = env.BATTLE.getByName(id)
+  expect(await runDurableObjectAlarm(stub)).toBe(true)
+  await runInDurableObject(stub, (_, { storage }) => {
+    const current = JSON.stringify({ corpId: 12345, allyId: null })
+    storage.sql.exec('UPDATE logs SET side = 3, affiliation = ?', current)
+    storage.sql.exec('UPDATE names SET side = 3, affiliation = ? WHERE charId = 101', current)
+    storage.sql.exec('UPDATE analysis_state SET analyzerVersion = 1')
+    storage.sql.exec('DROP TABLE affiliation_history')
+  })
+  const viewer = await connect(id)
+  try {
+    expect(await viewer.next()).toMatchObject({ type: 'snapshot', state: { names: { Target: { side: 3 } } } })
+  expect(await runDurableObjectAlarm(stub)).toBe(true)
+    expect(await viewer.next()).toMatchObject({
+      type: 'snapshot', state: {
+        analysisVersion: 2,
+        logs: [expect.objectContaining({ charId: 100, side: 0, corpId: 98108724 })],
+        names: { Target: { charId: 101, side: 0, corpId: 98108724, allyId: null } },
+      },
+    })
+    expect(await viewer.next()).toEqual({ type: 'analysis_ready', version: 2 })
+    expect((await decodeAnalysis(await rawAnalysis(id))).value.entities['char:101']?.side).toBe(0)
+  } finally {
+    viewer.close()
+  }
+})
+
 it('broadcasts upload affiliation names and persists them for summaries and later snapshots', async () => {
   const id = await prepare(0xa01)
   const stub = env.BATTLE.getByName(id)

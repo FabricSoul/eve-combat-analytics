@@ -5,6 +5,8 @@ import { GamelogFormatError } from '../../core/contract'
 import type { BattleMeta, LogEvent, NameIndex, ParsedLog } from '../../core/contract'
 import { parseGamelog as parseRealGamelog } from '../../core/log/parse'
 import { BattleRoom as ProductionBattleRoom } from '../index'
+import { USER_AGENT } from '../../core/esi/client'
+import { createServices } from '../services'
 import type { Services } from '../services'
 
 export { default } from '../index'
@@ -124,6 +126,8 @@ function realFightServices({ meta, names, listeners }: Cloudflare.Env['REAL_FIGH
         return { charId, corpId: kind === 'corp' ? Number(id) : 1, allyId: kind === 'ally' ? Number(id) : null }
       })
     },
+    async affiliationHistory() { throw new Error('No recorded history in this fixture') },
+    async wait() {},
     now: () => now,
   }
 }
@@ -133,6 +137,37 @@ export class BattleRoom extends ProductionBattleRoom {
   protected readonly analysisDelayMs = 60_000
   protected override makeServices() {
     if (this.ctx.id.name === realFightId) return realFightServices((this.env as Cloudflare.Env).REAL_FIGHT_INFO)
+    const testHistory = /b7[123]$/.test(this.ctx.id.name ?? '')
+    const failHistory = this.ctx.id.name?.endsWith('b72')
+    const battleStart = Math.min(...meta.windows.map(({ start }) => start))
+    const date = (offset: number) => new Date(battleStart + offset).toISOString()
+    const historyServices = createServices(this.env, {
+      now: () => now, sleep: async () => {},
+      async fetch(input, init) {
+        const { pathname } = new URL(String(input))
+        if (new Headers(init?.headers).get('user-agent') !== USER_AGENT) return new Response(null, { status: 400 })
+        if (pathname === '/latest/characters/affiliation/') {
+          const ids: number[] = JSON.parse(String(init?.body))
+          return Response.json(ids.map((character_id) => ({ character_id, corporation_id: 12345 })))
+        }
+        if (init?.method !== 'GET') return new Response(null, { status: 405 })
+        if (/^\/latest\/characters\/(100|101)\/corporationhistory\/$/.test(pathname)) {
+          if (failHistory && pathname.includes('/101/')) return new Response(null, { status: 502 })
+          return Response.json([
+            { corporation_id: 12345, start_date: date(1), record_id: 3 },
+            { corporation_id: 98108724, start_date: date(0), record_id: 2 },
+            { corporation_id: 12345, start_date: date(-1), record_id: 1 },
+          ])
+        }
+        if (pathname === '/latest/corporations/98108724/alliancehistory/') {
+          return Response.json([
+            { alliance_id: 1042504553, start_date: date(-1), record_id: 1 },
+            { start_date: date(0), record_id: 2 },
+          ])
+        }
+        return new Response(null, { status: 404 })
+      },
+    })
     let fetched = false
     let slow = true
     let slowBatch = true
@@ -206,7 +241,7 @@ export class BattleRoom extends ProductionBattleRoom {
         }
         return Object.fromEntries(ids.filter((id) => known[id]).map((id) => [id, known[id]!]))
       },
-      async affiliations(ids: number[]) {
+      affiliations: testHistory ? historyServices.affiliations : async (ids: number[]) => {
         if (ids[0] === 2113179297 || (ids[0] ?? 0) >= 10000) {
           return ids.map((charId) => ({ charId, corpId: 1, allyId: null }))
         }
@@ -217,6 +252,9 @@ export class BattleRoom extends ProductionBattleRoom {
           ? [{ charId: 100, corpId: 98108724, allyId: 1042504553 }]
           : [{ charId: 101, corpId: resolveMetaNames ? 1000165 : 12345, allyId: null }]
       },
+      affiliationHistory: testHistory ? historyServices.affiliationHistory
+        : async () => { throw new Error('No recorded history in this fixture') },
+      wait: historyServices.wait,
       now: () => now,
     }
   }

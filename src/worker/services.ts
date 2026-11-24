@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Affiliation, BattleMeta, ParseGamelog } from '../core/contract'
 import { fetchBattleMeta } from '../core/br/fetch'
 import type { EsiDeps } from '../core/esi/client'
+import { affiliationAt, type HistoryKind } from '../core/esi/history'
 import { affiliations, idsToNames, namesToCharacters } from '../core/esi/names'
 import { parseGamelog } from '../core/log/parse'
 import type { Env } from './index'
@@ -12,6 +13,8 @@ export interface Services {
   idsToNames(ids: number[], signal?: AbortSignal): Promise<BattleMeta['names']>
   namesToCharacters(names: string[], signal?: AbortSignal): Promise<Record<string, number | null>>
   affiliations(charIds: number[], signal?: AbortSignal): Promise<Affiliation[]>
+  affiliationHistory(kind: HistoryKind, id: number, at: number, signal: AbortSignal): Promise<number | null>
+  wait(ms: number, signal: AbortSignal): Promise<void>
   now(): number
 }
 
@@ -26,6 +29,16 @@ const defaultDeps = (): ServiceDeps => ({
   sleep: productionSleep,
   now: () => Date.now(),
 })
+
+export async function withDeadline<T>(ms: number, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  try {
+    return await work(controller.signal)
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 export async function abortable<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
   signal.throwIfAborted()
@@ -73,6 +86,8 @@ export function createServices(_env: Env, deps: ServiceDeps = defaultDeps()): Se
     affiliations: (charIds, signal) => signal
       ? scope.run(signal, () => affiliations(charIds, client))
       : affiliations(charIds, client),
+    affiliationHistory: (kind, id, at, signal) => scope.run(signal, () => affiliationAt(kind, id, at, client)),
+    wait: (ms, signal) => scope.run(signal, () => client.sleep(ms)),
     now: deps.now,
   }
 }

@@ -601,6 +601,9 @@ try {
     [...document.querySelectorAll('.roster-main')].some((row) =>
       row.textContent.includes(pilotName) && row.querySelector('[aria-label="有日志"]')),
   'Numala Airuta', { timeout: 30_000 })
+  const fullBattle = await (await fetch(`${origin}/api/battles/${brId}/analysis`)).json()
+  assert.equal(fullBattle.coverage.find(({ side }) => side === 1)?.known, 41, 'J125990 has 41 known pilots on the uploaders’ side')
+  console.log('J125990 battle-time affiliations: 我方 41 with all 17 uploads')
   const density = []
   const failures = []
   for (const width of [1280, 1630]) {

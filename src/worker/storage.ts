@@ -1,10 +1,12 @@
 import { ANALYZER_VERSION } from '../core/analysis/version'
+import type { HistoryKind } from '../core/esi/history'
 import type {
   BattleMeta, BattleState, BattleSummary, EntityKey, FitEntry, IdentityMerge, LogEvent, NameIndex, ParsedLog, SideOverride,
   SideSubject, UploadedLog, UploadedLogSummary,
 } from '../core/contract'
 
 export type StoredAffiliation = Pick<UploadedLog, 'corpId' | 'allyId'>
+export type SideAssignment = { side: number } & StoredAffiliation
 type LogSummary = UploadedLogSummary & StoredAffiliation
 type LogEventSummary = Pick<UploadedLogSummary, 'first' | 'last' | 'language'>
 type LogRow = Omit<UploadedLogSummary, keyof LogEventSummary> & {
@@ -19,6 +21,7 @@ export interface MetaNameResolution {
   names: BattleMeta['names']
   pendingIds: number[]
 }
+export type AffiliationRefresh = { assignments: Map<number, SideAssignment>; metaNames: MetaNameResolution }
 
 export function affiliationNameIds({ charId, corpId, allyId }: { charId: number } & StoredAffiliation): number[] {
   return [charId, corpId, allyId].filter((id): id is number => id != null && id > 0)
@@ -88,11 +91,9 @@ export class BattleStorage {
   }
 
   async meta(): Promise<BattleMeta> {
-    if (this.legacy) {
-      return JSON.parse(this.sql.exec<{ data: string }>('SELECT data FROM meta WHERE id = 1').one().data)
-    }
-    const chunks = this.sql.exec<{ data: ArrayBuffer }>('SELECT data FROM meta_chunks ORDER BY seq').toArray()
-    const meta = await unpackJson<BattleMeta>(chunks.map(({ data }) => data))
+    const meta: BattleMeta = this.legacy
+      ? JSON.parse(this.sql.exec<{ data: string }>('SELECT data FROM meta WHERE id = 1').one().data)
+      : await unpackJson(this.sql.exec<{ data: ArrayBuffer }>('SELECT data FROM meta_chunks ORDER BY seq').toArray().map(({ data }) => data))
     if (this.hasTable('meta_names')) {
       const names = this.sql.exec<{ id: number; name: string; category: string }>(
         'SELECT id, name, category FROM meta_names WHERE name IS NOT NULL',
@@ -139,6 +140,11 @@ export class BattleStorage {
         `)
       }
       meta.forEach((chunk, seq) => this.sql.exec('INSERT INTO meta_chunks VALUES (?, ?)', seq, chunk))
+      if (!legacy) {
+        // New rooms write current-format inputs from the first upload. Their analysis is still pending.
+        this.setupAnalysis()
+        this.sql.exec('UPDATE analysis_state SET analyzerVersion = ? WHERE id = 1', ANALYZER_VERSION)
+      }
     })
   }
 
@@ -202,6 +208,20 @@ export class BattleStorage {
 
   hasName(name: string): boolean {
     return !!this.sql.exec('SELECT 1 FROM names WHERE name = ?', name).toArray()[0]
+  }
+
+  cachedAffiliation(kind: HistoryKind, id: number): number | null | undefined {
+    if (!this.hasTable('affiliation_history')) return undefined
+    return this.sql.exec<{ owner: number | null }>(
+      'SELECT owner FROM affiliation_history WHERE kind = ? AND id = ?', kind, id,
+    ).toArray()[0]?.owner
+  }
+
+  cacheAffiliation(kind: HistoryKind, id: number, owner: number | null): void {
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS affiliation_history (
+      kind TEXT NOT NULL, id INTEGER NOT NULL, owner INTEGER, PRIMARY KEY (kind, id)
+    )`)
+    this.sql.exec('INSERT OR IGNORE INTO affiliation_history VALUES (?, ?, ?)', kind, id, owner)
   }
 
   private fitsAndNames(): Pick<BattleState, 'fits' | 'names'> {
@@ -328,7 +348,7 @@ export class BattleStorage {
       .toArray().map(({ data }) => data)
   }
 
-  publishAnalysis(revision: number, chunks: PackedJson): number | undefined {
+  publishAnalysis(revision: number, chunks: PackedJson, refresh?: AffiliationRefresh): number | undefined {
     return this.storage.transactionSync(() => {
       const status = this.analysisStatus()
       if (status.revision !== revision || !needsAnalysis(status)) return undefined
@@ -337,6 +357,15 @@ export class BattleStorage {
         this.sql.exec('ALTER TABLE analysis_state ADD COLUMN analyzerVersion INTEGER NOT NULL DEFAULT 0')
       }
       const version = status.version + 1
+      if (refresh) {
+        this.ensureAffiliationColumns()
+        for (const [id, entry] of refresh.assignments) {
+          const packed = packAffiliation(entry)
+          this.sql.exec('UPDATE logs SET side = ?, affiliation = ? WHERE charId = ?', entry.side, packed, id)
+          this.sql.exec('UPDATE names SET side = ?, affiliation = ? WHERE charId = ?', entry.side, packed, id)
+        }
+        this.saveMetaNames(refresh.metaNames)
+      }
       this.sql.exec('DELETE FROM analysis_chunks')
       chunks.forEach((data, seq) => this.sql.exec('INSERT INTO analysis_chunks VALUES (?, ?)', seq, data))
       this.sql.exec(
@@ -345,6 +374,20 @@ export class BattleStorage {
       )
       return version
     })
+  }
+
+  private ensureAffiliationColumns(): void {
+    if (!this.hasColumn('logs', 'affiliation')) this.sql.exec('ALTER TABLE logs ADD COLUMN affiliation TEXT')
+    if (!this.hasColumn('names', 'affiliation')) this.sql.exec('ALTER TABLE names ADD COLUMN affiliation TEXT')
+  }
+
+  private saveMetaNames(metaNames: MetaNameResolution): void {
+    this.sql.exec('CREATE TABLE IF NOT EXISTS meta_names (id INTEGER PRIMARY KEY, name TEXT, category TEXT)')
+    this.sql.exec('DELETE FROM meta_names WHERE name IS NULL')
+    for (const id of metaNames.pendingIds) this.sql.exec('INSERT INTO meta_names (id) VALUES (?)', id)
+    for (const [id, { name, category }] of Object.entries(metaNames.names)) {
+      this.sql.exec('INSERT OR REPLACE INTO meta_names (id, name, category) VALUES (?, ?, ?)', Number(id), name, category)
+    }
   }
 
   saveLog(
@@ -356,8 +399,7 @@ export class BattleStorage {
     const { charId, id, charName, side, uploadedAt, unparsedCount, parsed, corpId, allyId } = log
     const details: LogEventSummary = { first: parsed.events[0]?.t, last: parsed.events.at(-1)?.t, language: parsed.language }
     this.storage.transactionSync(() => {
-      if (!this.hasColumn('logs', 'affiliation')) this.sql.exec('ALTER TABLE logs ADD COLUMN affiliation TEXT')
-      if (!this.hasColumn('names', 'affiliation')) this.sql.exec('ALTER TABLE names ADD COLUMN affiliation TEXT')
+      this.ensureAffiliationColumns()
       if (!this.hasColumn('logs', 'eventSummary')) this.sql.exec('ALTER TABLE logs ADD COLUMN eventSummary TEXT')
       this.sql.exec(
         `INSERT INTO logs (id, charId, charName, side, uploadedAt, events, unparsedCount, nameOffset, affiliation, eventSummary)
@@ -375,12 +417,7 @@ export class BattleStorage {
           name, entry?.charId ?? null, entry?.side ?? null, entry && packAffiliation(entry),
         )
       }
-      this.sql.exec('CREATE TABLE IF NOT EXISTS meta_names (id INTEGER PRIMARY KEY, name TEXT, category TEXT)')
-      this.sql.exec('DELETE FROM meta_names WHERE name IS NULL')
-      for (const id of metaNames.pendingIds) this.sql.exec('INSERT INTO meta_names (id) VALUES (?)', id)
-      for (const [id, { name, category }] of Object.entries(metaNames.names)) {
-        this.sql.exec('INSERT OR REPLACE INTO meta_names (id, name, category) VALUES (?, ?, ?)', Number(id), name, category)
-      }
+      this.saveMetaNames(metaNames)
       this.markAnalysisDirty()
     })
     return { id, charId, charName, side, corpId, allyId, events: parsed.events.length, uploadedAt, ...details }

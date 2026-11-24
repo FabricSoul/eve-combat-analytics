@@ -6,20 +6,22 @@ import { sideOf } from '../core/br/normalize'
 import { isKnownNonPilotName } from '../core/log/counterparty'
 import { GamelogFormatError } from '../core/contract'
 import type {
-  Analysis, ApiError, BattleMeta, EntityKey, FitEntry, IdentityMerge, KillmailParticipant, LogEvent, NameIndex, ServerMessage,
+  ApiError, BattleMeta, BattleState, EntityKey, FitEntry, IdentityMerge, KillmailParticipant, LogEvent, NameIndex, ServerMessage,
   SideOverride, SideSubject, UploadResult,
 } from '../core/contract'
 import { analysisJson } from './analysis-json'
+import { battleAffiliations } from './affiliation-history'
 import { ApiFailure, battlePath, errorResponse, readText, upstreamFailure } from './http'
 import type { Env } from './index'
-import { abortable, createServices } from './services'
+import { abortable, createServices, withDeadline } from './services'
 import type { Services } from './services'
 import { affiliationNameIds, BattleStorage, needsAnalysis, packJson, packStream } from './storage'
-import type { MetaNameResolution, StoredAffiliation, StoredLog } from './storage'
+import type { AffiliationRefresh, MetaNameResolution, SideAssignment, StoredAffiliation, StoredLog } from './storage'
 
 const NAME_LIMIT = 2000
 const ESI_NAME_BATCH = 500
 const SOCKET_LIMIT = 1024 * 1024
+const BATTLE_TIME_AFFILIATION_VERSION = 2
 const encoder = new TextEncoder()
 
 function characterId(ids: Record<string, number | null>, name: string): number | null {
@@ -34,11 +36,10 @@ async function sha256(text: string): Promise<string> {
   return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(text))))
 }
 
-type SideAssignment = { side: number } & StoredAffiliation
 type AffiliationIds = Pick<KillmailParticipant, 'corpId' | 'allyId'>
 
-function assignSide(affiliation: AffiliationIds | undefined, teams: BattleMeta['teams']): SideAssignment {
-  if (!affiliation) return { side: -1 }
+function assignSide(affiliation: AffiliationIds | null | undefined, teams: BattleMeta['teams']): SideAssignment {
+  if (!affiliation) return { side: -1, corpId: undefined, allyId: undefined }
   return {
     side: sideOf(affiliation, teams),
     corpId: affiliation.corpId ?? undefined,
@@ -229,20 +230,49 @@ export class BattleRoom extends DurableObject<Env> {
 
     this.analyzingRevisions.add(revision)
     try {
-      const analysis = await this.analyzeRevision(revision)
-      if (!analysis) return
-      const chunks = await packStream(analysisJson(analysis))
-      const version = this.store.publishAnalysis(revision, chunks)
-      if (version !== undefined) this.broadcast({ type: 'analysis_ready', version })
+      const battle = await this.battle()
+      const state = await this.store.state(battle.meta)
+      const refresh = (status.analyzerVersion ?? 0) < BATTLE_TIME_AFFILIATION_VERSION
+        ? await withDeadline(35_000, (signal) => this.refreshAffiliations(state, battle, signal)) : undefined
+      // An upload can commit while logs are read or affiliations are fetched.
+      if (this.store.analysisStatus().revision !== revision) return
+      const chunks = await packStream(analysisJson(analyze(state)))
+      const version = this.store.publishAnalysis(revision, chunks, refresh)
+      if (version !== undefined) {
+        if (refresh) {
+          battle.meta = state.meta
+          this.broadcast({ type: 'snapshot', state: this.store.summary(battle.meta) })
+        }
+        this.broadcast({ type: 'analysis_ready', version })
+      }
     } finally {
       this.analyzingRevisions.delete(revision)
     }
   }
 
-  private async analyzeRevision(revision: number): Promise<Analysis | undefined> {
-    const state = await this.store.state((await this.battle()).meta)
-    // An upload can commit while logs are being read. Its alarm will take a fresh snapshot.
-    if (this.store.analysisStatus().revision === revision) return analyze(state)
+  private async refreshAffiliations(state: BattleState, battle: Battle, signal: AbortSignal): Promise<AffiliationRefresh | undefined> {
+    const entries = [...state.logs, ...Object.values(state.names)].filter((entry) => entry !== null)
+      .filter(({ charId }) => !battle.sides.has(charId))
+    const ids = [...new Set(entries.map(({ charId }) => charId))]
+    if (!ids.length) return undefined
+    const start = Math.min(...state.meta.windows.map((window) => window.start))
+    const resolved = await battleAffiliations(ids, start, this.store, this.services, signal, {
+      historyTimeout: 25_000, allowPartial: true,
+    })
+    const assignments = new Map<number, SideAssignment>()
+    for (const entry of entries) {
+      const affiliation = resolved.get(entry.charId)
+      if (affiliation === undefined) continue
+      const next = assignSide(affiliation, state.meta.teams)
+      if (entry.side === next.side && entry.corpId === next.corpId && entry.allyId === next.allyId) continue
+      Object.assign(entry, next)
+      assignments.set(entry.charId, next)
+    }
+    if (!assignments.size) return undefined
+    const idsToName = [...assignments].flatMap(([charId, entry]) => affiliationNameIds({ charId, ...entry }))
+    const metaNames = await this.lookupMetaNames(state.meta, idsToName, signal)
+    state.meta = { ...state.meta, names: { ...state.meta.names, ...metaNames.names } }
+    return { assignments, metaNames }
   }
 
   // RPC keeps the stored bytes compressed across the DO-to-Worker hop.
@@ -313,10 +343,12 @@ export class BattleRoom extends DurableObject<Env> {
   private async resolveMetaNames(
     meta: BattleMeta, listener: { charId: number } & StoredAffiliation, names: NameIndex, signal: AbortSignal,
   ): Promise<MetaNameResolution> {
-    const ids = new Set(this.store.pendingMetaNameIds())
-    for (const entry of [listener, ...Object.values(names)]) {
-      if (entry) for (const id of affiliationNameIds(entry)) ids.add(id)
-    }
+    const ids = [listener, ...Object.values(names)].flatMap((entry) => entry ? affiliationNameIds(entry) : [])
+    return this.lookupMetaNames(meta, ids, signal)
+  }
+
+  private async lookupMetaNames(meta: BattleMeta, idsToName: number[], signal: AbortSignal): Promise<MetaNameResolution> {
+    const ids = new Set([...this.store.pendingMetaNameIds(), ...idsToName])
     const missing = [...ids].filter((id) => !Object.hasOwn(meta.names, id))
     if (!missing.length) return { names: {}, pendingIds: [] }
     try {
@@ -340,9 +372,9 @@ export class BattleRoom extends DurableObject<Env> {
     const historical = sides.get(charId)
     if (historical !== undefined) return historical
     try {
-      const entries = await abortable(signal, () => this.services.affiliations([charId], signal))
-      const entry = entries.find((p) => p.charId === charId)
-      return assignSide(entry, meta.teams)
+      const start = Math.min(...meta.windows.map((window) => window.start))
+      const entries = await battleAffiliations([charId], start, this.store, this.services, signal)
+      return assignSide(entries.get(charId), meta.teams)
     } catch {
       throw new ApiFailure('br_unavailable', 'Character affiliation lookup is unavailable')
     }
@@ -392,12 +424,12 @@ export class BattleRoom extends DurableObject<Env> {
     const charIds = [...new Set(names.map((name) => characterId(ids, name)))]
       .filter((id) => id !== null)
       .filter((id) => !sides.has(id))
-    const affiliations = charIds.length ? await this.services.affiliations(charIds, signal) : []
-    const currentSides = new Map(affiliations.map((entry) => [entry.charId, assignSide(entry, meta.teams)]))
+    const start = Math.min(...meta.windows.map((window) => window.start))
+    const affiliations = await battleAffiliations(charIds, start, this.store, this.services, signal)
     return Object.fromEntries(names.map((name) => {
       const charId = characterId(ids, name)
       if (charId === null) return [name, null]
-      const assignment = sides.get(charId) ?? currentSides.get(charId) ?? { side: -1 }
+      const assignment = sides.get(charId) ?? assignSide(affiliations.get(charId), meta.teams)
       return [name, { charId, ...assignment }]
     }))
   }

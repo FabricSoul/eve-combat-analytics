@@ -59,6 +59,13 @@ for (const row of esi.listeners) {
   characters.set(row.charName.toLowerCase(), row.charId)
   if (row.corpId) affiliations.set(row.charId, row)
 }
+// Project the recorded fixture affiliations onto battle start for log-only pilots.
+// Killmail participants already have affiliations in the BR payload.
+const kmPilots = new Set(composition.relateds.flatMap(({ kms }) => kms.flatMap(({ victim, attackers }) =>
+  [victim, ...(attackers ?? [])].map(({ char }) => char))))
+const corpAlliances = new Map([...affiliations].flatMap(([id, row]) =>
+  kmPilots.has(id) ? [] : [[row.corpId, row.allyId]]))
+const battleStart = new Date(Math.min(...composition.timings.map(({ start }) => start)) * 1000).toISOString()
 export class BattleRoom extends ProductionRoom {
   protected override makeServices() {
     return createServices(this.env, {
@@ -67,6 +74,15 @@ export class BattleRoom extends ProductionRoom {
       async fetch(input, init) {
         const url = new URL(String(input))
         if (url.href === 'https://br.evetools.org/newapi/br/composition/${brId}') return Response.json(composition)
+        const [, , resource, id, endpoint] = url.pathname.split('/')
+        if (resource === 'characters' && endpoint === 'corporationhistory') {
+          const row = affiliations.get(Number(id))
+          return Response.json(row ? [{ corporation_id: row.corpId, start_date: battleStart, record_id: 1 }] : [])
+        }
+        if (resource === 'corporations' && endpoint === 'alliancehistory') {
+          const alliance_id = corpAlliances.get(Number(id))
+          return Response.json(alliance_id ? [{ alliance_id, start_date: battleStart, record_id: 1 }] : [])
+        }
         const values = JSON.parse(String(init?.body))
         if (url.pathname === '/latest/universe/names/') {
           return Response.json(values.flatMap((id) => esi.names[id] ? [{ id, ...esi.names[id] }] : []))
