@@ -169,6 +169,21 @@ describe('battle shell review', () => {
     expect(drawer.querySelector('textarea')).not.toBeNull()
   })
 
+  it('keeps a module’s active controls when a keyboard move changes its area', async () => {
+    await render()
+    const module = () => host.querySelector('[data-module="hits"]')!
+    const select = () => module().querySelector('select')!
+    const metric = select().options[1]!.value
+    act(() => {
+      select().value = metric
+      select().dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    const bar = module().querySelector<HTMLElement>('.battle-window-titlebar')!
+    act(() => bar.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, bubbles: true, cancelable: true })))
+    expect(module().closest('[data-module-area]')?.getAttribute('data-module-area')).toBe('1')
+    expect(select().value).toBe(metric)
+  })
+
   it('explains how to populate every empty module', async () => {
     await render(
       { ...realSummary, meta: { ...realSummary.meta, killmails: [] }, logs: [], fits: [], names: {} },

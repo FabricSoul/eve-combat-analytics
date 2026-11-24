@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type Dispatch, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { WindowFrame } from './WindowFrame'
 import { windowDragClass, type Viewport, type WindowAction } from './layout'
 import { areaNames, clampStage, floatModule, keyboardDrop, moduleIds, moduleTitles, visibleArea, type ModuleAction, type ModuleId, type ModuleLayout } from './modules'
@@ -60,6 +61,11 @@ interface ModuleWorkspaceProps {
 
 export function ModuleWorkspace({ desk, viewport, layout, dispatch, columns, dragCancel, subtitles, content, tools }: ModuleWorkspaceProps) {
   const areas = useRef<HTMLDivElement>(null)
+  const [hosts] = useState(() => Object.fromEntries(moduleIds.map((id) => {
+    const host = document.createElement('div')
+    host.className = 'battle-module-slot'
+    return [id, host]
+  })) as Record<ModuleId, HTMLDivElement>)
   const drag = useRef<Drag | null>(null)
   const floatCancel = useRef<(() => boolean) | null>(null)
   const floatTarget = useRef<Move | null>(null)
@@ -199,10 +205,17 @@ export function ModuleWorkspace({ desk, viewport, layout, dispatch, columns, dra
       const targetList = matching ? layout.areas[to.area]!.filter((id) => id !== preview?.source) : []
       const before = matching ? targetList.slice(to.index).find((id) => !layout.modules[id].floating && !layout.modules[id].hidden) : undefined
       const placeholder = <div key="drop" className="battle-module-drop" data-module-drop="" aria-hidden="true" />
-      return <div key={name} className="battle-module-area" data-module-area={column} aria-label={`模块区 ${name.toUpperCase()}`}>
-        {list.flatMap((id) => id === before ? [placeholder, frame(id)] : [frame(id)])}
+      return <div key={name} className="battle-module-area" data-module-area={column} role="group" aria-label={`模块区 ${name.toUpperCase()}`}>
+        {list.filter((id) => !layout.modules[id].hidden).flatMap((id) => {
+          // Moving a portal host keeps the module’s table filters and scroll position intact.
+          const slot = <div key={id} className="battle-module-slot" ref={(element) => {
+            if (element && hosts[id].parentElement !== element) element.appendChild(hosts[id])
+          }} />
+          return id === before ? [placeholder, slot] : [slot]
+        })}
         {matching && !before && placeholder}
       </div>
     })}
+    {moduleIds.filter((id) => !layout.modules[id].hidden).map((id) => createPortal(frame(id), hosts[id], id))}
   </div>
 }
