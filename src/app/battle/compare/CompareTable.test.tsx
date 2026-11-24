@@ -106,3 +106,39 @@ it.each([
   const labels = [...filter.querySelectorAll('label')].map((label) => label.textContent.trim())
   expect(labels).toEqual(expected)
 })
+
+it('shares more than four pinned pilots across table and charts and clears them together', () => {
+  render()
+  const tab = (name: string) => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+    .find((button) => button.textContent === name)!
+  const tableChecks = [...host.querySelectorAll<HTMLInputElement>('tbody input[type="checkbox"]')]
+  const checked = () => host.querySelectorAll('tbody input:checked').length
+  const chosen = tableChecks.slice(0, 8)
+  act(() => chosen.forEach((checkbox) => checkbox.click()))
+  expect(checked()).toBe(8)
+  expect([...host.querySelectorAll('tbody tr')].slice(0, 8).every((row) => row.getAttribute('data-pinned') === 'true')).toBe(true)
+
+  act(() => tab('并排').click())
+  const card = host.querySelector('.u7-compare-cards section')!
+  expect(card.querySelectorAll('.u7-compare-pair')).toHaveLength(8)
+  const picker = host.querySelector('.u7-compare-pick')!
+  expect(picker.querySelectorAll('input:checked')).toHaveLength(8)
+  act(() => picker.querySelector<HTMLInputElement>('input:not(:checked)')!.click())
+  expect(card.querySelectorAll('.u7-compare-pair')).toHaveLength(9)
+
+  act(() => tab('分布').click())
+  expect(host.querySelectorAll('.u7-distribution-strip:first-child [data-highlighted="true"]').length).toBeGreaterThan(4)
+  const clear = [...host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === '清除勾选')!
+  act(() => clear.click())
+  expect(host.querySelectorAll('[data-highlighted="true"]')).toHaveLength(0)
+  act(() => tab('大表').click())
+  expect(checked()).toBe(0)
+})
+
+it('exposes the full pilot name as a title and accessible button label', () => {
+  render()
+  const button = [...host.querySelectorAll<HTMLButtonElement>('tbody th button')]
+    .find((candidate) => candidate.textContent === 'Oldowner ofdock')!
+  expect(button.title).toBe('Oldowner ofdock')
+  expect(button.getAttribute('aria-label')).toBe('Oldowner ofdock')
+})

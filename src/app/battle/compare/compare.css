@@ -47,7 +47,7 @@
 .u7-compare input { accent-color: var(--color-accent); flex: none; cursor: pointer; }
 .u7-compare-options label, .u7-compare-pick label { display: flex; align-items: center; gap: var(--space-2); min-height: var(--row); }
 .u7-compare-note { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1) var(--space-4); padding: var(--space-2) var(--space-4); color: var(--color-text-2); font-size: var(--fs-s); }
-.u7-compare-body { min-height: 0; padding: 0 var(--space-4) var(--space-4); }
+.u7-compare-body { --compare-padding: var(--space-4); min-height: 0; padding: 0 var(--compare-padding) var(--space-4); }
 .u7-compare-scroll { overflow: auto; max-height: 65dvh; border: 1px solid var(--color-hair); border-radius: var(--radius-card); }
 .u7-compare table { width: 100%; border-collapse: separate; border-spacing: 0; white-space: nowrap; font-size: var(--fs-s); }
 .u7-compare tr { height: var(--row); }
@@ -85,15 +85,25 @@
 .u7-compare-message { padding: var(--space-4); color: var(--color-text-2); }
 .u7-compare-pick { padding: 0 var(--space-4) var(--space-2); }
 .u7-compare-pick > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 205px), 1fr)); max-height: 190px; overflow: auto; padding: var(--space-2); }
-.u7-compare-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: var(--space-3); }
+.u7-compare-cards { overflow-x: auto; padding-block-end: var(--space-1); }
+.u7-compare-card-track { min-width: max(100%, calc(var(--pilot-count) * 164px)); display: grid; gap: var(--space-3); }
 .u7-compare-cards section {
-  padding: var(--space-2) var(--space-3); border: 1px solid var(--color-hair);
+  min-width: 0; border: 1px solid var(--color-hair);
   border-radius: var(--radius-card); background: var(--color-surface);
 }
-.u7-compare-cards h3 { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1); font-weight: 500; }
+.u7-compare-cards h3 {
+  position: sticky; inset-inline-start: 0; width: min(100%, calc(100cqw - 2 * var(--compare-padding) - 2px));
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1);
+  padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-hair); font-weight: 500;
+}
 .u7-compare small { color: var(--color-text-3); font-size: var(--fs-s); font-weight: 400; }
-.u7-compare-pair { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(24px, .85fr) minmax(46px, auto); gap: var(--space-2); align-items: center; min-height: var(--row); }
-.u7-compare-pair .u7-compare-bar { width: 100%; margin: 0; }
+.u7-compare-card-pilots { display: grid; grid-template-columns: repeat(var(--pilot-count), minmax(0, 1fr)); }
+.u7-compare-pair { min-width: 0; padding: var(--space-2); display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-1); }
+.u7-compare-pair + .u7-compare-pair { border-inline-start: 1px solid var(--color-hair); }
+.u7-compare-pair .u7-compare-who { max-width: none; }
+.u7-compare-pair .u7-ellipsis { white-space: normal; overflow-wrap: anywhere; }
+.u7-compare-pair-measure { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; }
+.u7-compare-pair .u7-compare-bar { width: 100%; height: 5px; margin: 0; }
 .u7-distribution-strip { display: grid; grid-template-columns: minmax(100px, .18fr) 1fr; align-items: center; gap: var(--space-2); padding: var(--space-2); border-bottom: 1px solid var(--color-hair); }
 .u7-distribution-strip small { display: block; }
 .u7-distribution-plot { min-width: 0; padding-inline: var(--space-3); }
@@ -106,6 +116,8 @@
 .u7-distribution-point[data-highlighted="true"], .u7-distribution-point:hover, .u7-distribution-point:focus-visible { opacity: 1; z-index: 1; }
 .u7-distribution-point[data-highlighted="true"] { border-color: var(--color-accent-line); }
 .u7-distribution-point span:not(.app-image) { position: absolute; top: var(--label-top); width: max-content; max-width: 120px; overflow: hidden; text-overflow: ellipsis; font-size: 10px; }
+.u7-distribution-point:is([data-persistent-label="true"], :hover, :focus-visible) span:not(.app-image) { display: block; }
+.u7-distribution-point:is(:hover, :focus-visible) { z-index: 2; }
 .u7-distribution-point[data-anchor="start"] span:not(.app-image) { left: 0; }
 .u7-distribution-point[data-anchor="end"] span:not(.app-image) { right: 0; }
 .u7-distribution-limits { display: flex; justify-content: space-between; font-size: var(--fs-s); }
@@ -115,11 +127,15 @@
 
 @container u7-compare (max-width: 759px) {
   .u7-compare-header { padding-inline: var(--space-2); }
-  .u7-compare-body, .u7-compare-note { padding-inline: var(--space-2); }
+  .u7-compare-body { --compare-padding: var(--space-2); }
+  .u7-compare-note { padding-inline: var(--space-2); }
   .u7-compact-metric { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
   .u7-compare colgroup, .u7-compare .u7-compare-groups, .u7-compare [data-compact="false"] { display: none; }
   .u7-compare .u7-compact-pilot { display: table-cell; text-align: left; }
   .u7-compare [data-compact="true"] { width: 1%; padding-inline-start: var(--space-1); }
+  .u7-compare thead [data-compact="true"] button {
+    width: 0; min-width: 100%; text-align: end; white-space: normal; overflow-wrap: anywhere;
+  }
   .u7-compare tbody th { --pin-size: 12px; padding-inline: var(--space-1); }
   .u7-compare tbody th > label { margin-inline-end: var(--space-1); }
   .u7-compare tbody th input[type="checkbox"] {
@@ -131,7 +147,12 @@
     min-width: calc(100% - var(--pin-size) - var(--space-1));
   }
   .u7-compare tbody th .u7-compare-who .app-type-icon { display: none; }
-  .u7-compare td .u7-compare-bar { width: 28px; }
+  .u7-compare tbody th .u7-compare-who:is(:hover, :focus) .u7-ellipsis {
+    white-space: normal; overflow-wrap: anywhere; text-align: start;
+  }
+  .u7-compare td .u7-compare-bar {
+    display: block; width: min(100%, 28px); height: 4px; margin: 0 0 var(--space-1) auto;
+  }
   .u7-distribution-strip { grid-template-columns: 1fr; }
 }
 

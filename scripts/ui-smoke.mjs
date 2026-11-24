@@ -379,10 +379,23 @@ export class BattleRoom extends ProductionRoom {
         'the 280px comparison displays the full Blanchard2213 name')
       assert.ok(await pilotButton.locator('.app-portrait').isVisible(), 'compact comparison keeps the portrait')
       assert.equal(await pilotButton.locator('.app-type-icon').isVisible(), false)
+      const longName = compare.getByRole('button', { name: 'Oldowner ofdock', exact: true })
+      assert.equal(await longName.getAttribute('title'), 'Oldowner ofdock')
+      const nameWrap = () => longName.locator('.u7-ellipsis').evaluate((name) => getComputedStyle(name).whiteSpace)
+      await longName.hover()
+      assert.equal(await nameWrap(), 'normal', 'hover reveals a long pilot name')
+      await picker.hover()
+      await longName.focus()
+      assert.equal(await nameWrap(), 'normal', 'focus reveals a long pilot name')
       await picker.selectOption('damageIn')
       const cell = firstRow.locator('td:visible')
       assert.equal(await cell.count(), 1)
       assert.ok(await cell.locator('.u7-compare-bar .u7-compare-median').isVisible())
+      assert.ok(await cell.evaluate((node) => {
+        const number = node.querySelector('.app-number').getBoundingClientRect()
+        const bar = node.querySelector('.u7-compare-bar').getBoundingClientRect()
+        return bar.top >= number.bottom - 1
+      }), 'compact bars sit below values and leave the name column more room')
       const table = compare.locator('.u7-compare-scroll')
       assert.ok(await table.evaluate((node) => node.scrollWidth <= node.clientWidth),
         'the compact table fits without horizontal scrolling')
@@ -392,6 +405,20 @@ export class BattleRoom extends ProductionRoom {
       assert.ok(await pilotButton.locator('.app-type-icon').isVisible(), 'full-page comparison keeps the ship icon')
       await compare.getByRole('button', { name: '收起', exact: true }).click()
       assert.equal(await picker.inputValue(), 'damageIn')
+      for (const name of ['ALLEN GONG', '0xmagnolia', 'Lucinda HIly', 'Oldowner ofdock', 'A big bubble', 'Storm Chao', pilot, 'Rusan Sa']) {
+        await compare.getByRole('checkbox', { name: '并排对比 ' + name, exact: true }).check()
+      }
+      await compare.getByRole('tab', { name: '并排', exact: true }).click()
+      const chart = compare.getByRole('region', { name: '并排指标' })
+      assert.equal(await chart.locator('section').first().locator('.u7-compare-pair').count(), 8)
+      assert.ok(await chart.evaluate((node) => {
+        node.scrollLeft = node.scrollWidth
+        return node.scrollLeft > 0
+      }), 'the chart scrolls horizontally in the 280px panel')
+      await compare.getByRole('button', { name: '清除勾选' }).click()
+      await compare.getByRole('tab', { name: '大表', exact: true }).click()
+      assert.equal(await compare.locator('tbody input:checked').count(), 0)
+      console.log('Compare: eight shared selections, horizontal chart scrolling, and clear all')
       await panel.getByRole('tab', { name: '名单', exact: true }).click()
       console.log('Compare: 280px panel fits one metric with its bar and median, full page shows all enabled columns')
 

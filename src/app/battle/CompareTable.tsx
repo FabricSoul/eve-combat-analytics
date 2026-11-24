@@ -18,7 +18,6 @@ const views = [
 type CompareMode = (typeof views)[number]['value']
 const groups = [...new Set(metrics.map(({ group }) => group))]
 const initialSort = { key: 'damageOut', direction: 'descending' } as const
-const maxPinned = 4
 
 export function CompareTable(_props: CompareTableProps) {
   const { analysis, summary } = useBattleContext()
@@ -82,7 +81,7 @@ export function CompareTable(_props: CompareTableProps) {
   }
 
   function pin(key: EntityKey) {
-    if (pinned.has(key) || pinned.size < maxPinned) setPinned(toggle(pinned, key))
+    setPinned((previous) => toggle(previous, key))
   }
 
   function changeSort(key: Metric['key']) {
@@ -115,13 +114,13 @@ export function CompareTable(_props: CompareTableProps) {
     </header>
     <div className="u7-compare-note">
       <span>{mode === 'table' ? '勾选的人置顶 · 竖线是中位数' : mode === 'side-by-side' ? '每项一组条形 · 竖线是中位数' : '每项一条轴 · 虚线是中位数'}</span>
+      {pinned.size > 0 && <Button variant="ghost" onClick={() => setPinned(new Set())}>清除勾选</Button>}
       {bounds && <span>{range ? '选段' : '全场'} <span className="app-number">{formatTime(bounds[0])}–{formatTime(bounds[1])}</span></span>}
     </div>
     {mode !== 'table' && <details className="u7-compare-pick">
-      <summary>选择飞行员 <span className="app-number">{pinned.size} / {maxPinned}</span></summary>
+      <summary>选择飞行员 <span className="app-number">{pinned.size}</span></summary>
       <div>{shown.map((row) => <label key={row.entity.key}>
-        <input type="checkbox" checked={pinned.has(row.entity.key)} onChange={() => pin(row.entity.key)}
-          disabled={pinned.size >= maxPinned && !pinned.has(row.entity.key)} />
+        <input type="checkbox" checked={pinned.has(row.entity.key)} onChange={() => pin(row.entity.key)} />
         <PilotName row={row} />
       </label>)}</div>
     </details>}
@@ -148,8 +147,7 @@ export function CompareTable(_props: CompareTableProps) {
             </th>)}</tr>
           </thead><tbody>{sorted.map((row) => <tr key={row.entity.key} data-pinned={pinned.has(row.entity.key)}>
             <th scope="row"><label><input type="checkbox" aria-label={`并排对比 ${row.entity.name}`}
-              checked={pinned.has(row.entity.key)} onChange={() => pin(row.entity.key)}
-              disabled={pinned.size >= maxPinned && !pinned.has(row.entity.key)} /></label>
+              checked={pinned.has(row.entity.key)} onChange={() => pin(row.entity.key)} /></label>
               <PilotName row={row} onClick={() => select(row.entity.key)} /></th>
             {columns.map((column) => <td key={column.metric.key} data-compact={column.metric.key === activeCompact}>
               <MetricValue row={row} metric={column.metric} />

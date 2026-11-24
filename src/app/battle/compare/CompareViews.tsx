@@ -36,7 +36,7 @@ export function PilotName({ row, onClick }: { row: CompareRow; onClick?: () => v
   const name = <><Portrait charId={entity.charId} size={20} />
     <TypeIcon typeId={shipId(entity)} size={16} /><span className="u7-ellipsis">{entity.name}</span></>
   return onClick
-    ? <button type="button" className="u7-compare-who" title={entity.name} onClick={onClick}>{name}</button>
+    ? <button type="button" className="u7-compare-who" title={entity.name} aria-label={entity.name} onClick={onClick}>{name}</button>
     : <span className="u7-compare-who" title={entity.name}>{name}</span>
 }
 
@@ -75,17 +75,25 @@ export function MetricBar({ value, column, color }: { value: number | null; colu
 export function SideBySide({ rows, columns, order }: {
   rows: CompareRow[]; columns: Column[]; order: number[]
 }) {
-  if (!rows.length) return <p className="u7-compare-message">勾选最多 4 位飞行员进行并排对比。</p>
-  return <div className="u7-compare-cards">{columns.map((column) => <section key={column.metric.key}>
-    <h3><MetricLabel metric={column.metric} />
-      <small>全队中位 <span className="app-number">{column.metric.format(column.median)}</span></small>
-    </h3>
-    {rows.map((row) => <div className="u7-compare-pair" key={row.entity.key}>
-      <PilotName row={row} />
-      <MetricBar column={column} value={metricValue(row, column.metric)} color={sideColor(row.entity.side, order)} />
-      <MetricValue row={row} metric={column.metric} />
-    </div>)}
-  </section>)}</div>
+  if (!rows.length) return <p className="u7-compare-message">勾选飞行员进行并排对比。</p>
+  return <div className="u7-compare-cards" role="region" aria-label="并排指标" tabIndex={0}>
+    <div className="u7-compare-card-track" style={{ '--pilot-count': rows.length } as CSSProperties}>
+      {columns.map((column) => <section key={column.metric.key}>
+        <h3><MetricLabel metric={column.metric} />
+          <small>全队中位 <span className="app-number">{column.metric.format(column.median)}</span></small>
+        </h3>
+        <div className="u7-compare-card-pilots">
+          {rows.map((row) => <div className="u7-compare-pair" key={row.entity.key}>
+            <PilotName row={row} />
+            <div className="u7-compare-pair-measure">
+              <MetricBar column={column} value={metricValue(row, column.metric)} color={sideColor(row.entity.side, order)} />
+              <MetricValue row={row} metric={column.metric} />
+            </div>
+          </div>)}
+        </div>
+      </section>)}
+    </div>
+  </div>
 }
 
 interface DistributionProps {
@@ -130,7 +138,9 @@ function DistributionStrip({ rows, column, pinned, order, onSelect }: Omit<Distr
     event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('button')[next]?.focus()
   }
 
-  // Give each highlighted label its own lane. Dense unselected points stay on the axis.
+  // Keep all selected markers highlighted without stacking their names over each other.
+  const labelOffsets = [-24, 22, -38, 36]
+  const visiblePins = entries.filter(({ row }) => pinned.has(row.entity.key)).length
   let nextLane = 0
   return <section className="u7-distribution-strip">
     <h3><MetricLabel metric={metric} /><small><span className="app-number">{entries.length}</span> 人有值</small></h3>
@@ -139,15 +149,16 @@ function DistributionStrip({ rows, column, pinned, order, onSelect }: Omit<Distr
         {entries.map(({ row, value, position: left }, index) => {
           const { key, name, side } = row.entity
           const highlighted = pinned.has(key)
-          const lane = highlighted ? nextLane++ : 0
+          const persistentLabel = highlighted && visiblePins <= labelOffsets.length
+          const lane = persistentLabel ? nextLane++ : 0
           const hint = `${name} · ${metric.format(value)}`
           return <button key={key} type="button" className="u7-distribution-point"
-            data-highlighted={highlighted} data-anchor={left < 35 ? 'start' : left > 65 ? 'end' : 'middle'}
-            style={{ left: `${left}%`, '--point-side': sideColor(side, order), '--label-top': `${[-24, 22, -38, 36][lane] ?? -24}px` } as CSSProperties}
+            data-highlighted={highlighted} data-persistent-label={persistentLabel} data-anchor={left < 35 ? 'start' : left > 65 ? 'end' : 'middle'}
+            style={{ left: `${left}%`, '--point-side': sideColor(side, order), '--label-top': `${labelOffsets[lane] ?? -24}px` } as CSSProperties}
             title={hint} aria-label={hint} tabIndex={key === tabStop ? 0 : -1}
             onFocus={() => setActive(key)} onKeyDown={(event) => navigate(event, index)} onClick={() => onSelect(key)}>
             <TypeIcon typeId={shipId(row.entity)} size={16} />
-            {highlighted && <span>{name}</span>}
+            <span aria-hidden="true">{name}</span>
           </button>
         })}
       </div>
