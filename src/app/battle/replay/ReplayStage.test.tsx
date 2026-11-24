@@ -2,10 +2,11 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Analysis, Entity, EntityKey, Interaction, Killmail } from '@/core/contract'
+import type { Analysis, Entity, EntityKey, HitQuality, Interaction, Killmail } from '@/core/contract'
 import { ReplayStage } from './ReplayStage'
 import { ReplayCanvas } from '../ReplayCanvas'
 import { EventFeed } from '../EventFeed'
+import { hitSegments } from '../compare/hit-quality'
 import { BattleProvider } from '@/app/state/battle-store'
 import { ViewProvider } from '@/app/state/view-store'
 import { loadUiFixture } from '@/app/test/ui-fixture'
@@ -93,6 +94,25 @@ afterEach(async () => {
   host.remove()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+})
+
+it('shows every graded hit and the miss in game order with the comparison labels', async () => {
+  const counts = {
+    Wrecks: 1, Smashes: 1, Penetrates: 1, Hits: 1, 'Glances Off': 1, Grazes: 1,
+  } satisfies Record<Exclude<HitQuality, 'none'>, number>
+  const expected = ['致命一击', '强力一击', '穿透', '命中', '擦过', '轻轻擦过', '未命中']
+  const comparison = hitSegments({ hitQuality: counts, misses: 1 })
+
+  await render(analysis())
+  const key = host.querySelector<HTMLDetailsElement>('.replay-key')!
+  await act(() => key.querySelector('summary')!.click())
+  expect(key.open).toBe(true)
+  const entries = key.querySelector('.replay-key-quality')!.nextElementSibling!
+  const labels = [...entries.querySelectorAll(':scope > div > span')].map((label) => label.textContent)
+
+  expect(comparison.map(({ label }) => label)).toEqual(expected)
+  expect(labels).toEqual(comparison.map(({ label }) => label))
+  expect(entries.querySelectorAll('canvas')).toHaveLength(expected.length)
 })
 
 describe('replay analysis refresh', () => {

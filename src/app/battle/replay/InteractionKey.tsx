@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { hitQualityScale } from '../compare/hit-quality'
 import { makePainter, type ReplaySample } from './paint'
 
 const samples = [
@@ -8,16 +9,11 @@ const samples = [
   ['中和 / 吸电', 'neut'],
   ['击毁', 'kill'],
   ['受击震动', 'shake'],
-  ['未命中', 'miss'],
 ] as const satisfies readonly (readonly [string, ReplaySample])[]
 
-const qualities = [
-  ['致命', { quality: 'Wrecks' }],
-  ['强力', { quality: 'Smashes' }],
-  ['穿透', { quality: 'Penetrates' }],
-  ['命中', { quality: 'Hits' }],
-  ['擦过', { quality: 'Grazes' }],
-] as const satisfies readonly (readonly [string, ReplaySample])[]
+const qualities = hitQualityScale.map(({ key, label }): readonly [string, ReplaySample] => [
+  label, key === 'miss' ? 'miss' : { quality: key },
+])
 
 const previews: readonly (readonly [string, ReplaySample])[] = [...samples, ...qualities]
 const width = 90
