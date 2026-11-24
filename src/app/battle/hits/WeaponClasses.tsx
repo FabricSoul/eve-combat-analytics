@@ -10,8 +10,10 @@ export function HitRateValue({ counts }: { counts?: ShotCounts }) {
   </span>
 }
 
-export function UngradedShots({ count }: { count: number }) {
-  return <span className="hit-ungraded">无命中质量 <span className="app-number">{fmtNum(count)}</span> 发</span>
+export function UngradedShots({ count, detailed = false }: { count: number; detailed?: boolean }) {
+  return <span className="hit-ungraded" title="立体炸弹、破袭等无命中质量的伤害另计。命中率和排名样本只统计有质量的命中和明确未命中。">
+    {detailed ? '无命中质量（立体炸弹、破袭等）' : '无命中质量 '}<span className="app-number">{fmtNum(count)}</span> 发
+  </span>
 }
 
 export function ObservedHitSample({ shots }: { shots: number }) {

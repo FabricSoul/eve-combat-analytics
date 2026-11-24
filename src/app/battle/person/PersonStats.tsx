@@ -57,7 +57,7 @@ export function PersonStats({ analysis, pilot, rows, interactions, hits, bounds,
   const origin = Math.floor(bounds[0] / bucketDuration) * bucketDuration
   const end = Math.floor(bounds[1] / bucketDuration) * bucketDuration
   const row = rows.find(({ entity }) => entity.key === pilot.key)
-  const team = useMemo(() => rows.filter(({ entity }) => entity.side === pilot.side && entity.side >= 0), [rows, pilot.side])
+  const team = useMemo(() => rows.filter(({ entity }) => entity.charId !== null && entity.side === pilot.side && entity.side >= 0), [rows, pilot.side])
   const details = useMemo(() => relationship(pilot, interactions), [pilot, interactions])
   const observed = hits?.pilots.get(pilot.key)
   const observedSample = row && isObserved(row) ? observed : undefined
@@ -79,7 +79,7 @@ export function PersonStats({ analysis, pilot, rows, interactions, hits, bounds,
           <h3>{metric.label}</h3>
           <div className="app-number" title={value === null ? unavailable : undefined}>{metric.format(value)}</div>
           {isHitRate && observedSample && <ObservedHitSample shots={observedSample.shots} />}
-          <small title={medianTooltip(middle)}>全队中位 <span className="app-number">{metric.format(middle.value)}</span></small>
+          <small title={`同阵营 · ${medianTooltip(middle)}`}>有数据的 {fmtNum(middle.count)} 人中位 <span className="app-number">{metric.format(middle.value)}</span></small>
         </section>
       })}
     </div>
@@ -87,7 +87,7 @@ export function PersonStats({ analysis, pilot, rows, interactions, hits, bounds,
       <h3>命中质量</h3>
       {observedSample && <ObservedHitSample shots={observedSample.shots} />}
       <p className="u7-secondary">{hitObservationHint}</p>
-      {observed && <UngradedShots count={observed.ungraded} />}
+      {observed && <UngradedShots count={observed.ungraded} detailed />}
       {hits && observed && <PilotHitRanks pilot={observed} ranking={hits.ranking} />}
       {observed && observed.shots > 0 && <HitQualityBar stats={observed} color={sideColor(pilot.side, order)} showCounts />}
       {observed && observed.classes.size > 0 && <WeaponClasses classes={observed.classes} />}

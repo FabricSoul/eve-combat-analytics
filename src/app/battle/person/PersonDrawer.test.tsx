@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
+import { resolve } from 'node:path'
 import { act, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
+import { runnerImport } from 'vite'
 import { expect, it } from 'vitest'
+import { analyze } from '@/core/analysis/analyze'
+import type { BattleState } from '@/core/contract'
+import { itemTypeGroup } from '@/core/data/item-types'
 import { BattleProvider } from '../../state/battle-store'
 import { useView, ViewProvider } from '../../state/view-store'
 import { loadUiFixture } from '../../test/ui-fixture'
@@ -90,10 +95,12 @@ it('shows hit rate, team median, quality counts, and observed weapon breakdown f
     ))
     const tile = [...host.querySelectorAll('.u7-stat-tile')].find((el) => el.querySelector('h3')?.textContent === '命中率')!
     expect.soft(tile?.textContent ?? '').toContain('90%')
-    expect.soft(tile?.textContent ?? '').toContain('全队中位')
+    expect.soft(tile?.textContent ?? '').toMatch(/有数据的 \d+ 人中位/)
     const breakdown = [...host.querySelectorAll('section')].find((el) => el.querySelector('h3')?.textContent === '命中质量')!
     expect(breakdown?.textContent).toContain('184')
-    expect(breakdown?.textContent).toContain('无命中质量 726 发')
+    const ungraded = breakdown?.querySelector('.hit-ungraded')
+    expect(ungraded?.textContent).toBe('无命中质量（立体炸弹、破袭等）726 发')
+    expect(ungraded?.getAttribute('title')).toContain('排名样本')
     const rankRows = breakdown.querySelectorAll('.hit-person-ranks > div')
     expect(rankRows).toHaveLength(4)
     expect(rankRows[0]?.textContent).toContain('90%')
@@ -173,6 +180,12 @@ it('labels the observed enemy hit sample in the tile, breakdown and ranks', () =
 it('describes the output median using only teammates with measured output', () => {
   const base = loadUiFixture()
   const pilot = base.analysis.entities['char:2121605780']!
+  // An unidentified entity with activity is still outside the same-side pilot population.
+  const unidentified = { ...pilot, key: 'ship:47271:1' as const, charId: null, name: 'Leshak', hasLog: false }
+  const fixture = { ...base, analysis: { ...base.analysis,
+    entities: { ...base.analysis.entities, [unidentified.key]: unidentified },
+    stats: [...base.analysis.stats, { ...base.analysis.stats[0]!, key: unidentified.key, source: 'observed' as const, damageOut: 1 }],
+  } }
   const host = document.createElement('div')
   const root = createRoot(host)
   function Harness() {
@@ -181,13 +194,13 @@ it('describes the output median using only teammates with measured output', () =
     return <PersonDrawer />
   }
   try {
-    act(() => root.render(<BattleProvider static={base}><ViewProvider defaultSide={1} syncUrl={false}><Harness /></ViewProvider></BattleProvider>))
+    act(() => root.render(<BattleProvider static={fixture}><ViewProvider defaultSide={1} syncUrl={false}><Harness /></ViewProvider></BattleProvider>))
     const tile = [...host.querySelectorAll('.u7-stat-tile')].find((t) => t.querySelector('h3')?.textContent === '输出')!
     const values = base.analysis.stats.filter((s) => base.analysis.entities[s.key]?.side === pilot.side &&
       base.analysis.entities[s.key]?.hasLog && s.damageOut > 0).map((s) => s.damageOut).sort((a, b) => a - b)
     const value = (values[Math.floor((values.length - 1) / 2)]! + values[Math.floor(values.length / 2)]!) / 2
     const tooltip = tile.querySelector('small')
-    expect(tooltip?.getAttribute('title')).toBe(`有数据的 ${values.length} 人的中位`)
+    expect(tooltip?.getAttribute('title')).toContain(`有数据的 ${values.length} 人的中位`)
     expect(tooltip?.textContent).toContain(Math.round(value).toLocaleString('en-US'))
   } finally {
     act(() => root.unmount())
@@ -227,3 +240,62 @@ function SelectKnown({ k }: { k: Parameters<ReturnType<typeof useView>['select']
   useEffect(() => { select(k) }, [])
   return <PersonDrawer />
 }
+
+it('matches full-fight hit and repair medians independently calculated from identified teammates in J125990', async () => {
+  const { module } = await runnerImport<{ realBattleStateWithBr(): BattleState }>(
+    resolve('fixtures/real/j125990-20250622/load.ts'), { configFile: false },
+  )
+  const state = module.realBattleStateWithBr()
+  const analysis = analyze(state)
+  const pilot = analysis.entities['char:2121605780']!
+  expect(state.logs).toHaveLength(17)
+  expect(pilot.name).toBe('Blanchard2213')
+  const peers = new Map(Object.values(analysis.entities)
+    .filter((entity) => entity.charId !== null && entity.side === pilot.side)
+    .map((entity) => [entity.key, { hits: 0, misses: 0, repairs: 0 }]))
+  for (const event of analysis.interactions) {
+    const totals = peers.get(event.from)
+    if (!totals) continue
+    if (event.kind === 'repair') totals.repairs += event.amount
+    if (event.kind === 'miss') totals.misses++
+    if (event.kind !== 'damage' || !event.quality || event.quality === 'none') continue
+    const group = event.weapon ? itemTypeGroup(event.weapon)?.groupId : undefined
+    if (group !== 72 && group !== 4807 && group !== 4808) totals.hits++
+  }
+  const rates = [...peers.values()].filter(({ hits, misses }) => hits + misses > 0)
+    .map(({ hits, misses }) => hits / (hits + misses)).sort((a, b) => a - b)
+  const repair = [...peers.values()].map(({ repairs }) => repairs).filter((amount) => amount > 0).sort((a, b) => a - b)
+  const center = (values: number[]) => (values[Math.floor((values.length - 1) / 2)]! + values[Math.floor(values.length / 2)]!) / 2
+  expect(new Set(rates).size).toBeGreaterThan(1)
+  expect(new Set(repair).size).toBeGreaterThan(1)
+  expect(rates).toHaveLength(17)
+  expect(repair).toHaveLength(22)
+  const own = peers.get(pilot.key)!
+  expect(center(rates)).not.toBe(own.hits / (own.hits + own.misses))
+  expect(center(repair)).not.toBe(own.repairs)
+
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    const fixture = { summary: loadUiFixture().summary, analysis }
+    const select = (key: typeof pilot.key) => {
+      act(() => root.render(<BattleProvider static={fixture}><ViewProvider defaultSide={pilot.side} syncUrl={false}>
+        <SelectKnown key={key} k={key} />
+      </ViewProvider></BattleProvider>))
+    }
+    const tile = (name: string) => [...host.querySelectorAll('.u7-stat-tile')].find((tile) => tile.querySelector('h3')?.textContent === name)!
+    const median = (name: string) => tile(name).querySelector('small')!
+    const percent = new Intl.NumberFormat('en-US', { style: 'percent', maximumFractionDigits: 0 })
+    select(pilot.key)
+    expect(median('命中率').querySelector('.app-number')?.textContent).toBe(percent.format(center(rates)))
+    expect(median('维修输出').querySelector('.app-number')?.textContent).toBe(Math.round(center(repair)).toLocaleString('en-US'))
+    expect.soft(median('命中率').textContent).toContain(`有数据的 ${rates.length} 人中位`)
+    expect.soft(median('维修输出').textContent).toContain(`有数据的 ${repair.length} 人中位`)
+    const other = Object.values(analysis.entities).find(({ name }) => name === 'christmas moster')!
+    select(other.key)
+    expect(tile('命中率').querySelector('div.app-number')?.textContent).toBe('37%')
+    expect(median('命中率').querySelector('.app-number')?.textContent).toBe(percent.format(center(rates)))
+  } finally {
+    act(() => root.unmount())
+  }
+}, 60_000)
