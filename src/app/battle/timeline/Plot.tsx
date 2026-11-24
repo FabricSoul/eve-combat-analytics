@@ -5,7 +5,7 @@ import { fmtHms, fmtIsk } from '@/app/lib/format'
 import { typeIconUrl } from '@/app/lib/images'
 import { sideColor, sideLetter } from '@/app/lib/sides'
 import { Portrait } from '@/app/ui/Portrait'
-import { clamp, second, type Lane } from './model'
+import { clamp, plotScale, second, type Lane } from './model'
 
 const color = {
   hair: 'var(--color-hair)', raised: 'var(--color-raised)', surface: 'var(--color-surface)',
@@ -48,12 +48,12 @@ function peak(series: readonly number[]) {
   return series.reduce((maximum, value) => Math.max(maximum, value), 1)
 }
 
-function Curve({ x, start, end, bucketStart, lane, samples, stroke, max, dash, side, area }: {
+export function Curve({ x, start, end, bucketStart, lane, samples, stroke, max, dash, side, area }: {
   x: XScale
   start: number
   end: number
   bucketStart: number
-  lane: Lane
+  lane: Pick<Lane, 'top' | 'height'>
   samples: readonly number[]
   stroke: string
   max: number
@@ -141,7 +141,7 @@ export const Plot = memo(function Plot(props: PlotProps) {
   const { left, right, width, height, start, end, compact, lanes, damage, repair, point, bucketStart } = props
   const clipId = useId()
   const plotWidth = Math.max(1, width - left - right)
-  const x = (time: number) => left + plotWidth * (time - start) / (end - start)
+  const x = plotScale(width, left, right, start, end)
   const damageMax = damage.reduce((max, curve) => Math.max(max, peak(curve.samples)), 1)
   const series = { repair, point }
   const pixelsPerTick = 82

@@ -97,7 +97,7 @@ describe('Roster', () => {
     const putSide = vi.spyOn(api, 'putSide').mockResolvedValue({ subject: 'char:2', side: 1, source: 'manual', setAt: 1 })
     mounted = mountApp(createElement(Roster))
     act(() => row('Pilot2').querySelector<HTMLButtonElement>('.roster-more')!.click())
-    const items = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    const items = [...document.querySelectorAll<HTMLButtonElement>('[role="group"] > [role="menuitem"]')]
     expect(items.map((i) => i.textContent)).toEqual([
       '移到敌方', '移到我方', '移到敌方',
     ])

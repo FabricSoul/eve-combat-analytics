@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
-import { act, useEffect } from 'react'
+import { act, useEffect, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BattleProvider } from '@/app/state/battle-store'
 import { ViewProvider, usePlayback, useView } from '@/app/state/view-store'
 import { fmtHms, fmtNum } from '@/app/lib/format'
 import { loadUiFixture } from '@/app/test/ui-fixture'
+import { CompareTable } from '../CompareTable'
+import { Roster } from '../Roster'
 import { Timeline } from '../Timeline'
 import { Plot } from './Plot'
 
@@ -26,11 +28,12 @@ function Probe() {
   return null
 }
 
-async function render(compact = false, data = fixture) {
+async function render(compact = false, data = fixture, other?: ReactNode) {
   await act(() => root.render(
     <BattleProvider static={data}>
       <ViewProvider initialTime={start} endTime={end} defaultSide={1} syncUrl={false}>
         <Timeline compact={compact} />
+        {other}
         <Probe />
       </ViewProvider>
     </BattleProvider>,
@@ -67,6 +70,72 @@ afterEach(async () => {
 })
 
 describe('timeline', () => {
+  it('shows an empty lane prompt and hides pilot lanes in compact mode', async () => {
+    await render()
+    expect(host.textContent).toContain('在名单或对比里勾选飞行员，会出现在这里')
+    const pilot = Object.values(fixture.analysis.entities).find(({ hasLog }) => hasLog)!
+    await act(() => view.togglePin(pilot.key))
+    expect(host.querySelectorAll('[data-pilot-lane]')).toHaveLength(1)
+    await render(true)
+    expect(host.querySelectorAll('[data-pilot-lane]')).toHaveLength(0)
+    expect(host.textContent).not.toContain('在名单或对比里勾选飞行员，会出现在这里')
+  })
+
+  it('uses the same cursor and brush coordinates after zoom and switches lane metrics', async () => {
+    await render()
+    const pilot = Object.values(fixture.analysis.entities).find(({ hasLog }) => hasLog)!
+    const observed = Object.values(fixture.analysis.entities).find(({ hasLog, charId }) => !hasLog && charId !== null)!
+    const time = start + 60_000
+    await act(() => {
+      view.setPinned(new Set([pilot.key, observed.key]))
+      view.seek(time)
+      view.setRange([time - 20_000, time + 20_000])
+    })
+    const lane = () => host.querySelector('[data-pilot-lane]')!
+    const expectAligned = () => {
+      expect(lane().querySelector('svg')?.getAttribute('height')).toBe('46')
+      expect(lane().querySelector('line[stroke="var(--color-accent)"]')?.getAttribute('x1')).toBe(
+        chart().querySelector('line[stroke="var(--color-accent)"]')?.getAttribute('x1'))
+      const brush = '[stroke-dasharray="3 3"]'
+      expect(lane().querySelector(brush)?.getAttribute('x')).toBe(chart().querySelector(brush)?.getAttribute('x'))
+      expect(lane().querySelector(brush)?.getAttribute('width')).toBe(chart().querySelector(brush)?.getAttribute('width'))
+    }
+    expectAligned()
+    await act(() => chart().dispatchEvent(new WheelEvent('wheel', { deltaY: -180, clientX: xAt(time), bubbles: true, cancelable: true })))
+    expectAligned()
+    const curve = () => lane().querySelector('path[fill="none"]')
+    const outgoing = curve()?.getAttribute('d')
+    await click('承伤')
+    expect(button('承伤').getAttribute('aria-pressed')).toBe('true')
+    expect(curve()?.getAttribute('d')).not.toBe(outgoing)
+    await click('维修输出')
+    expect(curve()?.getAttribute('stroke')).toBe('var(--color-repair)')
+    expect(lane().textContent).toContain('峰值')
+    expect(host.querySelectorAll('[data-pilot-lane]')[1]?.textContent).toContain('据我方日志')
+  })
+
+  it('shares roster menu pins, compare checkboxes, and the lane remove button', async () => {
+    await render(false, fixture, <><Roster /><CompareTable /></>)
+    const pilot = Object.values(fixture.analysis.entities).find(({ hasLog, charId }) => hasLog && charId !== null)!
+    const checkbox = () => [...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+      .find((node) => node.getAttribute('aria-label') === `并排对比 ${pilot.name}`)!
+    await click(`${pilot.name} 的操作`)
+    await click('加入时间轴对比')
+    expect(checkbox().checked).toBe(true)
+    expect(host.querySelectorAll('[data-pilot-lane]')).toHaveLength(1)
+    await act(() => checkbox().click())
+    expect(host.querySelectorAll('[data-pilot-lane]')).toHaveLength(0)
+    await act(() => checkbox().click())
+    await click(`移除 ${pilot.name} 的时间轴对比`)
+    expect(checkbox().checked).toBe(false)
+    expect(host.querySelectorAll('[data-pilot-lane]')).toHaveLength(0)
+    await click(`${pilot.name} 的操作`)
+    await click('加入时间轴对比')
+    await click(`${pilot.name} 的操作`)
+    await click('移出时间轴对比')
+    expect(checkbox().checked).toBe(false)
+  })
+
   it('opens the usage list from a focusable help button and returns focus on Escape', async () => {
     await render()
     const trigger = button('时间轴用法')

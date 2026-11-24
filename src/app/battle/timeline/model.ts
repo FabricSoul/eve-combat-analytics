@@ -8,6 +8,11 @@ const damageSmoothingRadius = 5
 
 export const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
+export function plotScale(width: number, left: number, right: number, start: number, end: number) {
+  const plotWidth = Math.max(1, width - left - right)
+  return (time: number) => left + plotWidth * (time - start) / (end - start)
+}
+
 export function zoomDomain(
   full: TimeRange, current: TimeRange, anchor: number, scale: number, destination = anchor,
 ): TimeRange {
@@ -31,7 +36,7 @@ function rollingMean(samples: readonly number[]) {
   })
 }
 
-function centeredDamageMean(samples: readonly number[]) {
+export function centeredDamageMean(samples: readonly number[]) {
   let first = 0
   let afterLast = 0
   let sum = 0

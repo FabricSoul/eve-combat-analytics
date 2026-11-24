@@ -7,7 +7,8 @@ import { usePlayback, useView, type LayerId } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { Portrait } from '../ui/Portrait'
 import { useTimelineGestures } from './timeline/gestures'
-import { clamp, nextEvent, pointed, repairs, second, timelineData, timelineLayout, timelineSides } from './timeline/model'
+import { clamp, nextEvent, plotScale, pointed, repairs, second, timelineData, timelineLayout, timelineSides } from './timeline/model'
+import { PilotLanes } from './timeline/PilotLanes'
 import { Plot } from './timeline/Plot'
 import { TimelineHelp, useTimelineHint } from './timeline/TimelineHelp'
 import './timeline/timeline.css'
@@ -93,12 +94,14 @@ function TimelineRoom({ compact, summary, analysis }: {
     return pointed(analysis, oursSide, data.start, Math.min(data.full[1], pointEnd))
   }, [showPoint, analysis, oursSide, data.start, data.full, seriesEnd])
 
-  const plotWidth = Math.max(1, width - left - right)
-  const x = (time: number) => left + plotWidth * (time - start) / (end - start)
+  const x = plotScale(width, left, right, start, end)
   const bottom = layout.height - (compact ? 2 : 16)
   const rangeStart = range ? Math.max(range[0], start) : 0
   const rangeEnd = range ? Math.min(range[1], end) : 0
-  const cursorOnPlot = view.t >= start && view.t <= end
+  const brush = range && rangeEnd >= rangeStart
+    ? { x: x(rangeStart), width: Math.max(1, x(rangeEnd) - x(rangeStart)) }
+    : null
+  const cursorX = view.t >= start && view.t <= end ? x(view.t) : null
   const readoutOnPlot = readout !== null && readout >= start && readout <= end
   const readoutBucket = readoutOnPlot ? Math.floor((readout - (analysis?.timeline.start ?? data.start)) / second) : -1
   // Reconstructed target spans can overlap at a switch. Prefer the newer call.
@@ -158,10 +161,10 @@ function TimelineRoom({ compact, summary, analysis }: {
           killIcons={layout.killIcons} summary={summary} analysis={analysis} order={order} damage={damage} repair={repair}
           point={point} primaries={data.primaries} />
         <g pointerEvents="none">
-          {range && rangeEnd >= rangeStart && <rect x={x(rangeStart)} y="4" width={Math.max(1, x(rangeEnd) - x(rangeStart))}
+          {brush && <rect x={brush.x} y="4" width={brush.width}
             height={Math.max(1, bottom - 6)} fill="var(--color-sel)" stroke="var(--color-accent-line)" strokeDasharray="3 3" />}
           {readoutOnPlot && <line x1={x(readout)} x2={x(readout)} y1="2" y2={bottom} stroke="var(--color-text-3)" />}
-          {cursorOnPlot && <line x1={x(view.t)} x2={x(view.t)} y1="2" y2={bottom} stroke="var(--color-accent)" strokeWidth="2" />}
+          {cursorX !== null && <line x1={cursorX} x2={cursorX} y1="2" y2={bottom} stroke="var(--color-accent)" strokeWidth="2" />}
         </g>
       </svg>
       {readoutOnPlot && <div id={tipId} className="eca-timeline-tip" role="tooltip" style={{ '--hover-x': `${x(readout)}px` } as CSSProperties}>
@@ -176,6 +179,9 @@ function TimelineRoom({ compact, summary, analysis }: {
         </div> : <div>这一秒没有主目标</div>}
       </div>}
     </div>
+    {!compact && <PilotLanes analysis={analysis} logs={summary.logs} oursSide={oursSide} sideOrder={order}
+      pinned={view.pinned} onRemove={view.togglePin} width={width} left={left} right={right} start={start} end={end}
+      cursorX={cursorX} brush={brush} />}
   </div>
 }
 

@@ -36,6 +36,7 @@ interface ViewState {
   speed: PlaybackSpeed
   range: TimeRange | null
   selected: EntityKey | null
+  pinned: ReadonlySet<EntityKey>
   focusOnly: boolean
   oursSide: number
   layers: ReadonlySet<LayerId>
@@ -50,6 +51,8 @@ interface ViewState {
   setSpeed(speed: PlaybackSpeed): void
   setRange(range: TimeRange | null): void
   select(key: EntityKey | null): void
+  setPinned(keys: ReadonlySet<EntityKey>): void
+  togglePin(key: EntityKey): void
   setFocusOnly(focus: boolean): void
   setOursSide(side: number): void
   toggleLayer(layer: LayerId): void
@@ -101,6 +104,7 @@ export function ViewProvider({
   const [side, setSide] = useState(initialView.oursSide)
   const [selected, setSelected] = useState(initialView.selected)
   const [hiddenNoise, setHiddenNoise] = useState(initialView.hiddenNoise)
+  const [pinned, setPinned] = useState<ReadonlySet<EntityKey>>(() => new Set())
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState<PlaybackSpeed>(1)
   const [range, saveRange] = useState<TimeRange | null>(null)
@@ -205,12 +209,19 @@ export function ViewProvider({
     else next.add(filter)
     return next
   }), [])
+  const togglePin = useCallback((key: EntityKey) => setPinned((previous) => {
+    const next = new Set(previous)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  }), [])
   const oursSide = side ?? defaultSide
   const focused = selected !== null && focusOnly
   const value = useMemo<ViewState>(() => ({
     speed,
     range,
     selected,
+    pinned,
     focusOnly: focused,
     oursSide,
     layers,
@@ -225,6 +236,8 @@ export function ViewProvider({
     setSpeed,
     setRange,
     select,
+    setPinned,
+    togglePin,
     setFocusOnly,
     setOursSide,
     toggleLayer,
@@ -232,8 +245,8 @@ export function ViewProvider({
     setFeedMode,
     setDrawerTab,
     setPanelTab,
-  }), [speed, range, selected, focused, oursSide, layers, hiddenNoise, feedMode, drawerTab, panelTab,
-    getTime, seek, play, pause, setRange, select, setOursSide, toggleLayer, toggleNoiseFilter])
+  }), [speed, range, selected, pinned, focused, oursSide, layers, hiddenNoise, feedMode, drawerTab, panelTab,
+    getTime, seek, play, pause, setRange, select, togglePin, setOursSide, toggleLayer, toggleNoiseFilter])
   const playback = useMemo(() => ({ t, playing }), [t, playing])
   const coarseTime = playing ? Math.floor(t / coarseInterval) * coarseInterval : t
   const coarsePlayback = useMemo(() => ({ t: coarseTime, playing }), [coarseTime, playing])

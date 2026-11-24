@@ -107,6 +107,7 @@ export function Roster(_props: RosterProps) {
       {mover.error && <div className="roster-error" role="alert">{mover.error}</div>}
       {menu && (
         <SideMenu x={menu.x} y={menu.y} anchorTop={menu.anchorTop} returnFocus={menu.invoker} sections={sectionsFor(menu.row)} order={order} onClose={closeMenu}
+          pinAction={{ label: view.pinned.has(menu.row.key) ? '移出时间轴对比' : '加入时间轴对比', run: () => view.togglePin(menu.row.key) }}
           onMove={(subject: SideSubject, side: number) => void mover.move(subject, side)} />
       )}
     </div>

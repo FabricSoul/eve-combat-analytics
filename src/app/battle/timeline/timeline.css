@@ -189,3 +189,94 @@
 .eca-timeline[data-compact="true"] { padding-inline: var(--space-2); }
 .eca-timeline[data-compact="true"] .eca-timeline-controls { margin-inline: var(--space-2); }
 .eca-timeline[data-compact="true"] .eca-timeline-controls .app-button { min-height: 36px; }
+
+.eca-pilot-lanes {
+  margin-top: var(--space-2);
+}
+
+.eca-pilot-lanes-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+  color: var(--color-text-2);
+  font-size: var(--fs-s);
+}
+
+.eca-pilot-metrics {
+  display: inline-flex;
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-ctl);
+}
+
+.eca-pilot-metrics button {
+  min-height: var(--space-6);
+  padding-inline: var(--space-2);
+  cursor: pointer;
+}
+
+.eca-pilot-metrics button + button { border-inline-start: 1px solid var(--color-hair); }
+.eca-pilot-metrics button[aria-pressed="true"],
+.eca-pilot-metrics button:hover { background: var(--color-raised); color: var(--color-text); }
+
+.eca-pilot-empty {
+  color: var(--color-text-3);
+  font-size: var(--fs-s);
+}
+
+.eca-pilot-lanes-scroll {
+  max-height: min(35vh, 276px);
+  overflow: hidden auto;
+  scrollbar-width: thin;
+}
+
+.eca-pilot-lane {
+  position: relative;
+  height: 46px;
+  border-top: 1px solid var(--color-hair);
+}
+
+.eca-pilot-chart { display: block; }
+
+.eca-pilot-cell {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-content: center;
+  align-items: center;
+  gap: 0 2px;
+  padding-inline-end: 2px;
+  color: var(--color-text-2);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.eca-pilot-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eca-pilot-remove {
+  min-width: 16px;
+  min-height: 20px;
+  color: var(--color-text-2);
+  cursor: pointer;
+}
+
+.eca-pilot-remove:hover { background: var(--color-raised); color: var(--color-text); }
+
+.eca-pilot-observed {
+  grid-column: 1 / -1;
+  color: var(--color-text-3);
+  font-size: 10px;
+}
+
+.eca-pilot-peak {
+  fill: var(--color-text);
+  font: 11px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}

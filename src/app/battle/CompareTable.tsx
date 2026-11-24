@@ -1,5 +1,4 @@
 import { useId, useMemo, useState, type CSSProperties } from 'react'
-import type { EntityKey } from '@/core/contract'
 import { fmtHms } from '../lib/format'
 import { sideColor, sideLabel, sideOrder } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
@@ -22,12 +21,11 @@ const initialSort = { key: 'damageOut', direction: 'descending' } as const
 
 export function CompareTable(_props: CompareTableProps) {
   const { analysis, summary } = useBattleContext()
-  const { oursSide, select, range } = useView()
+  const { oursSide, select, range, pinned, setPinned, togglePin } = useView()
   const { rows } = useCombatRows()
   const [mode, setMode] = useState<CompareMode>('table')
   const [sort, setSort] = useState<{ key: Metric['key']; direction: 'ascending' | 'descending' }>(initialSort)
   const [visible, setVisible] = useState<ReadonlySet<Metric['key']>>(() => new Set(defaultColumns))
-  const [pinned, setPinned] = useState<ReadonlySet<EntityKey>>(() => new Set())
   const [hiddenSides, setHiddenSides] = useState<ReadonlySet<number>>(() => new Set())
   const [expanded, setExpanded] = useState(false)
   const [compactMetric, setCompactMetric] = useState<Metric['key']>('damageOut')
@@ -81,10 +79,6 @@ export function CompareTable(_props: CompareTableProps) {
     if (!next.has(sort.key)) setSort({ key: metrics.find((metric) => next.has(metric.key))!.key, direction: 'descending' })
   }
 
-  function pin(key: EntityKey) {
-    setPinned((previous) => toggle(previous, key))
-  }
-
   function changeSort(key: Metric['key']) {
     setSort({ key, direction: sort.key === key && sort.direction === 'descending' ? 'ascending' : 'descending' })
   }
@@ -121,7 +115,7 @@ export function CompareTable(_props: CompareTableProps) {
     {mode !== 'table' && <details className="u7-compare-pick">
       <summary>选择飞行员 <span className="app-number">{pinned.size}</span></summary>
       <div>{shown.map((row) => <label key={row.entity.key}>
-        <input type="checkbox" checked={pinned.has(row.entity.key)} onChange={() => pin(row.entity.key)} />
+        <input type="checkbox" checked={pinned.has(row.entity.key)} onChange={() => togglePin(row.entity.key)} />
         <PilotName row={row} />
       </label>)}</div>
     </details>}
@@ -148,7 +142,7 @@ export function CompareTable(_props: CompareTableProps) {
             </th>)}</tr>
           </thead><tbody>{sorted.map((row) => <tr key={row.entity.key} data-pinned={pinned.has(row.entity.key)}>
             <th scope="row"><label><input type="checkbox" aria-label={`并排对比 ${row.entity.name}`}
-              checked={pinned.has(row.entity.key)} onChange={() => pin(row.entity.key)} /></label>
+              checked={pinned.has(row.entity.key)} onChange={() => togglePin(row.entity.key)} /></label>
               <PilotName row={row} onClick={() => select(row.entity.key)} /></th>
             {columns.map((column) => <td key={column.metric.key} data-compact={column.metric.key === activeCompact}>
               <MetricValue row={row} metric={column.metric} />
