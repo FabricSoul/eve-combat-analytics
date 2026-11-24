@@ -71,6 +71,11 @@ export function parseGamelog(text: string): ParsedLog {
     events: text === 'no overlap' ? [event(end + 1, 1, 'Outside')]
       : text === 'long log' ? Array.from({ length: 3000 }, (_, i) => event(start + i, i + 1, 'Target'))
       : text === 'historical' ? [event(start, 1, 'Zeikku Targaryen')]
+      // Synthetic repairs give the uploader enough friendly evidence to switch to the target's side.
+      : text === 'side evidence' ? Array.from({ length: 25 }, (_, i) => ({
+        ...event(start + i, i + 1, 'Target'), kind: 'repair' as const, dir: 'out' as const,
+        repairType: 'armor' as const, amount: 100, module: 'Test Repairer',
+      }))
       : text === 'many names' ? [
         event(start, 1, 'Fake [CORP]'),
         event(start, 2, 'X'.repeat(38)),

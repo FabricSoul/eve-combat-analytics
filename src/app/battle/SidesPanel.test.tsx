@@ -257,18 +257,46 @@ describe('SidesPanel', () => {
     expect(putSide).toHaveBeenLastCalledWith('tiny', 'corp:10', 'new')
   })
 
-  it('恢复 BR 的划分 removes every manual override', async () => {
+  it('restores every manual override with one request, then undoes the whole change with one request', async () => {
     const summary: BattleSummary = {
       ...tinySummary,
       sideOverrides: [
-        { subject: 'char:5', side: 1, source: 'manual', setAt: 1 },
+        { subject: 'char:5', side: 3, source: 'manual', setAt: 1 },
         { subject: 'corp:10', side: 0, source: 'manual', setAt: 2 },
       ],
     }
-    mounted = mountApp(createElement(SidesPanel), { summary, analysis: tinyAnalysis })
+    const removed = summary.sideOverrides.map((override) => ({ ...override, side: -1, setAt: 3 }))
+    const reinstated = summary.sideOverrides.map((override) => ({ ...override, setAt: 4 }))
+    const edits = (overrides: BattleSummary['sideOverrides']) => overrides.map(({ subject, side }) => ({ subject, side }))
+    const fetchBatch = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ applied: removed, previous: edits(summary.sideOverrides) }))
+      .mockResolvedValueOnce(Response.json({ applied: reinstated, previous: edits(removed) }))
+    vi.stubGlobal('fetch', fetchBatch)
+    const panel = (analyzedSummary: BattleSummary) =>
+      createElement(BattleUndo, {
+        analyzedSummary, publishedVersion: analyzedSummary.analysisVersion, children: createElement(SidesPanel),
+      })
+    mounted = mountApp(panel(summary), { summary, analysis: tinyAnalysis })
     const restore = [...mounted.container.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === '恢复 BR 的划分')!
     await act(async () => restore.click())
-    expect(putSide.mock.calls).toEqual([['tiny', 'char:5', -1], ['tiny', 'corp:10', -1]])
+    expect(fetchBatch).toHaveBeenCalledTimes(1)
+    expect(fetchBatch).toHaveBeenCalledWith('/api/battles/tiny/sides/batch', expect.objectContaining({
+      method: 'PUT', body: JSON.stringify({ edits: edits(removed) }),
+    }))
+    expect(putSide).not.toHaveBeenCalled()
+    const published = { ...summary, analysisVersion: summary.analysisVersion + 1, sideOverrides: [] }
+    mounted.rerender(panel(published), { summary: published, analysis: tinyAnalysis })
+    const toasts = mounted.container.querySelectorAll('[data-battle-toast]')
+    expect(toasts).toHaveLength(1)
+    expect(toasts[0]?.textContent).toBe('已恢复报告阵营撤销')
+    await act(async () => toasts[0]!.querySelector('button')!.click())
+    expect(fetchBatch).toHaveBeenCalledTimes(2)
+    expect(fetchBatch).toHaveBeenLastCalledWith('/api/battles/tiny/sides/batch', expect.objectContaining({
+      method: 'PUT', body: JSON.stringify({ edits: edits(summary.sideOverrides) }),
+    }))
+    const undone = { ...published, analysisVersion: published.analysisVersion + 1, sideOverrides: reinstated }
+    mounted.rerender(panel(undone), { summary: undone, analysis: tinyAnalysis })
+    expect(mounted.container.querySelector('[data-battle-toast]')?.textContent).toBe('已撤销')
   })
 
   it('disables 恢复 when nothing was changed by hand, and 完成 calls onClose', () => {

@@ -614,6 +614,38 @@ function putSide(id: string, data: unknown) {
   })
 }
 
+it('publishes the uploader side inferred by analysis in the live and persisted summaries', async () => {
+  const id = await prepare(0xb83)
+  const uploadResponse = await upload(id, 'side evidence')
+  expect(uploadResponse.status).toBe(200)
+  const log = await uploadResponse.json<UploadedLogSummary>()
+  expect(log.side).toBe(1)
+  const stub = env.BATTLE.getByName(id)
+  const viewer = await connect(id)
+  try {
+    expect(await viewer.next()).toMatchObject({ type: 'snapshot', state: { logs: [{ ...log, side: 1 }] } })
+    expect(await runDurableObjectAlarm(stub)).toBe(true)
+    const { value } = await decodeAnalysis(await rawAnalysis(id))
+    expect(value.entities['char:100']).toMatchObject({ side: 3, sideSource: 'log' })
+    expect((await state(id)).logs[0]?.side).toBe(3)
+    expect(await viewer.next()).toMatchObject({ type: 'snapshot', state: { analysisVersion: 1, logs: [{ ...log, side: 3 }] } })
+    expect(await viewer.next()).toEqual({ type: 'analysis_ready', version: 1 })
+  } finally {
+    viewer.close()
+  }
+  await evictDurableObject(stub)
+  expect((await state(id)).logs[0]?.side).toBe(3)
+  expect((await readLogDetail(id, log.id)).side).toBe(1)
+})
+
+function putSideBatch(id: string, edits: unknown) {
+  return worker.default.fetch(`${battle(id)}/sides/batch`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ edits }),
+  })
+}
+
 async function editSide(id: string, subject: SideOverride['subject'], side: number): Promise<SideOverride> {
   const response = await putSide(id, { subject, side })
   expect(response.status).toBe(200)
@@ -633,6 +665,51 @@ it('F6b sets, replaces and removes effective overrides through eviction', async 
   expect((await state(id)).sideOverrides).toEqual([alliance, replacement])
   expect(await editSide(id, 'corp:12345', -1)).toMatchObject({ side: -1 })
   expect((await state(id)).sideOverrides).toEqual([alliance])
+})
+
+it('restores and reapplies a side batch with one viewer frame for each operation', async () => {
+  const id = await prepare(0xb81)
+  const stub = env.BATTLE.getByName(id)
+  const low = await editSide(id, 'corp:12345', 1)
+  const temporary = await editSide(id, 'char:100', teams.length)
+  const high = await editSide(id, 'ally:1042504553', teams.length + 1)
+  await editSide(id, temporary.subject, -1)
+  const previous = [low, high].map(({ subject, side }) => ({ subject, side }))
+  const removals = [...previous].reverse().map(({ subject }) => ({ subject, side: -1 }))
+  const viewer = await connect(id)
+  try {
+    expect(await viewer.next()).toMatchObject({ type: 'snapshot', state: { sideOverrides: [low, high] } })
+    const response = await putSideBatch(id, removals)
+    expect(response.status).toBe(200)
+    const applied = removals.map((edit) => ({ ...edit, setAt: now, source: 'manual' }))
+    expect(await response.json()).toEqual({ applied, previous })
+    expect(await viewer.next()).toEqual({ type: 'sides_set', overrides: [] })
+    expect((await state(id)).sideOverrides).toEqual([])
+    expect(await runDurableObjectAlarm(stub)).toBe(true)
+    expect(await viewer.next()).toEqual({ type: 'analysis_ready', version: 1 })
+
+    const undo = await putSideBatch(id, previous)
+    expect(undo.status).toBe(200)
+    expect(await undo.json()).toEqual({
+      applied: [low, high], previous: previous.map(({ subject }) => ({ subject, side: -1 })),
+    })
+    expect(await viewer.next()).toEqual({ type: 'sides_set', overrides: [low, high] })
+    expect(await runDurableObjectAlarm(stub)).toBe(true)
+    expect(await viewer.next()).toEqual({ type: 'analysis_ready', version: 2 })
+    await evictDurableObject(stub)
+    expect((await state(id)).sideOverrides).toEqual([low, high])
+  } finally {
+    viewer.close()
+  }
+})
+
+it('rejects an invalid batch before changing any subject', async () => {
+  const id = await prepare(0xb82)
+  const existing = await editSide(id, 'corp:12345', 1)
+  const response = await putSideBatch(id, [{ subject: existing.subject, side: -1 }, { subject: 'char:100', side: 8 }])
+  expect(response.status).toBe(400)
+  expect(await response.json()).toMatchObject({ error: 'bad_request' })
+  expect((await state(id)).sideOverrides).toEqual([existing])
 })
 
 it.each([

@@ -7,7 +7,7 @@ import { isKnownNonPilotName } from '../core/log/counterparty'
 import { GamelogFormatError } from '../core/contract'
 import type {
   ApiError, BattleMeta, BattleState, EntityKey, FitEntry, IdentityMerge, KillmailParticipant, LogEvent, NameIndex, ServerMessage,
-  SideOverride, SideSubject, UploadResult,
+  SideBatchEdit, SideBatchResult, SideOverride, SideSubject, UploadResult,
 } from '../core/contract'
 import { analysisJson } from './analysis-json'
 import { battleAffiliations } from './affiliation-history'
@@ -24,6 +24,7 @@ const SOCKET_LIMIT = 1024 * 1024
 const FIT_EFT_LIMIT = 64 * 1024
 const FIT_JSON_LIMIT = 7 * FIT_EFT_LIMIT + 64 // EFT with JSON escaping, plus 64 KiB for metadata.
 const fitLimitMessage = 'EFT fits must be at most 64 KiB'
+const SIDE_BATCH_LIMIT = 1024 * 1024
 const BATTLE_TIME_AFFILIATION_VERSION = 2
 const encoder = new TextEncoder()
 
@@ -92,9 +93,10 @@ async function readFit(request: Request): Promise<Pick<FitEntry, 'eft' | 'mutate
   return { eft: data.eft, ...(mutated.length ? { mutated: [...new Set<string>(mutated)] } : {}) }
 }
 
-async function readEdit(request: Request, kind: 'side' | 'identity'): Promise<unknown> {
+async function readEdit(request: Request, kind: 'side' | 'identity' | 'side batch'): Promise<unknown> {
+  const limit = kind === 'side batch' ? SIDE_BATCH_LIMIT : 1024
   try {
-    return JSON.parse(await readText(request, 1024, 'Battle edits must be at most 1 KiB'))
+    return JSON.parse(await readText(request, limit, 'Battle edit is too large'))
   } catch {
     throw new ApiFailure('bad_request', `Expected a JSON ${kind} edit`)
   }
@@ -211,6 +213,10 @@ export class BattleRoom extends DurableObject<Env> {
         const data = await readEdit(request, 'side')
         return await this.inOrder(() => this.setSide(data))
       }
+      if (request.method === 'PUT' && route === 'sides/batch') {
+        const data = await readEdit(request, 'side batch')
+        return await this.inOrder(() => this.setSideBatch(data))
+      }
       if (request.method === 'PUT' && route === 'identities') {
         const data = await readEdit(request, 'identity')
         return await this.inOrder(() => this.setIdentity(data))
@@ -263,14 +269,20 @@ export class BattleRoom extends DurableObject<Env> {
         ? await withDeadline(35_000, (signal) => this.refreshAffiliations(state, battle, signal)) : undefined
       // An upload can commit while logs are read or affiliations are fetched.
       if (this.store.analysisStatus().revision !== revision) return
-      const chunks = await packStream(analysisJson(analyze(state)))
-      const version = this.store.publishAnalysis(revision, chunks, refresh)
-      if (version !== undefined) {
-        if (refresh) {
-          battle.meta = state.meta
+      const analysis = analyze(state)
+      const uploaderSides: Record<number, number> = {}
+      for (const log of state.logs) {
+        const entity = analysis.entities[`char:${log.charId}`]
+        if (entity && entity.sideSource !== 'manual' && entity.side !== log.side) uploaderSides[log.charId] = entity.side
+      }
+      const chunks = await packStream(analysisJson(analysis))
+      const published = this.store.publishAnalysis(revision, chunks, JSON.stringify(uploaderSides), refresh)
+      if (published) {
+        if (refresh) battle.meta = state.meta
+        if (refresh || published.uploaderSidesChanged) {
           this.broadcast({ type: 'snapshot', state: this.store.summary(battle.meta) })
         }
-        this.broadcast({ type: 'analysis_ready', version })
+        this.broadcast({ type: 'analysis_ready', version: published.version })
       }
     } finally {
       this.analyzingRevisions.delete(revision)
@@ -497,15 +509,47 @@ export class BattleRoom extends DurableObject<Env> {
       throw new ApiFailure('bad_request', 'Expected an alliance, corporation or character subject and a valid side index')
     }
 
+    const [override] = await this.applySideEdits([{ subject: data.subject, side }])
+    return Response.json(override)
+  }
+
+  private async setSideBatch(data: unknown): Promise<Response> {
+    const { meta } = await this.battle()
+    const limit = Math.max(MAX_BATTLE_SIDES, meta.teams.length)
+    if (!data || typeof data !== 'object' || !('edits' in data) || !Array.isArray(data.edits) || !data.edits.length) {
+      throw new ApiFailure('bad_request', 'Expected a nonempty list of side edits')
+    }
+    const requested = new Map<SideSubject, number>()
+    for (const edit of data.edits as unknown[]) {
+      if (!edit || typeof edit !== 'object' || !('subject' in edit) || !isSideSubject(edit.subject)
+        || !('side' in edit) || typeof edit.side !== 'number' || !Number.isInteger(edit.side)
+        || edit.side < -1 || edit.side >= limit || requested.has(edit.subject)) {
+        throw new ApiFailure('bad_request', 'Expected distinct subjects and valid numeric side indices')
+      }
+      requested.set(edit.subject, edit.side)
+    }
+
+    const current = this.store.sideOverrides().sort((a, b) => a.setAt - b.setAt)
+    const assigned = new Map(current.map(({ subject, side }) => [subject, side]))
+    const edits = [...requested].flatMap(([subject, side]) => side === (assigned.get(subject) ?? -1) ? [] : [{ subject, side }])
+    const changed = new Set(edits.map(({ subject }) => subject))
+    const previous = current.filter(({ subject }) => changed.has(subject)).map(({ subject, side }) => ({ subject, side }))
+    for (const { subject } of edits) if (!assigned.has(subject)) previous.push({ subject, side: -1 })
+
+    const applied = edits.length ? await this.applySideEdits(edits) : []
+    return Response.json({ applied, previous } satisfies SideBatchResult)
+  }
+
+  private async applySideEdits(edits: SideBatchEdit['edits']): Promise<SideOverride[]> {
     const setAt = this.services.now()
     if (!this.store.canEditSide(setAt)) {
       throw new ApiFailure('bad_request', 'A battle can accept at most 30 side edits per minute', 429)
     }
-    const override: SideOverride = { subject: data.subject, side, source: 'manual', setAt }
+    const applied = edits.map((edit): SideOverride => ({ ...edit, source: 'manual', setAt }))
     await this.scheduleAnalysis()
-    const overrides = this.store.setSide(override)
+    const overrides = this.store.setSides(applied, setAt)
     this.broadcast({ type: 'sides_set', overrides })
-    return Response.json(override)
+    return applied
   }
 
   private async setIdentity(data: unknown): Promise<Response> {

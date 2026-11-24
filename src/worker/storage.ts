@@ -34,10 +34,12 @@ type AnalysisStatus = {
   version: number
   /** Absent on rows written before the analyzer version was stored. */
   analyzerVersion?: number
+  /** Published non-manual uploader sides that differ from the raw log rows. */
+  uploaderSides?: string | null
 }
 
 export function needsAnalysis(status: AnalysisStatus): boolean {
-  return status.revision !== status.analyzedRevision || status.analyzerVersion !== ANALYZER_VERSION
+  return status.revision !== status.analyzedRevision || status.analyzerVersion !== ANALYZER_VERSION || status.uploaderSides == null
 }
 
 const CHUNK_BYTES = 1024 * 1024
@@ -252,8 +254,10 @@ export class BattleStorage {
   }
 
   summary(meta: BattleMeta): BattleSummary {
-    const logs = this.logRows().map((row) => this.summarizeLog(row))
-    return { meta, logs, ...this.fitsAndNames(), sideOverrides: this.sideOverrides(), identityMerges: this.identityMerges(), analysisVersion: this.analysisStatus().version }
+    const { version, uploaderSides } = this.analysisStatus()
+    const analyzed = JSON.parse(uploaderSides ?? '{}') as Record<number, number>
+    const logs = this.logRows().map((row) => this.summarizeLog({ ...row, side: analyzed[row.charId] ?? row.side }))
+    return { meta, logs, ...this.fitsAndNames(), sideOverrides: this.sideOverrides(), identityMerges: this.identityMerges(), analysisVersion: version }
   }
 
   async state(meta: BattleMeta): Promise<BattleState> {
@@ -282,7 +286,7 @@ export class BattleStorage {
     return count < SIDE_EDIT_LIMIT
   }
 
-  setSide({ subject, side, setAt }: SideOverride): SideOverride[] {
+  setSides(edits: readonly SideOverride[], setAt: number): SideOverride[] {
     return this.storage.transactionSync(() => {
       if (!this.hasTable('side_edits')) {
         this.sql.exec(`
@@ -294,10 +298,9 @@ export class BattleStorage {
       }
       this.sql.exec('DELETE FROM side_edits WHERE setAt <= ?', setAt - SIDE_EDIT_WINDOW_MS)
       this.sql.exec('INSERT INTO side_edits (setAt) VALUES (?)', setAt)
-      if (side === -1) {
-        this.sql.exec('DELETE FROM side_overrides WHERE subject = ?', subject)
-      } else {
-        this.sql.exec('INSERT OR REPLACE INTO side_overrides (subject, side, setAt) VALUES (?, ?, ?)', subject, side, setAt)
+      for (const { subject, side } of edits) {
+        if (side === -1) this.sql.exec('DELETE FROM side_overrides WHERE subject = ?', subject)
+        else this.sql.exec('INSERT OR REPLACE INTO side_overrides (subject, side, setAt) VALUES (?, ?, ?)', subject, side, setAt)
       }
       this.markAnalysisDirty()
       return this.sideOverrides()
@@ -334,7 +337,7 @@ export class BattleStorage {
       CREATE TABLE IF NOT EXISTS analysis_state (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         revision INTEGER NOT NULL, analyzedRevision INTEGER NOT NULL, version INTEGER NOT NULL,
-        analyzerVersion INTEGER NOT NULL DEFAULT 0
+        analyzerVersion INTEGER NOT NULL DEFAULT 0, uploaderSides TEXT
       );
       INSERT OR IGNORE INTO analysis_state (id, revision, analyzedRevision, version) VALUES (1, 0, -1, 0);
       CREATE TABLE IF NOT EXISTS analysis_chunks (seq INTEGER PRIMARY KEY, data BLOB NOT NULL);
@@ -351,13 +354,16 @@ export class BattleStorage {
       .toArray().map(({ data }) => data)
   }
 
-  publishAnalysis(revision: number, chunks: PackedJson, refresh?: AffiliationRefresh): number | undefined {
+  publishAnalysis(revision: number, chunks: PackedJson, uploaderSides: string, refresh?: AffiliationRefresh) {
     return this.storage.transactionSync(() => {
       const status = this.analysisStatus()
       if (status.revision !== revision || !needsAnalysis(status)) return undefined
       if (!this.hasTable('analysis_state')) this.setupAnalysis()
-      else if (status.analyzerVersion === undefined) {
-        this.sql.exec('ALTER TABLE analysis_state ADD COLUMN analyzerVersion INTEGER NOT NULL DEFAULT 0')
+      else {
+        if (status.analyzerVersion === undefined) {
+          this.sql.exec('ALTER TABLE analysis_state ADD COLUMN analyzerVersion INTEGER NOT NULL DEFAULT 0')
+        }
+        if (status.uploaderSides === undefined) this.sql.exec('ALTER TABLE analysis_state ADD COLUMN uploaderSides TEXT')
       }
       const version = status.version + 1
       if (refresh) {
@@ -372,10 +378,10 @@ export class BattleStorage {
       this.sql.exec('DELETE FROM analysis_chunks')
       chunks.forEach((data, seq) => this.sql.exec('INSERT INTO analysis_chunks VALUES (?, ?)', seq, data))
       this.sql.exec(
-        'UPDATE analysis_state SET version = ?, analyzedRevision = ?, analyzerVersion = ? WHERE id = 1',
-        version, revision, ANALYZER_VERSION,
+        'UPDATE analysis_state SET version = ?, analyzedRevision = ?, analyzerVersion = ?, uploaderSides = ? WHERE id = 1',
+        version, revision, ANALYZER_VERSION, uploaderSides,
       )
-      return version
+      return { version, uploaderSidesChanged: uploaderSides !== (status.uploaderSides ?? '{}') }
     })
   }
 

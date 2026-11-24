@@ -1,9 +1,27 @@
 import { describe, expect, it } from 'vitest'
 import type { Analysis, BattleSummary, Entity } from '@/core/contract'
 import { loadUiFixture } from '../test/ui-fixture'
-import { sideName } from './sides'
+import { defaultOursSide, sideName } from './sides'
 
 const { summary, analysis } = loadUiFixture()
+
+describe('defaultOursSide', () => {
+  it('chooses the new third side after all uploaders in a two-side room move there', () => {
+    expect(summary.meta.teams).toHaveLength(2)
+    const sideOverrides = [...new Set(summary.logs.map(({ charId }) => charId))].map((charId): BattleSummary['sideOverrides'][number] =>
+      ({ subject: `char:${charId}`, side: 2, source: 'manual', setAt: 1 }))
+    expect(defaultOursSide({ ...summary, sideOverrides })).toBe(2)
+  })
+
+  it('uses the lower side index when distinct uploader counts tie', () => {
+    const [first, second] = summary.logs
+    expect(defaultOursSide({ ...summary, sideOverrides: [], logs: [
+      { ...first!, side: 1 },
+      { ...first!, id: 'second-file', side: 1 },
+      { ...second!, side: 0 },
+    ] })).toBe(0)
+  })
+})
 
 describe('sideName', () => {
   it('names the real J125990 sides by their largest affiliation and counts distinct identified pilots', () => {

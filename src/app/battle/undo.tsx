@@ -7,11 +7,12 @@ type Revert = (publishedVersion: number) => Promise<Visible | void>
 type Toast = { label: string; revert?: Revert; visible?: Visible }
 type Begin = (optimistic?: Toast) => (result?: Toast) => void
 type Countdown = { deadline: number | undefined; remaining: number }
-type Notice = { toast: Toast; countdown: Countdown; expired: boolean }
+type Notice = { toast: Toast; countdown: Countdown; expired: boolean; retainedEarlier: boolean }
 
 const UndoContext = createContext<Begin>(() => () => {})
 const applying: Toast = { label: '正在应用…' }
 const undoDuration = 10_000
+const retainedLabel = '先前改动将保留'
 
 function waiting(toast: Toast) {
   return toast === applying || toast.visible !== undefined
@@ -38,14 +39,23 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
     setNotice(next)
   }, [])
 
-  const begin = useCallback<Begin>((optimistic) => {
+  const start = useCallback((optimistic: Toast | undefined, retainedEarlier: boolean): ReturnType<Begin> => {
     const countdown = { deadline: Date.now() + undoDuration, remaining: undoDuration }
-    show({ countdown, toast: optimistic ?? applying, expired: false })
+    show({ countdown, toast: optimistic ?? applying, expired: false, retainedEarlier })
     return (result) => {
       const latest = current.current
-      if (latest?.countdown === countdown) show(result ? { ...latest, toast: result } : null)
+      if (latest?.countdown !== countdown) return
+      if (result) show({ ...latest, toast: result })
+      else if (retainedEarlier) show({ ...latest, toast: { label: retainedLabel }, retainedEarlier: false })
+      else show(null)
     }
   }, [show])
+
+  const begin = useCallback<Begin>((optimistic) => {
+    const earlier = current.current
+    const replacing = earlier && !earlier.expired && (earlier.toast === applying || earlier.toast.revert !== undefined)
+    return start(optimistic, Boolean(replacing || earlier?.retainedEarlier))
+  }, [start])
 
   const countdown = notice?.countdown
   const paused = hovered || focused
@@ -99,7 +109,7 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
     const edit = current.current
     if (!edit?.toast.revert || waiting(edit.toast) || edit.expired) return
     if (edit.countdown.deadline !== undefined && Date.now() >= edit.countdown.deadline) return
-    const finish = begin()
+    const finish = start(undefined, edit.retainedEarlier)
     try {
       const visible = await edit.toast.revert(publishedVersion)
       finish({ label: '已撤销', visible: visible || undefined })
@@ -113,7 +123,10 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
     onFocusCapture={() => setFocused(true)} onBlurCapture={(event) => {
       if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false)
     }}>
-    <span role="status">{pending ? applying.label : notice.toast.label}</span>
+    <span role="status" style={notice.retainedEarlier ? { whiteSpace: 'normal' } : undefined}>
+      {notice.retainedEarlier && `${retainedLabel} · `}
+      {pending ? applying.label : notice.toast.label}
+    </span>
     {canUndo && <button type="button" onClick={() => void undo()}>撤销</button>}
   </div>
   return <UndoContext value={begin}>

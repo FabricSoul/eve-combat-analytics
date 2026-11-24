@@ -108,3 +108,28 @@ it('keeps undo reachable inside the native phone drawer', async () => {
     vi.unstubAllGlobals()
   }
 })
+
+it('shows when a newer edit commits an older pending edit and keeps the newer undo available', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  let begin!: ReturnType<typeof useBattleUndo>
+  const undoFirst = vi.fn(async () => {})
+  const undoSecond = vi.fn(async () => {})
+  function Probe() { begin = useBattleUndo(); return null }
+  try {
+    await act(() => root.render(<BattleUndo><Probe /></BattleUndo>))
+    let finishFirst!: ReturnType<typeof begin>
+    await act(() => { finishFirst = begin() })
+    await act(() => begin()({ label: '已保存配装', revert: undoSecond }))
+    expect(host.textContent).toContain('先前改动将保留')
+    await act(() => finishFirst({ label: '已改为所选阵营', revert: undoFirst }))
+    expect(host.textContent).toContain('已保存配装')
+    await act(async () => host.querySelector('button')!.click())
+    expect(undoSecond).toHaveBeenCalledTimes(1)
+    expect(undoFirst).not.toHaveBeenCalled()
+  } finally {
+    await act(() => root.unmount())
+    vi.unstubAllGlobals()
+  }
+})

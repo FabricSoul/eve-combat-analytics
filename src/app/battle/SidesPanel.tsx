@@ -218,7 +218,7 @@ export function SidesPanel({ onClose }: SidesPanelProps) {
         <span className="sides-hint">像 br.evetools 一样拖动联盟或军团；点开一行可以单独移动某个人，也可以用 ⋯ 菜单</span>
         <div className="sides-actions">
           <Button disabled={manual.size === 0 || mover.busy}
-            onClick={() => void Promise.all([...manual].map((subject) => mover.move(subject, -1)))}>恢复 BR 的划分</Button>
+            onClick={() => void mover.moveMany([...manual].map((subject) => ({ subject, side: -1 })))}>恢复 BR 的划分</Button>
           {onClose && <Button onClick={onClose}>完成</Button>}
         </div>
       </div>

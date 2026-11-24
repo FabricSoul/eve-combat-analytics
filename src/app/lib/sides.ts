@@ -1,5 +1,5 @@
-import type { Analysis, BattleSummary, SideSubject, TeamMember } from '@/core/contract'
-import { affiliationOf } from '../battle/roster/affiliation'
+import type { Analysis, BattleSummary, TeamMember } from '@/core/contract'
+import { affiliationOf, sideIndexOf } from '../battle/roster/affiliation'
 import { fmtNum } from './format'
 
 /** A side's largest named affiliation and its total number of identified pilots. */
@@ -73,23 +73,22 @@ export function sideLabel(side: number, order: readonly number[]): string {
 }
 
 export function defaultOursSide(summary: BattleSummary): number {
-  const counts = summary.meta.teams.map(() => 0)
+  const { activeSides, manualOverrides } = sideIndexOf(summary)
+  const counts = new Map<number, number>()
   const uploaders = new Set<number>()
-  const overrides = new Map(summary.sideOverrides.map(({ subject, side }) => [subject, side]))
-  const affiliations = new Map(Object.values(summary.names).flatMap((value) => value ? [[value.charId, value] as const] : []))
   for (const log of summary.logs) {
     if (uploaders.has(log.charId)) continue
     uploaders.add(log.charId)
-    const affiliation = affiliations.get(log.charId)
-    const corpId = affiliation?.corpId
-    const allyId = affiliation?.allyId
-    const overriddenSide = (subject: SideSubject) => overrides.get(subject)
-    const side = overriddenSide(`char:${log.charId}`)
-      ?? (corpId == null ? undefined : overriddenSide(`corp:${corpId}`))
-      ?? (allyId == null ? undefined : overriddenSide(`ally:${allyId}`))
-      ?? log.side
-    const count = counts[side]
-    if (count !== undefined) counts[side] = count + 1
+    const side = manualOverrides.get(log.charId)?.side ?? log.side
+    if (activeSides.has(side)) counts.set(side, (counts.get(side) ?? 0) + 1)
   }
-  return counts.reduce((winner, count, side) => count > (counts[winner] ?? 0) ? side : winner, 0)
+  let winner = 0
+  let most = 0
+  for (const [side, count] of counts) {
+    if (count > most || (count === most && side < winner)) {
+      winner = side
+      most = count
+    }
+  }
+  return winner
 }

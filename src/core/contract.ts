@@ -246,6 +246,17 @@ export interface SideEdit {
   side: number | 'new'
 }
 
+/** A single atomic edit of distinct subjects. Numeric side indices can restore previously occupied sides. */
+export interface SideBatchEdit {
+  edits: Array<{ subject: SideSubject; side: number }>
+}
+
+export interface SideBatchResult {
+  applied: SideOverride[]
+  /** Edits to restore the affected subjects to their assignments before this operation, in precedence order. */
+  previous: SideBatchEdit['edits']
+}
+
 /**
  * A side assignment that overrides the BR teams (user decision 2026-11-22: manual side editing like br.evetools,
  * plus automatic correction from log evidence). Precedence for a character, highest first: manual char >
@@ -314,6 +325,7 @@ export interface ApiError {
  * PUT  /api/battles/:brId/fits/:charId body: EFT text (≤ 64 KiB) → FitEntry
  * DELETE /api/battles/:brId/fits/:charId                    → { removed: charId }  (undo of a fit save; broadcasts fit_removed)
  * PUT  /api/battles/:brId/sides     body SideEdit            → SideOverride (numeric side in the response)
+ * PUT  /api/battles/:brId/sides/batch body SideBatchEdit     → SideBatchResult (one sides_set for the operation)
  * PUT  /api/battles/:brId/identities body { from: EntityKey; to: `char:${number}` | null } → IdentityMerge | { removed: EntityKey }
  * 'new' allocates the next side up to index 7, or returns 400 bad_request when there is no room.
  * GET  /api/battles/:brId/ws        (WebSocket upgrade)     → ServerMessage stream
