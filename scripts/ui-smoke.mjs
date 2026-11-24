@@ -159,6 +159,51 @@ export class BattleRoom extends ProductionRoom {
     assert.ok(best >= 38, `full workspace at 4× paints at least 38 fps, measured ${best.toFixed(1)}`)
   }
 
+  async function assertReplayNames(page, size) {
+    const stage = page.locator('.replay-stage')
+    await stage.locator('.replay-marker[data-present] .replay-pilot[data-log="true"]').first().waitFor()
+    if (size) {
+      await stage.evaluate((node, [width, height]) => {
+        const replay = node.closest('.battle-replay')
+        replay.closest('.battle-layout').style.gridTemplateRows = `${height}px auto auto`
+        replay.style.width = node.style.width = `${width}px`
+        replay.style.height = node.style.height = `${height}px`
+      }, size)
+      await page.waitForFunction(([width, height]) =>
+        Boolean(document.querySelector(`.replay-layer[width="${width}"][height="${height}"]`)), size)
+    }
+    const result = await stage.evaluate(async (node) => {
+      await document.fonts.ready
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      const markers = [...node.querySelectorAll('.replay-marker[data-present]')]
+      const labels = [...node.querySelectorAll('[data-pilot-label][data-positioned]')]
+      const boxes = labels.map((label) => label.getBoundingClientRect())
+      const touching = boxes.flatMap((box, index) => boxes.slice(0, index).flatMap((other, before) =>
+        box.right + 5.9 > other.left && other.right + 5.9 > box.left
+          && box.bottom + 1.9 > other.top && other.bottom + 1.9 > box.top
+          ? [[labels[index].textContent, labels[before].textContent]] : []))
+      const visible = new Map(labels.map((label, index) => [label.dataset.pilotLabel, boxes[index]]))
+      const names = markers.flatMap((marker) => {
+        const pilot = marker.querySelector('.replay-pilot')
+        const box = visible.get(marker.dataset.pilotKey)
+        const name = pilot.getAttribute('aria-label')
+        if (!box) return pilot.dataset.log === 'true' ? [name] : []
+        const ring = pilot.getBoundingClientRect()
+        const x = ring.left + ring.width / 2
+        const y = ring.top + ring.height / 2
+        const distance = Math.hypot(Math.max(0, box.left - x, x - box.right), Math.max(0, box.top - y, y - box.bottom))
+        return distance > 40.1 ? [name] : []
+      })
+      return { touching, names, uploaders: markers.filter((marker) => marker.querySelector('[data-log="true"]')).length }
+    })
+    assert.ok(result.uploaders >= 17, 'the label check uses the complete real fight')
+    assert.deepEqual(result.touching, [], 'replay names have 6 px horizontal or 2 px vertical clearance')
+    if (size) {
+      assert.deepEqual(result.names, [], `each uploader is labeled within 40 px at ${size.join(' × ')} and all labels stay near their ships`)
+      await assertClearPilotLabels(page)
+    }
+  }
+
   async function assertClearPilotLabels(page) {
     const covered = await page.locator('.replay-stage').evaluate(async (stage) => {
       // Let observer-driven placement run after an overlay opens or moves.
@@ -703,6 +748,10 @@ export class BattleRoom extends ProductionRoom {
     assert.deepEqual(touch.errors, [])
   } finally { await touch.context.close() }
   console.log('Timeline: layer buttons visible at 900 and 760px, touch range created without a keyboard modifier')
+  for (const size of [[390, 300], [300, 390]]) {
+    const phoneStage = await open(size[0], 844, 'dark', 'reduce', `?t=${screenshotTime - 420}`)
+    try { await assertReplayNames(phoneStage.page, size) } finally { await phoneStage.context.close() }
+  }
   for (const [width, height, theme, motion] of [
     [1280, 800, 'dark'], [1280, 800, 'light'], [1630, 940, 'dark'], [900, 800, 'dark'], [900, 800, 'light'],
     [390, 844, 'dark'], [390, 844, 'light'], [390, 844, 'dark', 'reduce'],
@@ -719,6 +768,7 @@ export class BattleRoom extends ProductionRoom {
       assert.equal(await shot.page.locator('[data-module-area]').count(), width >= 1100 ? 3 : 2)
       assert.equal(await shot.page.locator('.battle-layout').getAttribute('data-density'), 'compact')
     }
+    if ([1280, 900, 390].includes(width) && theme === 'dark' && !motion) await assertReplayNames(shot.page)
     if (width >= 1280 && theme === 'dark') {
       await assertClearPilotLabels(shot.page)
       await checkReplayOverlays(shot.page, width, height)

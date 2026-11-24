@@ -66,30 +66,52 @@ export function placeReplayPopover(anchor: Rect, size: Size, bounds: Rect, gap: 
   return { x, y, width, height }
 }
 
-function findPilotLabelSpace(center: Point, size: Size, bounds: Rect, occupied: readonly Rect[]): Rect | null {
-  const maxX = bounds.x + bounds.width - size.width
-  const maxY = bounds.y + bounds.height - size.height
-  if (maxX < bounds.x || maxY < bounds.y) return null
+export function closestPoint(point: Point, rect: Rect): Point {
+  return {
+    x: Math.max(rect.x, Math.min(rect.x + rect.width, point.x)),
+    y: Math.max(rect.y, Math.min(rect.y + rect.height, point.y)),
+  }
+}
+
+export function labelObstacle(label: Rect): Rect {
+  // The common 2 px clearance supplies the vertical gap.
+  return { ...label, x: label.x - 4, width: label.width + 8 }
+}
+
+const maxLabelDistance = 40
+
+function findPilotLabelSpace(center: Point, size: Size, bounds: Rect, occupied: readonly Rect[], reach: number): Rect | null {
+  const minX = Math.max(bounds.x, center.x - reach - size.width)
+  const maxX = Math.min(bounds.x + bounds.width - size.width, center.x + reach)
+  const minY = Math.max(bounds.y, center.y - reach - size.height)
+  const maxY = Math.min(bounds.y + bounds.height - size.height, center.y + reach)
+  if (maxX < minX || maxY < minY) return null
   const preferredX = center.x - size.width / 2
   const preferredY = center.y - size.height / 2
-  const rows = [Math.max(bounds.y, Math.min(preferredY, maxY)), bounds.y, maxY]
-  for (const rect of occupied) {
-    rows.push(rect.y - size.height - gap, rect.y + rect.height + gap)
+  const obstacles = occupied.filter((rect) => rect.x - gap < maxX + size.width && rect.x + rect.width + gap > minX
+    && rect.y - gap < maxY + size.height && rect.y + rect.height + gap > minY).sort((a, b) => a.x - b.x)
+  const rows = new Set([Math.max(minY, Math.min(preferredY, maxY)), minY, maxY])
+  for (const rect of obstacles) {
+    rows.add(rect.y - size.height - gap)
+    rows.add(rect.y + rect.height + gap)
   }
-  const obstacles = [...occupied].sort((a, b) => a.x - b.x)
-  for (const y of [...new Set(rows)].sort((a, b) => Math.abs(a - preferredY) - Math.abs(b - preferredY))) {
-    if (y < bounds.y || y > maxY) continue
-    let left = bounds.x
-    let bestX: number | null = null
-    let bestDistance = Infinity
-    const consider = (right: number) => {
+  let best: Rect | null = null
+  let bestDistance = Infinity
+  let bestAlignment = Infinity
+  for (const y of rows) {
+    if (y < minY || y > maxY) continue
+    let left = minX
+    function consider(right: number) {
       if (left > right) return
       const x = Math.max(left, Math.min(preferredX, right))
-      const distance = Math.abs(x - preferredX)
-      if (distance < bestDistance) {
-        bestX = x
-        bestDistance = distance
-      }
+      const dx = Math.max(0, x - center.x, center.x - x - size.width)
+      const dy = Math.max(0, y - center.y, center.y - y - size.height)
+      const distance = Math.hypot(dx, dy)
+      const alignment = Math.abs(preferredX - x) + Math.abs(preferredY - y)
+      if (distance > reach || distance > bestDistance || (distance === bestDistance && alignment >= bestAlignment)) return
+      bestDistance = distance
+      bestAlignment = alignment
+      best = { ...size, x, y }
     }
     for (const rect of obstacles) {
       if (y >= rect.y + rect.height + gap || y + size.height + gap <= rect.y) continue
@@ -98,37 +120,104 @@ function findPilotLabelSpace(center: Point, size: Size, bounds: Rect, occupied: 
       if (left > maxX) break
     }
     consider(maxX)
-    if (bestX !== null) return { ...size, x: bestX, y }
   }
-  return null
+  return best
 }
 
-export function placePilotLabel(center: Point, radius: number, size: Size, bounds: Rect, occupied: readonly Rect[], required = false) {
+export function placePilotLabel(center: Point, radius: number, size: Size, bounds: Rect, occupied: readonly Rect[],
+  required = false, reach = maxLabelDistance) {
   const { x, y } = center
-  const gap = radius + 5
+  const offset = radius + 5
   const left = x - size.width / 2
   const top = y - size.height / 2
   const nearby = [
-    { ...size, x: left, y: y + gap },
-    { ...size, x: left, y: y - gap - size.height },
-    { ...size, x: x + gap, y: top },
-    { ...size, x: x - gap - size.width, y: top },
+    { ...size, x: left, y: y + offset },
+    { ...size, x: left, y: y - offset - size.height },
+    { ...size, x: x + offset, y: top },
+    { ...size, x: x - offset - size.width, y: top },
   ]
-  const closest = placeAnnotation(nearby, bounds, occupied)
-  if (closest || !required) return closest
+  return placeAnnotation(nearby, bounds, occupied)
+    ?? (required ? findPilotLabelSpace(center, size, bounds, occupied, reach) : null)
+}
 
-  const farther: Rect[] = []
-  const spacing = size.height + 4
-  for (let step = 1; step <= 4; step++) {
-    const distance = step * spacing
-    for (const direction of [-1, 1]) {
-      farther.push(
-        { ...nearby[0]!, x: left + direction * distance },
-        { ...nearby[1]!, x: left + direction * distance },
-        { ...nearby[2]!, y: top + direction * distance },
-        { ...nearby[3]!, y: top + direction * distance },
-      )
+interface PilotLabel {
+  center: Point
+  radius: number
+  size: Size
+  bounds: Rect
+  priority: number
+  uploader: boolean
+  required: boolean
+}
+
+export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], obstacles: readonly Rect[], stage: Rect) {
+  const uploaders = labels.filter((label) => label.uploader)
+  const options = (label: T, occupied: readonly Rect[], width: number, bounds = label.bounds, reach = maxLabelDistance) =>
+    placePilotLabel(label.center, label.radius, { ...label.size, width }, bounds, occupied, true, reach)
+
+  function pack(limit: number) {
+    const occupied = [...obstacles]
+    const placed = new Map<T, Rect>()
+    // Put pilots with little nearby room first, so pilots at the edge can use the gaps left over.
+    const order = uploaders.map((label) => {
+      const slot = options(label, obstacles, Math.min(limit, label.size.width))
+      const nearest = slot && closestPoint(label.center, slot)
+      const distance = nearest ? Math.hypot(nearest.x - label.center.x, nearest.y - label.center.y) : Infinity
+      return { label, distance }
+    }).sort((a, b) => b.distance - a.distance)
+    for (const { label } of order) {
+      const slot = options(label, occupied, Math.min(limit, label.size.width))
+      if (!slot) continue
+      placed.set(label, slot)
+      occupied.push(labelObstacle(slot))
+    }
+    return placed
+  }
+
+  let positions = pack(Infinity)
+  const smallerWidths = [64, 54, 46, 38, 32, 26, 24]
+  for (const width of smallerWidths) {
+    if (positions.size === uploaders.length) break
+    const retry = pack(width)
+    if (retry.size > positions.size) positions = retry
+  }
+
+  // Reclaim space for longer names without taking an already placed uploader's slot.
+  for (const label of uploaders) {
+    const slot = positions.get(label)
+    if (slot?.width === label.size.width) continue
+    const occupied = [...obstacles]
+    for (const [other, rect] of positions) if (other !== label) occupied.push(labelObstacle(rect))
+    const widths = [label.size.width, ...smallerWidths.filter((width) => width < label.size.width)]
+    for (const width of widths) {
+      if (slot && width <= slot.width) break
+      const found = options(label, occupied, width)
+      if (!found) continue
+      positions.set(label, found)
+      break
     }
   }
-  return placeAnnotation(farther, bounds, occupied) ?? findPilotLabelSpace(center, size, bounds, occupied)
+
+  const occupied = [...obstacles, ...[...positions.values()].map(labelObstacle)]
+  for (const label of uploaders) {
+    if (positions.has(label)) continue
+    const width = Math.min(46, label.size.width)
+    const compactWidth = Math.min(24, width)
+    const slot = options(label, occupied, width, label.bounds, Infinity)
+      ?? options(label, occupied, compactWidth, label.bounds, Infinity)
+      ?? options(label, occupied, width, stage, Infinity)
+      ?? options(label, occupied, compactWidth, stage, Infinity)
+    if (!slot) continue
+    positions.set(label, slot)
+    occupied.push(labelObstacle(slot))
+  }
+
+  const otherLabels = labels.filter((label) => !label.uploader).sort((a, b) => b.priority - a.priority)
+  for (const label of otherLabels) {
+    const slot = placePilotLabel(label.center, label.radius, label.size, label.bounds, occupied, label.required)
+    if (!slot) continue
+    positions.set(label, slot)
+    occupied.push(labelObstacle(slot))
+  }
+  return positions
 }

@@ -51,14 +51,10 @@ describe('pilot label placement', () => {
   })
 })
 
-it('places required pilot labels without overlapping, even when all nearby spots are occupied', () => {
-  const size = { width: 60, height: 16 }
+it('rejects a free slot more than 40 px away from a pilot', () => {
   const bounds = { x: 0, y: 0, width: 400, height: 300 }
-  const wall = { x: 0, y: 20, width: 270, height: 250 }
-  const label = placePilotLabel({ x: 100, y: 150 }, 14, size, bounds, [wall], true)
-  expect(label).not.toBeNull()
-  expect(label!.x).toBeGreaterThanOrEqual(272)
-  expect(placePilotLabel({ x: 100, y: 150 }, 14, size, bounds, [bounds], true)).toBeNull()
+  const wall = { x: 0, y: 0, width: 270, height: 300 }
+  expect(placePilotLabel({ x: 100, y: 150 }, 14, { width: 60, height: 16 }, bounds, [wall], true)).toBeNull()
 })
 
 describe('replay popover placement', () => {

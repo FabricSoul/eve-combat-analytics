@@ -122,6 +122,14 @@
   pointer-events: none;
 }
 
+.replay-label-leaders {
+  position: absolute;
+  inset: 0;
+  fill: none;
+  stroke: var(--color-text-3);
+  opacity: .65;
+}
+
 .replay-pilot-label {
   position: absolute;
   inset: 0 auto auto 0;
@@ -333,7 +341,7 @@
 @container (max-width: 430px) {
   .replay-header { --replay-legend-gutter: var(--space-3); }
   .replay-legend-detail { display: none; }
-  .replay-pilot-label { max-width: 72px; }
+  .replay-pilot-label { max-width: 72px; line-height: 14px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

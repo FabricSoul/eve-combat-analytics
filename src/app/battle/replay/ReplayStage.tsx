@@ -13,7 +13,7 @@ import { useReplayKeyboard, type ReplayFocusTarget } from './keyboard'
 import { makePainter, missedTracerAt, type MissTracer, type PaintedModule, type ReplayFrame } from './paint'
 import type { Point } from './layout-effects'
 import { createProjectilePlayback } from './projectile'
-import { placePilotLabel } from './placement'
+import { closestPoint, placeReplayLabels } from './placement'
 import { watchLabelObstacles } from './label-obstacles'
 import { deathAt, recentEngagement } from './presence'
 import type { Rect } from './placement'
@@ -111,6 +111,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
   const pointer = useRef<(Point & { overPilot: boolean }) | null>(null)
   const markers = useRef(new Map<EntityKey, HTMLDivElement>())
   const labelElements = useRef(new Map<EntityKey, HTMLSpanElement>())
+  const labelLeaders = useRef<SVGPathElement>(null)
   const previousLayout = useRef<ReplayLayout | null>(null)
   const invalidate = useRef<() => void>(() => {})
   const [playback] = useState(createProjectilePlayback)
@@ -390,17 +391,37 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         }
         const ourBounds = { ...bounds, [span]: enemyEdge - min }
         const enemyBounds = split ? { ...bounds, [split]: ourEdge, [span]: max - ourEdge } : bounds
-        for (const { element } of labels) {
-          if (!labelSizes.has(element)) labelSizes.set(element, { width: element.offsetWidth, height: element.offsetHeight })
-        }
-        for (const { element, node, center, required } of labels.sort((a, b) => b.priority - a.priority)) {
+        for (const { element } of labels) if (!labelSizes.has(element)) element.style.removeProperty('width')
+        const names = labels.map((label) => {
+          const { element, node } = label
+          let size = labelSizes.get(element)
+          if (!size) {
+            size = { width: element.offsetWidth, height: element.offsetHeight }
+            labelSizes.set(element, size)
+          }
           const labelBounds = !split || node.entity.side < 0 ? bounds : node.entity.side === layout.ours ? ourBounds : enemyBounds
-          const rect = placePilotLabel(center, node.radius, labelSizes.get(element)!, labelBounds, occupied, required)
-          element.toggleAttribute('data-positioned', rect !== null)
+          return { ...label, size, bounds: labelBounds, radius: node.radius, uploader: node.entity.hasLog }
+        })
+        const placed = placeReplayLabels(names, occupied, bounds)
+        const leaders = []
+        for (const label of names) {
+          const { element, center, radius, uploader } = label
+          const rect = placed.get(label)
+          element.toggleAttribute('data-positioned', rect !== undefined)
           if (!rect) continue
+          element.style.width = `${rect.width}px`
           element.style.transform = `translate(${rect.x}px, ${rect.y}px)`
-          occupied.push(rect)
+          if (!uploader) continue
+          const end = closestPoint(center, rect)
+          const dx = end.x - center.x
+          const dy = end.y - center.y
+          const distance = Math.hypot(dx, dy)
+          if (distance <= radius + 9) continue
+          const inset = (radius + 3) / distance
+          leaders.push(`M${center.x + dx * inset} ${center.y + dy * inset}L${end.x} ${end.y}`)
         }
+        labelLeaders.current?.setAttribute('d', leaders.join(' '))
+
       }
       firstFrame = false
       if (playing ? getTime !== undefined : !reducedMotion && (animating || bursting)) schedule()
@@ -453,7 +474,10 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         onFocus={onFocus} onBlur={onBlur} onKeyDown={onKeyDown}>
         {pilotMarkers}
       </div>
-      <div className="replay-name-layer" aria-hidden="true">{pilotLabels}</div>
+      <div className="replay-name-layer" aria-hidden="true">
+        <svg className="replay-label-leaders" width="100%" height="100%"><path ref={labelLeaders} /></svg>
+        {pilotLabels}
+      </div>
       <canvas ref={over} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer replay-effects" aria-hidden="true" />
       <div ref={effectTooltip} className="replay-miss-tooltip" role="tooltip" />
       {locked && (

@@ -108,11 +108,15 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   const compact = height < 420
   // Match the compact controls breakpoint. Use the longer axis for the two fleets.
   const split: 'x' | 'y' | null = width <= 430 && order.length === 2 ? (width >= height ? 'x' : 'y') : null
+  // Give the fleet with more required names a little extra space.
+  const logBalance = split ? pilots.reduce((balance, { entity }) => !entity.hasLog ? balance
+    : balance + (entity.side === order[0] ? 1 : entity.side === order[1] ? -1 : 0), 0) : 0
+  const splitRatio = 0.5 + Math.sign(logBalance) * 0.05
   if (split === 'x') {
-    anchors.get(order[0]!)!.x = width * 0.16
+    anchors.get(order[0]!)!.x = width * 0.28
     anchors.get(order[1]!)!.x = width * 0.84
   } else if (split === 'y') {
-    anchors.set(order[0]!, { x: width / 2, y: height * 0.32 })
+    anchors.set(order[0]!, { x: width / 2, y: height * 0.37 })
     anchors.set(order[1]!, { x: width / 2, y: height * 0.72 })
   }
   const nodes = pilots.map((pilot, index): ReplayNode => {
@@ -125,7 +129,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
       ordinal: index,
       x: anchor.x + Math.cos(angle) * spread,
       y: anchor.y + Math.sin(angle) * spread,
-      radius: hasLog ? (compact ? 12 : 15) : pilot.primaryEnemy ? (compact ? 11 : 13) : (compact ? 8 : 9),
+      radius: hasLog ? (split ? 9 : compact ? 12 : 15) : pilot.primaryEnemy ? (compact ? 11 : 13) : (split ? 6 : compact ? 8 : 9),
       labeled: hasLog || (!compact && pilot.primaryEnemy),
     }
   })
@@ -140,15 +144,16 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   function confine(node: ReplayNode, x: number, y: number) {
     const inset = node.radius + 5
     const ours = node.entity.side === order[0]
-    const minX = split === 'x' && !ours ? width / 2 + inset : inset
-    const maxX = split === 'x' && ours ? width / 2 - inset : width - inset
-    const top = split === 'y' && !ours ? height / 2 : split ? 57 : 42
+    const minX = split === 'x' && !ours ? width * splitRatio + inset : inset
+    const maxX = split === 'x' && ours ? width * splitRatio - inset : width - inset
+    const top = split === 'y' && !ours ? height * splitRatio : split ? 57 : 42
     const minY = Math.max(top, topInset) + inset
     const floor = height - inset - Math.max(bottomInset, node.labeled ? 20 : 8)
-    const maxY = split === 'y' && ours ? Math.min(floor, height / 2 - inset) : floor
+    const maxY = split === 'y' && ours ? Math.min(floor, height * splitRatio - inset) : floor
     return { x: Math.max(minX, Math.min(maxX, x)), y: Math.max(minY, Math.min(maxY, y)) }
   }
 
+  const smallShipMargin = split === 'y' ? 2 : 2.15
   const velocityDecay = 0.35
   const velocityFactor = 1 - velocityDecay
   const links = forceLink<ReplayNode, CombatLink>()
@@ -157,8 +162,8 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   const simulation = forceSimulation<ReplayNode>([]).stop()
     .force('x', forceX<ReplayNode>((node) => anchorFor(node).x).strength(0.09))
     .force('y', forceY<ReplayNode>((node) => anchorFor(node).y).strength(split === 'y' || order.length >= 3 ? 0.10 : 0.025))
-    .force('collide', forceCollide<ReplayNode>(({ radius, labeled }) => radius + (split ? 3 : labeled ? 26 : 8)).strength(0.9))
-    .force('charge', forceManyBody().strength(-30).distanceMax(160))
+    .force('collide', forceCollide<ReplayNode>(({ radius, labeled, entity }) => radius + (split ? (entity.hasLog ? 6 : smallShipMargin) : labeled ? 26 : 8)).strength(0.9))
+    .force('charge', forceManyBody().strength(split ? -80 : -30).distanceMax(160))
     .force('link', links)
     .force('bounds', split ? () => {
       for (const node of activeNodes) {

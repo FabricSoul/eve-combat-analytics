@@ -54,8 +54,8 @@ describe('replay presence in the complete J125990 fight', () => {
   })
 
   it.each([
-    { width: 390, height: 300, axis: 'x', boundary: 195 },
-    { width: 300, height: 390, axis: 'y', boundary: 195 },
+    { width: 390, height: 300, axis: 'x', boundary: 214.5 },
+    { width: 300, height: 390, axis: 'y', boundary: 214.5 },
   ] as const)('keeps the fleets separated and their ship rings clear at $width × $height', ({ width, height, axis, boundary }) => {
     const layout = makeLayout(scene.pilots, order, width, height)
     const t = at('15:43:02')
