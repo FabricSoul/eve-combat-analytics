@@ -303,7 +303,7 @@ it('persists killmail substitutions for reload and a second live viewer, then cl
 it.each([
   { room: 992, edited: false },
   { room: 993, edited: true },
-])('recovers legacy killmail substitutions only for matching EFT (edited: $edited)', async ({ room, edited }) => {
+])('recovers legacy fits in the background with one ESI lookup (edited: $edited)', async ({ room, edited }) => {
   const id = await prepare(room)
   const stub = env.BATTLE.getByName(id)
   const killmail = env.REAL_FIGHT_INFO.meta.killmails.find(({ id }) => id === leshak.killmail_id)!
@@ -328,11 +328,39 @@ it.each([
   })
 
   const expected = edited ? oldFit : { ...oldFit, mutated: ['Entropic Radiation Sink II'] }
+  let releaseEsi!: () => void
+  const paused = new Promise<void>((resolve) => { releaseEsi = resolve })
+  const reply = esiFetch.getMockImplementation()!
   esiFetch.mockClear()
+  esiFetch.mockImplementation(async (...args) => {
+    await paused
+    return reply(...args)
+  })
   vi.stubGlobal('fetch', esiFetch)
   try {
-    expect((await state(id)).fits).toEqual([expected])
-    expect(esiFetch).toHaveBeenCalledTimes(1)
+    const first = await Promise.race([state(id), scheduler.wait(1_000).then(() => undefined)])
+    expect(first?.fits).toEqual([oldFit])
+    await vi.waitFor(() => expect(esiFetch).toHaveBeenCalledTimes(1))
+
+    const live = await connect(id)
+    try {
+      const snapshot = await live.next()
+      expect(snapshot.type === 'snapshot' && snapshot.state.fits).toEqual([oldFit])
+      expect((await state(id)).fits).toEqual([oldFit])
+      expect(esiFetch).toHaveBeenCalledTimes(1)
+
+      releaseEsi()
+      if (!edited) expect(await live.next()).toEqual({ type: 'fit_set', fit: expected })
+      await vi.waitFor(async () => {
+        const row = await runInDurableObject(stub, (_, { storage }) =>
+          storage.sql.exec<{ mutated: string }>('SELECT mutated FROM fits WHERE charId = ?', oldFit.charId).one(),
+        )
+        expect(JSON.parse(row.mutated)).toEqual(expected.mutated ?? [])
+      })
+    } finally {
+      live.close()
+    }
+
     await evictDurableObject(stub)
     const viewer = await connect(id)
     try {
@@ -344,6 +372,7 @@ it.each([
       viewer.close()
     }
   } finally {
+    releaseEsi()
     vi.unstubAllGlobals()
   }
 })

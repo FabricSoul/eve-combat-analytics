@@ -25,6 +25,7 @@ const SOCKET_LIMIT = 1024 * 1024
 const FIT_EFT_LIMIT = 64 * 1024
 const FIT_JSON_LIMIT = 7 * FIT_EFT_LIMIT + 64 // EFT with JSON escaping, plus 64 KiB for metadata.
 const FIT_RECOVERY_TIMEOUT_MS = 3_000
+const FIT_RECOVERY_CONCURRENCY = 3
 const fitLimitMessage = 'EFT fits must be at most 64 KiB'
 const SIDE_BATCH_LIMIT = 1024 * 1024
 const BATTLE_TIME_AFFILIATION_VERSION = 2
@@ -126,6 +127,7 @@ export class BattleRoom extends DurableObject<Env> {
   private readonly store: BattleStorage
   private serviceInstance?: Services
   private battleCache?: Battle
+  private legacyFitRecovery?: Promise<void>
   private tail: Promise<void> = Promise.resolve()
   private readonly analyzingRevisions = new Set<number>()
 
@@ -188,8 +190,9 @@ export class BattleRoom extends DurableObject<Env> {
       if (request.method === 'GET' && !route) {
         await this.ensureAnalysisScheduled()
         const battle = await this.battle()
-        await this.recoverLegacyFits(battle.meta)
-        return Response.json(this.store.summary(battle.meta))
+        const response = Response.json(this.store.summary(battle.meta))
+        this.startLegacyFitRecovery(battle.meta)
+        return response
       }
       if (request.method === 'GET' && route.startsWith('logs/')) {
         const id = route.slice('logs/'.length)
@@ -230,11 +233,12 @@ export class BattleRoom extends DurableObject<Env> {
           throw new ApiFailure('bad_request', 'WebSocket upgrade required', 426)
         }
         const battle = await this.battle()
-        await this.recoverLegacyFits(battle.meta)
-        return await this.inOrder(async () => {
+        const response = await this.inOrder(async () => {
           await this.scheduleMissingAnalysis()
           return this.openWebSocket(battle.meta)
         })
+        this.startLegacyFitRecovery(battle.meta)
+        return response
       }
       throw new ApiFailure('br_not_found', 'Battle API route not found')
     } catch (error) {
@@ -479,6 +483,13 @@ export class BattleRoom extends DurableObject<Env> {
     }))
   }
 
+  private startLegacyFitRecovery(meta: BattleMeta): void {
+    if (this.legacyFitRecovery) return
+    this.legacyFitRecovery = this.recoverLegacyFits(meta)
+      .catch((error: unknown) => console.error('Legacy fit recovery failed', error))
+      .finally(() => { this.legacyFitRecovery = undefined })
+  }
+
   private async recoverLegacyFits(meta: BattleMeta): Promise<void> {
     const candidates = this.store.legacyFits().flatMap((fit) => {
       // The canonical header identifies the one loss to check, even for pilots with several losses.
@@ -486,19 +497,22 @@ export class BattleRoom extends DurableObject<Env> {
       const loss = meta.killmails.find((kill) => kill.id === id && kill.victim.charId === fit.charId)
       return loss && /^[a-f0-9]{40}$/i.test(loss.hash) ? [{ fit, loss }] : []
     })
-    if (!candidates.length) return
-
-    await withDeadline(FIT_RECOVERY_TIMEOUT_MS, async (signal) => {
-      const esiFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal })
-      await Promise.all(candidates.map(async ({ fit, loss }) => {
-        const canonical = await fetchKillmailFit(loss.id, loss.hash.toLowerCase(), esiFetch).catch(() => undefined)
-        if (!canonical) return // Leave the legacy row eligible for retry when ESI is available.
+    const queue = candidates.values()
+    const workers = Array.from({ length: Math.min(candidates.length, FIT_RECOVERY_CONCURRENCY) }, async () => {
+      for (const { fit, loss } of queue) {
+        const canonical = await withDeadline(FIT_RECOVERY_TIMEOUT_MS, (signal) =>
+          fetchKillmailFit(loss.id, loss.hash.toLowerCase(), (input, init) => fetch(input, { ...init, signal })),
+        ).catch(() => undefined)
+        if (!canonical) continue // Leave the legacy row eligible for retry when ESI is available.
         const mutated = canonical.charId === fit.charId && canonical.eft === fit.eft ? canonical.mutated ?? [] : []
         if (this.store.recoverFitMutations(fit, mutated) && mutated.length) {
           this.broadcast({ type: 'fit_set', fit: { ...fit, mutated } })
         }
-      }))
+      }
     })
+    for (const result of await Promise.allSettled(workers)) {
+      if (result.status === 'rejected') console.error('Legacy fit recovery failed', result.reason)
+    }
   }
 
   private async setFit(charId: number, text: Pick<FitEntry, 'eft' | 'mutated'>): Promise<Response> {
