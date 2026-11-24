@@ -1,6 +1,6 @@
 import type { Analysis, BattleSummary, Entity, EntityKey, PilotStats } from '@/core/contract'
-import { fmtHms } from '../../lib/format'
-import { sideOrder } from '../../lib/sides'
+import { fmtHms, fmtNum } from '../../lib/format'
+import { sideLabel, sideOrder } from '../../lib/sides'
 import { sideIndexOf } from './affiliation'
 import { shipNameById, shipTypeIdByName } from './ships'
 
@@ -52,12 +52,29 @@ export function fullSideOrder(analysis: Analysis, oursSide: number): number[] {
   return [...order, ...[...extra].sort((a, b) => a - b)]
 }
 
-function tagOf(entity: Entity, charId: number, summary: BattleSummary, analysis: Analysis): RosterTag | null {
+function logReasonTitle(reason: string | undefined, order: readonly number[]): string {
+  const fallback = '据日志自动修正'
+  if (!reason) return fallback
+  const evidence: string[] = []
+  for (const clause of reason.split(', ')) {
+    const match = /^(?:observed )?(repaired|damaged) side (\d+): (\d+|\d{1,3}(?:,\d{3})+) events$/.exec(clause)
+    if (!match) return fallback
+    const [, action, sideId, events] = match
+    const side = Number(sideId)
+    const count = Number(events?.replaceAll(',', ''))
+    if (!order.includes(side) || !Number.isSafeInteger(count)) return fallback
+    const verb = action === 'repaired' ? '修了' : '伤害了'
+    evidence.push(`${verb} ${sideLabel(side, order)} ${fmtNum(count)} 次`)
+  }
+  return `据日志：${evidence.join('，')}`
+}
+
+function tagOf(entity: Entity, charId: number, summary: BattleSummary, analysis: Analysis, order: readonly number[]): RosterTag | null {
   const merges = (summary.identityMerges ?? []).filter(({ to }) => to === `char:${charId}`)
   if (merges.length) return { kind: 'merge', title: `合并 · ${merges.map(({ setAt }) => new Date(setAt).toISOString().slice(0, 16).replace('T', ' ') + ' UTC').join('、')} 设` }
   if (entity.sideSource === 'log') {
     const override = analysis.sideOverrides.find(({ subject }) => subject === `char:${charId}`)
-    return { kind: 'log', title: override?.reason ?? '据日志修正' }
+    return { kind: 'log', title: logReasonTitle(override?.reason, order) }
   }
   if (entity.sideSource === 'manual') {
     const override = sideIndexOf(summary).manualOverrides.get(charId)
@@ -130,6 +147,7 @@ export function buildRoster(
 ): RosterGroup[] {
   const output = new Map(stats.map((stats) => [stats.key, [stats.damageOut, stats.killmailDamage] as const]))
   const bySide = new Map<number, RosterRow[]>()
+  const order = fullSideOrder(analysis, oursSide)
   const observed = new Set(analysis.stats.filter((entry) => entry.source === 'observed').map((entry) => entry.key))
 
   const merged = new Set((summary.identityMerges ?? []).map(({ from }) => from))
@@ -147,7 +165,7 @@ export function buildRoster(
       key: entity.key, charId, name: entity.name, side: entity.side, hasLog: entity.hasLog, observed: !entity.hasLog && observed.has(entity.key),
       dead: state?.dead ?? false, ship,
       shipTypeId: seenType ?? (keyType ? Number(keyType) : shipTypeIdByName(ship)),
-      tag: charId === null ? null : tagOf(entity, charId, summary, analysis),
+      tag: charId === null ? null : tagOf(entity, charId, summary, analysis, order),
     }
     bySide.set(entity.side, [...bySide.get(entity.side) ?? [], row])
   }
@@ -155,7 +173,7 @@ export function buildRoster(
   const rank = (row: RosterRow) => output.get(row.key) ?? [0, 0]
   const byOutput = (a: RosterRow, b: RosterRow) =>
     Number(a.charId === null) - Number(b.charId === null) || rank(b)[0] - rank(a)[0] || rank(b)[1] - rank(a)[1] || a.name.localeCompare(b.name)
-  const sides = [...fullSideOrder(analysis, oursSide), -1]
+  const sides = [...order, -1]
   return sides.flatMap((side) => {
     const rows = (bySide.get(side) ?? []).sort(side === oursSide
       ? (a, b) => Number(a.charId === null) - Number(b.charId === null) || Number(b.hasLog) - Number(a.hasLog) || byOutput(a, b)

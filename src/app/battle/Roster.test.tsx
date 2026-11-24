@@ -29,7 +29,7 @@ describe('Roster', () => {
     expect(row('Pilot2').hasAttribute('data-nolog')).toBe(true)
     expect(row('Pilot4').hasAttribute('data-dead')).toBe(true)
     expect(row('Pilot5').hasAttribute('data-dead')).toBe(false)
-    expect(row('Pilot3').querySelector('.app-tag')).toMatchObject({ textContent: '据日志', title: 'repaired side 0: 842 events' })
+    expect(row('Pilot3').querySelector('.app-tag')).toMatchObject({ textContent: '据日志', title: '据日志：修了 我方 842 次' })
     expect(row('Pilot5').querySelector('.app-tag')?.textContent).toBe('手动')
     expect(row('Pilot1').querySelector('.app-tag')).toBeNull()
     expect(row('Pilot1').textContent).toContain('Leshak')

@@ -123,7 +123,36 @@ describe('buildRoster', () => {
     const tag = (id: number) => rows.find((r) => r.charId === id)?.tag
     expect(tag(1)).toBeNull()
     expect(tag(2)).toEqual({ kind: 'manual', title: '手动 · 16:05 改' })
-    expect(tag(3)).toEqual({ kind: 'log', title: 'repaired side 0: 842 events' })
+    expect(tag(3)).toEqual({ kind: 'log', title: '据日志：修了 我方 842 次' })
+  })
+
+  it('localizes Lucinda HIly’s real repair and damage evidence in the viewer’s side order', () => {
+    const state = realBattleStateWithBr()
+    const analysis = analyze(state)
+    const lucinda = 'char:2117427381'
+    expect(analysis.sideOverrides.find(({ subject }) => subject === lucinda)?.reason)
+      .toBe('repaired side 1: 842 events, damaged side 0: 3408 events')
+    const title = (ours: number) =>
+      buildRoster(base, analysis, ours).flatMap(({ rows }) => rows).find(({ key }) => key === lucinda)?.tag?.title
+    expect(title(0)).toBe('据日志：修了 敌方 842 次，伤害了 我方 3,408 次')
+    expect(title(1)).toBe('据日志：修了 我方 842 次，伤害了 敌方 3,408 次')
+  }, 60_000)
+
+  it.each([undefined, 'unknown evidence', 'repaired side 0: 12 events, unknown evidence'])(
+    'uses a generic tooltip when a reason is missing or unrecognized (%s)',
+    (reason) => {
+      const analysis = analysisOf([entity(3, 0, { sideSource: 'log' })], {
+        sideOverrides: [{ subject: 'char:3', side: 0, source: 'log', reason, setAt: 0 }],
+      })
+      expect(buildRoster(base, analysis, 0)[0]?.rows[0]?.tag?.title).toBe('据日志自动修正')
+    },
+  )
+
+  it('formats grouped counts and additional sides consistently with the battle controls', () => {
+    const analysis = analysisOf([entity(3, 2, { sideSource: 'log' })], {
+      sideOverrides: [{ subject: 'char:3', side: 2, source: 'log', reason: 'repaired side 2: 1,205 events', setAt: 0 }],
+    })
+    expect(buildRoster(base, analysis, 0)[0]?.rows[0]?.tag?.title).toBe('据日志：修了 C 方 1,205 次')
   })
 
   it('finds a pilot\'s corp and alliance from killmails, logs and the name index', () => {

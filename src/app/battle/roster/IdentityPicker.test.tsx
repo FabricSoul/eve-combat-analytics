@@ -209,7 +209,7 @@ describe('IdentityPicker', () => {
     mount(tinySummary, noLog)
     const tag = row('Pilot2').querySelector('.app-tag')!
     expect(tag.textContent).toBe('据日志')
-    expect(tag.getAttribute('title')).toBe('observed damaged side 1: 12 events')
+    expect(tag.getAttribute('title')).toBe('据日志：伤害了 敌方 12 次')
   })
 
   it('observed pilots get a hover that says the numbers come from our logs', () => {
