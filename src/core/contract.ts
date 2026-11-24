@@ -249,6 +249,17 @@ export interface SideEdit {
  * plus automatic correction from log evidence). Precedence for a character, highest first: manual char >
  * manual corp/alliance > log evidence > BR team / killmail affiliation > ESI affiliation.
  */
+/**
+ * "This unidentified pilot is that character" (user decision 2026-11-23): anyone can say an unresolved entity
+ * (`ship:<typeId>:<side>` or `name:<label>`) is a known character; analyze() folds its interactions into that character.
+ * PUT /api/battles/:brId/identities body { from, to } → IdentityMerge; to: null removes the merge for `from`.
+ */
+export interface IdentityMerge {
+  from: EntityKey
+  to: `char:${number}`
+  setAt: number
+}
+
 export interface SideOverride {
   subject: SideSubject
   /** BR or override-only side index. An edit response may use -1 for removal. */
@@ -268,6 +279,8 @@ export interface BattleState {
   names: NameIndex
   /** Manual side overrides, newest last; a later override for the same subject replaces the earlier. */
   sideOverrides: SideOverride[]
+  /** Manual identity merges, newest last (optional: states stored before 2026-11-23 lack it). */
+  identityMerges?: IdentityMerge[]
 }
 
 // ───────────────────────────── HTTP + WebSocket API ─────────────────────────────
@@ -298,6 +311,7 @@ export interface ApiError {
  * POST /api/battles/:brId/logs      body: raw Gamelog text  → UploadResult  (duplicate: true when this exact file was already stored)
  * PUT  /api/battles/:brId/fits/:charId body: EFT text (≤ 64 KiB) → FitEntry
  * PUT  /api/battles/:brId/sides     body SideEdit            → SideOverride (numeric side in the response)
+ * PUT  /api/battles/:brId/identities body { from: EntityKey; to: `char:${number}` | null } → IdentityMerge | { removed: EntityKey }
  * 'new' allocates the next side up to index 7, or returns 400 bad_request when there is no room.
  * GET  /api/battles/:brId/ws        (WebSocket upgrade)     → ServerMessage stream
  * GET  /api/killmails/:id/:hash/fit                         → KillmailFit  (ESI killmail turned into EFT; cache forever)
@@ -355,6 +369,7 @@ export interface BattleSummary {
   fits: FitEntry[]
   names: NameIndex
   sideOverrides: SideOverride[]
+  identityMerges?: IdentityMerge[]
   analysisVersion: number
 }
 
@@ -365,6 +380,7 @@ export type ServerMessage =
   | { type: 'log_added'; log: UploadedLogSummary; names: NameIndex; metaNames?: BattleMeta['names'] }
   | { type: 'fit_set'; fit: FitEntry }
   | { type: 'sides_set'; overrides: SideOverride[] }
+  | { type: 'identities_set'; merges: IdentityMerge[] }
   /** A new analysis is ready; clients refetch GET /analysis. */
   | { type: 'analysis_ready'; version: number }
 
@@ -432,6 +448,12 @@ export interface PrimaryTarget {
 
 export interface PilotStats {
   key: EntityKey
+  /**
+   * 'own': computed from the pilot's own uploaded log(s). 'observed': the pilot has no log; numbers come only from
+   * what uploaders' logs saw (damage they did to / took from uploaders, repairs seen), so they are a lower bound.
+   * Optional: analyses computed before 2026-11-23 lack it (treat as 'own' when the entity has a log).
+   */
+  source?: 'own' | 'observed'
   /** Seconds with any outgoing damage / seconds the pilot was engaged. */
   activeRatio: number
   damageOut: number

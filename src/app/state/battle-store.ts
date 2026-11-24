@@ -42,6 +42,8 @@ function applyMessage(summary: BattleSummary, message: Exclude<ServerMessage, { 
       }
     case 'sides_set':
       return { ...summary, sideOverrides: message.overrides }
+    case 'identities_set':
+      return { ...summary, identityMerges: message.merges }
     case 'analysis_ready':
       return { ...summary, analysisVersion: Math.max(summary.analysisVersion, message.version) }
   }

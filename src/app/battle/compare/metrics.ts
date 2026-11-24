@@ -39,7 +39,7 @@ export function sideLabel(side: number, ours: number, order: readonly number[]):
 }
 
 type Group = '输出' | '节奏' | '承伤' | '后勤' | '点控'
-type NumericKey = Exclude<keyof PilotStats, 'key' | 'hitQuality'>
+type NumericKey = Exclude<keyof PilotStats, 'key' | 'hitQuality' | 'source'>
 
 export interface Metric {
   key: NumericKey | DamageKind
