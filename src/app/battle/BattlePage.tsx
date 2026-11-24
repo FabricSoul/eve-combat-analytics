@@ -161,17 +161,22 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
         event.preventDefault()
         return
       }
-      const lastFloat = moduleLayout.order.filter((id) => moduleLayout.modules[id].floating && !moduleLayout.modules[id].hidden).at(-1)
+      if (event.target instanceof Element && event.target.closest('.battle-window-grip')) return
       const localMenu = document.activeElement?.closest(
         '[role="menu"], .eca-timeline-help-popover, .eca-timeline-range[data-range-editing], .app-side-picker:has([aria-expanded="true"])',
       )
       if (localMenu) return // These widgets close themselves and restore the focus.
-      if (document.activeElement?.closest('[data-timeline-chart][data-range-draft]')) return
       const openMenu = [...document.querySelectorAll<HTMLDetailsElement>(
-        '.battle-module-controls[open], .battle-layout details[open]',
+        '.battle-module-controls[open], .replay-noise[open], .u7-compare-controls > details[open],'
+        + ' .u7-compare-pick[open], .hit-analysis-controls > details[open]',
       )].filter((menu) => menu.getClientRects().length > 0).at(-1)
       const expanded = [...document.querySelectorAll<HTMLButtonElement>('[data-full-page-close]')].filter((button) => button.getClientRects().length > 0).at(-1)
-      const replayWindowClose = document.activeElement?.closest('.battle-replay-overlay')?.querySelector<HTMLButtonElement>('[data-window-close]')
+      // The replay layer stacks above module floats. Its children have their own z-order.
+      const replayWindowClose = [...document.querySelectorAll<HTMLElement>('.battle-replay-layer > .battle-replay-overlay')]
+        .filter((window) => window.getClientRects().length > 0)
+        .sort((a, b) => Number(a.style.zIndex) - Number(b.style.zIndex)).at(-1)
+        ?.querySelector<HTMLButtonElement>('[data-window-close]')
+      const lastFloat = moduleLayout.order.filter((id) => moduleLayout.modules[id].floating && !moduleLayout.modules[id].hidden).at(-1)
       if (pilotMenu?.closeMenu()) { /* closed the shared row menu */ }
       else if (openMenu) {
         openMenu.open = false
@@ -185,6 +190,7 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
       else if (expanded) expanded.click()
       else if (replayWindowClose) replayWindowClose.click()
       else if (lastFloat && workspace) dispatchModule({ type: 'dock', id: lastFloat })
+      else if (document.activeElement?.closest('[data-timeline-chart][data-range-draft]')) return
       else if (view.range) view.clearRange()
       else if (view.selected) view.select(null)
       else return

@@ -176,6 +176,14 @@ async function rule6(page) {
   assert.equal(await feed.getAttribute('data-floating'), 'true', 'the float survives drawer dismissal')
   assert.ok(await range(page).isVisible())
 
+  const fights = page.getByRole('region', { name: '此刻交火', exact: true })
+  await fights.waitFor()
+  await chart(page).focus()
+  await page.keyboard.press('Escape')
+  await fights.waitFor({ state: 'hidden' })
+  assert.equal(await feed.getAttribute('data-floating'), 'true', 'the replay window is above the module float')
+  assert.ok(await range(page).isVisible())
+
   await chart(page).focus()
   await page.keyboard.press('Escape')
   assert.equal(await feed.getAttribute('data-floating'), 'false', 'the float docks before the range clears')

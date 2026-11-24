@@ -33,7 +33,7 @@ describe('battle modules', () => {
     expect(moduleLayoutReducer(layout, { type: 'reset' })).toEqual(defaultModules())
   })
 
-  it('persists replay windows in the layout and discards heights saved under version 3', () => {
+  it('persists current replay windows and returns the entire layout to default for other versions', () => {
     const defaults = defaultModules()
     expect(defaults.replay).toEqual({
       overlays: { legend: { open: false, collapsed: false, rect: null }, fights: { open: true, collapsed: null, rect: null } },
@@ -48,9 +48,11 @@ describe('battle modules', () => {
     const reopened = loadModules({ getItem: () => saved })
     expect(reopened.replay.overlays.legend).toEqual({ open: true, collapsed: true, rect: moved })
     expect(reopened.replay.order).toEqual(['fights', 'legend'])
-    expect(loadModules({ getItem: () => JSON.stringify({ ...JSON.parse(saved), version: 3, stageHeight: 400 }) })).toEqual(defaults)
-    expect(loadModules({ getItem: () => JSON.stringify({ ...JSON.parse(saved), version: 4, stageHeight: 400 }) }))
-      .toEqual({ ...reopened, stageHeight: null })
+    const snapshot = JSON.parse(saved)
+    for (const version of [3, 4, 5, snapshot.version + 1, undefined]) {
+      expect(loadModules({ getItem: () => JSON.stringify({ ...snapshot, version, stageHeight: 400 }) }),
+        `stored version ${version}`).toEqual(defaults)
+    }
     expect(moduleLayoutReducer(reopened, { type: 'reset' })).toEqual(defaults)
   })
 
@@ -68,12 +70,8 @@ describe('battle modules', () => {
     expect(replayHeightBounds(320, 272, 150)).toEqual({ min: 88, max: 88, initial: 88, fixedHeight: 152 })
   })
 
-  it('migrates the old default fights state to automatic collapse and remembers an explicit override', () => {
-    const old = defaultModules()
-    old.replay.overlays.fights.collapsed = false
-    const migrated = loadModules({ getItem: () => JSON.stringify({ ...old, version: 5 }) })
-    expect(migrated.replay.overlays.fights.collapsed).toBeNull()
-    const expanded = moduleLayoutReducer(migrated, { type: 'replay', action: { type: 'collapse', id: 'fights', collapsed: false } })
+  it('remembers an explicit fights collapse override in the current layout', () => {
+    const expanded = moduleLayoutReducer(defaultModules(), { type: 'replay', action: { type: 'collapse', id: 'fights', collapsed: false } })
     let saved = ''
     saveModules(expanded, { setItem: (_, value) => { saved = value } })
     expect(loadModules({ getItem: () => saved }).replay.overlays.fights.collapsed).toBe(false)

@@ -48,6 +48,7 @@ const movement: Record<string, readonly [number, number]> = {
 
 export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle, kind: Surface, region, desk, viewport, zIndex, dispatch, state, children, module, overlay }: WindowFrameProps<Id>) {
   const body = useId()
+  const titleBar = useRef<HTMLDivElement>(null)
   const gesture = useRef<Gesture | null>(null)
   const [preview, setPreview] = useState<{ rect: WindowRect; target: DockEdge | null } | null>(null)
   const stored = state.rect && clampWindow(state.rect, viewport, state.minimized, overlay?.minWidth)
@@ -67,8 +68,8 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
   }
 
   function start(event: PointerEvent<HTMLElement>, mode: Gesture['mode']) {
-    if (!floating || !rect || event.button !== 0 || gesture.current
-      || (event.target as Element).closest('button') || document.body.classList.contains(windowDragClass)) return
+    if (!floating || !rect || event.button !== 0 || gesture.current || document.body.classList.contains(windowDragClass)) return
+    if (mode === 'move' && (event.target as Element).closest('button, input, summary, a, .battle-window-heading > span')) return
     event.preventDefault()
     if (mode === 'move') event.currentTarget.focus({ preventScroll: true })
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -82,6 +83,13 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
     overlay?.setCancel(cancel)
   }
 
+  function resize(start: WindowRect, dx: number, dy: number) {
+    return clampWindow({ ...start,
+      width: Math.min(viewport.width - start.x, start.width + dx),
+      height: Math.min(viewport.height - start.y, start.height + dy),
+    }, viewport, false, overlay?.minWidth)
+  }
+
   function move(event: PointerEvent<HTMLElement>) {
     const active = gesture.current
     const bounds = desk.current?.getBoundingClientRect()
@@ -90,10 +98,7 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
     const dy = event.clientY - active.y
     const startRect = active.start
     if (active.mode === 'resize') {
-      active.rect = clampWindow({ ...startRect,
-        width: Math.min(viewport.width - startRect.x, startRect.width + dx),
-        height: Math.min(viewport.height - startRect.y, startRect.height + dy),
-      }, viewport, false, overlay?.minWidth)
+      active.rect = resize(startRect, dx, dy)
     } else {
       active.rect = clampWindow({ ...startRect, x: startRect.x + dx, y: startRect.y + dy }, viewport, minimized, overlay?.minWidth)
       if (module) module.onFloatMove(event)
@@ -141,6 +146,19 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
     }, viewport, minimized, overlay?.minWidth) })
   }
 
+  function resizeByKey(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      titleBar.current?.focus({ preventScroll: true })
+      return
+    }
+    const delta = movement[event.key]
+    if (!stored || !delta) return
+    event.preventDefault()
+    const step = event.shiftKey ? 32 : 8
+    dispatch({ type: 'position', id, rect: resize(stored, delta[0] * step, delta[1] * step) })
+  }
+
   const handlers = { onPointerMove: move, onPointerUp: end, onPointerCancel: end, onLostPointerCapture: end }
   const action = overlay ? '关闭' : floating ? '停靠' : '弹出'
   const size = minimized ? '还原' : module || overlay ? '收起' : '最小化'
@@ -156,12 +174,13 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
         id={overlay?.domId} aria-label={region} data-window={module?.id ?? id} data-floating={floating} data-minimized={minimized}
         style={floating && rect ? { left: rect.x, top: top + rect.y, width: rect.width, height: minimized ? Math.min(windowHeight, viewport.height) : rect.height, zIndex } : undefined}
         onPointerDown={raise} onFocusCapture={raise}>
-        <div className="battle-window-titlebar" tabIndex={floating || module ? 0 : undefined} role="group"
+        <div ref={titleBar} className="battle-window-titlebar" tabIndex={floating || module ? 0 : undefined} role="group"
           aria-label={`${title} 标题栏`} aria-keyshortcuts={module ? 'Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown' : floating ? 'ArrowLeft ArrowRight ArrowUp ArrowDown' : undefined}
           onPointerDown={(event) => !floating && module ? module.onPointerDown(event) : start(event, 'move')} onKeyDown={moveByKey} {...handlers}>
           {(module || overlay) && <span className="battle-module-handle" aria-hidden="true" title={overlay ? '拖动移动窗口' : '拖动移动模块'}><WorkspaceIcon name="grip" /></span>}
-          <span className="battle-window-heading">{title}
-            {subtitle && <span className="battle-window-subtitle">{subtitle}</span>}
+          <span className="battle-window-heading">
+            <span style={{ cursor: 'default' }}>{title}</span>
+            {subtitle && <span className="battle-window-subtitle" style={{ cursor: 'default' }}>{subtitle}</span>}
           </span>
           {module && <span className="battle-module-title-spacer" aria-hidden="true" />}
           {!minimized && module?.tools}
@@ -173,7 +192,9 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
         <div id={body} className={`battle-window-body${!module && id === 'feed' ? ' battle-feed-content' : ''}`} hidden={minimized}>
           {children}
         </div>
-        {floating && !minimized && <div className="battle-window-grip" aria-hidden="true"
+        {floating && !minimized && <div className="battle-window-grip" role="group" tabIndex={0}
+          aria-label={`调整 ${title} 大小`} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Escape"
+          title="方向键调整大小，Shift 加大步长" onKeyDown={resizeByKey}
           onPointerDown={(event) => start(event, 'resize')} {...handlers} />}
       </Surface>
       {preview?.target && <div className="battle-window-guide" data-dock-guide={preview.target} aria-hidden="true" />}

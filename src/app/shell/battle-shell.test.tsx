@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
-import { act } from 'react'
+import { act, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BattleSummary } from '@/core/contract'
@@ -10,7 +10,21 @@ import { readRecent } from '../home/recent'
 import { loadUiFixture } from '../test/ui-fixture'
 import { defaultModules, moduleLayoutReducer, saveModules } from './windows/modules'
 
-vi.mock('../battle/ReplayCanvas', () => ({ ReplayCanvas: () => null }))
+vi.mock('../battle/ReplayCanvas', async () => {
+  const { ReplayOverlays } = await import('../battle/replay/ReplayOverlays')
+  const { ReplayNoiseControls } = await import('../battle/replay/noise')
+  return { ReplayCanvas: () => {
+    const stage = useRef<HTMLDivElement>(null)
+    const onLayoutChange = useRef<(() => void) | null>(null)
+    return showReplay && <div className="replay-stage" ref={stage}>
+      <div className="replay-header-actions">
+        <ReplayOverlays stage={stage} closeFights={<p>交火</p>} onLayoutChange={onLayoutChange} placementTime={null} />
+        <ReplayNoiseControls />
+      </div>
+    </div>
+  } }
+})
+vi.mock('../battle/replay/InteractionKey', () => ({ InteractionKey: () => null }))
 vi.mock('../battle/Timeline', async () => {
   const { usePlayback, useView } = await import('../state/view-store')
   return {
@@ -32,6 +46,7 @@ let host: HTMLDivElement
 let root: Root
 let socket: TestSocket
 let tablet = false
+let showReplay = false
 
 class TestSocket extends EventTarget {
   constructor() {
@@ -79,6 +94,7 @@ beforeEach(() => {
     addEventListener() {}, removeEventListener() {},
   }))
   tablet = false
+  showReplay = false
   history.replaceState(null, '', `/b/${brId}`)
   localStorage.clear()
   host = document.createElement('div')
@@ -140,6 +156,77 @@ describe('battle shell review', () => {
     expect(button('清除选段测试')).toBeTruthy()
     expect(host.querySelector('.battle-drawer')).toBeNull()
     expect(pilotButton().getAttribute('aria-pressed')).toBe('false')
+    escape()
+    expect(button('建立选段测试')).toBeTruthy()
+  }, 12000)
+
+  it('closes the replay filter, then floating windows in visual stacking order, then the range from chart focus', async () => {
+    showReplay = true
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue({ length: 1 } as DOMRectList)
+    await render()
+    const replayWindow = (id: string) => host.querySelector(`.battle-replay-overlay[data-window="${id}"]`)
+    const filter = host.querySelector<HTMLDetailsElement>('.replay-noise')!
+    click(button('弹出 事件'))
+    const feed = () => host.querySelector('[data-module="feed"]')?.getAttribute('data-floating')
+    click(button('交互图例'))
+    filter.open = true
+    click(button('建立选段测试'))
+    const chart = button('清除选段测试')
+
+    escape()
+    expect(filter.open).toBe(false)
+    expect(replayWindow('legend')).not.toBeNull()
+    expect(replayWindow('fights')).not.toBeNull()
+    expect(feed()).toBe('true')
+    expect(chart.textContent).toBe('清除选段测试')
+
+    for (const id of ['legend', 'fights']) {
+      chart.focus()
+      escape()
+      expect(replayWindow(id)).toBeNull()
+      expect(feed()).toBe('true')
+      expect(chart.textContent).toBe('清除选段测试')
+    }
+
+    chart.focus()
+    escape()
+    expect(feed()).toBe('false')
+    expect(chart.textContent).toBe('清除选段测试')
+    escape()
+    expect(button('建立选段测试')).toBeTruthy()
+  }, 12000)
+
+  it('ignores an open inline disclosure when dismissing the range', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue({ length: 1 } as DOMRectList)
+    await render()
+    const disclosure = document.createElement('details')
+    const summary = document.createElement('summary')
+    summary.textContent = '样本不足'
+    disclosure.appendChild(summary)
+    host.querySelector('.battle-layout')!.appendChild(disclosure)
+    disclosure.open = true
+    click(button('建立选段测试'))
+    escape()
+    expect(disclosure.open).toBe(true)
+    expect(button('建立选段测试')).toBeTruthy()
+  }, 12000)
+
+  it('exits the floating keyboard resize before dismissing the window or range', async () => {
+    await render()
+    click(button('弹出 事件'))
+    click(button('建立选段测试'))
+    const feed = () => host.querySelector('[data-module="feed"]')!
+    const grip = feed().querySelector<HTMLElement>('.battle-window-grip')!
+    act(() => { grip.focus() })
+    act(() => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })) })
+
+    escape()
+    expect(document.activeElement).toBe(feed().querySelector('.battle-window-titlebar'))
+    expect(feed().getAttribute('data-floating')).toBe('true')
+    expect(button('清除选段测试')).toBeTruthy()
+    escape()
+    expect(feed().getAttribute('data-floating')).toBe('false')
+    expect(button('清除选段测试')).toBeTruthy()
     escape()
     expect(button('建立选段测试')).toBeTruthy()
   }, 12000)
