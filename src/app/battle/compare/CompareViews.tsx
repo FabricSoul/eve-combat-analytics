@@ -10,20 +10,20 @@ import { PilotMore, usePilotMenu } from '../roster/PilotActions'
 import { HitQualityBar } from './HitQualityBar'
 import { hitQualityHint } from './hit-quality'
 import {
-  damageKinds, isObserved, median, metricValue, observedHint, observedLabel, missingReason, shipId, unknownDamageReason, type CompareRow, type Metric,
+  damageKinds, isObserved, medianTooltip, metricValue, observedHint, observedLabel, missingReason, rowMedian, shipId, unknownDamageReason, type CompareRow, type Metric,
 } from './metrics'
 
 export interface Column {
   metric: Metric
   low: number
   high: number
-  median: number | null
+  median: ReturnType<typeof rowMedian>
 }
 
 export function makeColumn(metric: Metric, rows: readonly CompareRow[]): Column {
   const values = rows.flatMap((row) => metricValue(row, metric) ?? [])
   const low = Math.min(0, ...values)
-  return { metric, low, high: Math.max(low + 1, ...values), median: median(values) }
+  return { metric, low, high: Math.max(low + 1, ...values), median: rowMedian(rows, metric) }
 }
 
 function position(value: number, { low, high }: Column) {
@@ -68,9 +68,9 @@ function MissingValue({ reason }: { reason: string }) {
 }
 
 function MedianTick({ column }: { column: Column }) {
-  const { median: middle, metric } = column
+  const { median: { value: middle } } = column
   return middle === null ? null : <span className="u7-compare-median" style={{ left: `${position(middle, column)}%` }}
-    title={`全队中位 ${metric.format(middle)}`} />
+    title={`${medianTooltip(column.median)} · ${column.metric.format(middle)}`} />
 }
 
 export function MetricBar({ value, column, color }: { value: number | null; column: Column; color: string }) {
@@ -92,7 +92,7 @@ export function SideBySide({ rows, columns, order, onSelect, selected }: {
     <div className="u7-compare-card-track" style={{ '--pilot-count': rows.length } as CSSProperties}>
       {columns.map((column) => <section key={column.metric.key}>
         <h3><MetricLabel metric={column.metric} />
-          <small>全队中位 <span className="app-number">{column.metric.format(column.median)}</span></small>
+          <small title={medianTooltip(column.median)}>中位 <span className="app-number">{column.metric.format(column.median.value)}</span></small>
         </h3>
         <div className="u7-compare-card-pilots">
           {rows.map((row) => <div className="u7-compare-pair" key={row.entity.key} data-selected={selected === row.entity.key || undefined}

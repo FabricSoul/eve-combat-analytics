@@ -121,15 +121,30 @@ export function missingReason(row: CompareRow, metric: Metric): string {
   return metric.reason ?? '这段时间没有可用数据'
 }
 
-export function median(values: number[]): number | null {
-  if (values.length === 0) return null
+export function medianSample(values: number[]) {
+  const count = values.length
+  if (count === 0) return { value: null, count }
   values.sort((a, b) => a - b)
-  const middle = Math.floor(values.length / 2)
-  return values.length % 2 ? values[middle]! : (values[middle - 1]! + values[middle]!) / 2
+  const middle = Math.floor(count / 2)
+  const value = count % 2 ? values[middle]! : (values[middle - 1]! + values[middle]!) / 2
+  return { value, count }
 }
 
+type MedianSample = ReturnType<typeof medianSample>
+export const medianTooltip = ({ count }: MedianSample) => `有数据的 ${fmtNum(count)} 人的中位`
+
+// An additive total of zero records no activity. Rates and times can have measured zeroes.
+const activityTotals = new Set<Metric['key']>([
+  'damageOut', 'damageIn', 'killmailDamage', 'repairOut', 'repairIn', 'pointSeconds', 'neutOut', 'neutIn',
+])
+
 export function rowMedian(rows: readonly CompareRow[], metric: Metric) {
-  return median(rows.flatMap((row) => metricValue(row, metric) ?? []))
+  const needsActivity = activityTotals.has(metric.key) || isDamageKind(metric.key)
+  const values = rows.flatMap((row) => {
+    const value = metricValue(row, metric)
+    return value === null || (value === 0 && needsActivity) ? [] : [value]
+  })
+  return medianSample(values)
 }
 
 export function useCombatRows() {

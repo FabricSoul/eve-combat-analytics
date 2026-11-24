@@ -10,7 +10,7 @@ import { PilotHitRanks } from '../hits/PilotHitRanks'
 import { HitRateValue, ObservedHitSample, UngradedShots, WeaponClasses } from '../hits/WeaponClasses'
 import '../hits/hits.css'
 import {
-  damageKinds, isObserved, metricValue, metrics, median, missingReason, rowMedian, seconds, shipId, unknownDamageReason, type CompareRow,
+  damageKinds, isObserved, metricValue, metrics, medianSample, medianTooltip, missingReason, rowMedian, seconds, shipId, unknownDamageReason, type CompareRow,
 } from '../compare/metrics'
 
 const tileKeys = ['damageOut', 'damageIn', 'repairOut', 'repairIn', 'activeRatio', 'repReactionMedian', 'hitRate'] as const
@@ -63,7 +63,7 @@ export function PersonStats({ analysis, pilot, rows, interactions, hits, bounds,
   const observedSample = row && isObserved(row) ? observed : undefined
   const hitPilots = useMemo(() => [...(hits?.pilots.values() ?? [])], [hits])
   const weapons = useMemo(() => observed ? weaponRows(observed).slice(0, 5) : [], [observed])
-  const sideHitMedian = useMemo(() => median(hitPilots.flatMap(({ entity, ...counts }) =>
+  const sideHitMedian = useMemo(() => medianSample(hitPilots.flatMap(({ entity, ...counts }) =>
     entity.side === pilot.side && pilot.side >= 0 ? hitMetrics.hitRate.value(counts) ?? [] : [],
   )), [hitPilots, pilot.side])
   const points = useMemo(() => pointSpans(analysis.ewarSpans, pilot.key, bounds), [analysis.ewarSpans, pilot.key, bounds])
@@ -76,10 +76,10 @@ export function PersonStats({ analysis, pilot, rows, interactions, hits, bounds,
         const middle = isHitRate ? sideHitMedian : rowMedian(team, metric)
         const unavailable = isHitRate ? noHitQualityReason : row ? missingReason(row, metric) : undefined
         return <section key={metric.key} className="u7-stat-tile">
-          <h3>{isHitRate ? '命中' : metric.label}</h3>
+          <h3>{metric.label}</h3>
           <div className="app-number" title={value === null ? unavailable : undefined}>{metric.format(value)}</div>
           {isHitRate && observedSample && <ObservedHitSample shots={observedSample.shots} />}
-          <small>全队中位 <span className="app-number">{metric.format(middle)}</span></small>
+          <small title={medianTooltip(middle)}>全队中位 <span className="app-number">{metric.format(middle.value)}</span></small>
         </section>
       })}
     </div>
@@ -88,7 +88,7 @@ export function PersonStats({ analysis, pilot, rows, interactions, hits, bounds,
       {observedSample && <ObservedHitSample shots={observedSample.shots} />}
       <p className="u7-secondary">{hitObservationHint}</p>
       {observed && <UngradedShots count={observed.ungraded} />}
-      {observed && <PilotHitRanks pilot={observed} pilots={hitPilots} />}
+      {hits && observed && <PilotHitRanks pilot={observed} ranking={hits.ranking} />}
       {observed && observed.shots > 0 && <HitQualityBar stats={observed} color={sideColor(pilot.side, order)} showCounts />}
       {observed && observed.classes.size > 0 && <WeaponClasses classes={observed.classes} />}
       {weapons.length > 0 && <><h4 className="hit-weapon-heading">武器 · 出手 / 命中率</h4>

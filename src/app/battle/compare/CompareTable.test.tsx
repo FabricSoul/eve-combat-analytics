@@ -34,7 +34,7 @@ it('groups and sorts columns and shows a median', () => {
   }
   const header = host.querySelector('[aria-sort="descending"]')!
   expect(header.textContent).toContain('输出')
-  expect(host.querySelector('[title^="全队中位"]')).not.toBeNull()
+  expect(host.querySelector('[title^="有数据的 "]')).not.toBeNull()
   const first = host.querySelector('tbody tr')!.textContent
   act(() => header.querySelector('button')!.click())
   expect(header.getAttribute('aria-sort')).toBe('ascending')
@@ -162,7 +162,7 @@ it('shows hit rate and a quality distribution for two uploaders and recomputes b
   const widths = () => [...bar().querySelectorAll<HTMLElement>('[data-quality]')]
     .reduce((sum, segment) => sum + Number.parseFloat(segment.style.width), 0)
   expect(widths()).toBeCloseTo(100)
-  expect(cells('Blanchard2213').querySelector('[title^="全队中位"]')).not.toBeNull()
+  expect(cells('Blanchard2213').querySelector('[title^="有数据的 "]')).not.toBeNull()
   act(() => header.querySelector('button')!.click())
   expect(header.getAttribute('aria-sort')).toBe('descending')
   act(() => host.querySelector<HTMLButtonElement>('#hit-range')!.click())

@@ -97,7 +97,15 @@ export function aggregateHits(
     record(entry(pilot.classes, weaponClass, emptyCounts), outcome, event.amount)
     record(entry(pilot.weapons, weapon, emptyCounts), outcome, event.amount)
   }
-  return { pilots, sides }
+  const rankings = new Map<number | undefined, Map<HitMetric, HitRanking>>()
+  function ranking(metric: HitMetric, side?: number): HitRanking {
+    const byMetric = entry(rankings, side, () => new Map<HitMetric, HitRanking>())
+    return entry(byMetric, metric, () => rankPilots(
+      side === undefined ? pilots.values() : [...pilots.values()].filter(({ entity }) => entity.side === side),
+      metric,
+    ))
+  }
+  return { pilots, sides, ranking }
 }
 
 const ratio = (shots: number, total: number) => total ? shots / total : null
@@ -111,6 +119,7 @@ export const hitMetrics = {
 } as const
 export type HitMetric = keyof typeof hitMetrics
 export const hitMetricKeys = Object.keys(hitMetrics) as HitMetric[]
+type HitRanking = ReturnType<typeof rankPilots>
 
 export function rankPilots(pilots: Iterable<PilotHits>, metric: HitMetric) {
   const definition = hitMetrics[metric]
@@ -127,7 +136,7 @@ export function rankPilots(pilots: Iterable<PilotHits>, metric: HitMetric) {
     row.rank = previous?.value === row.value ? previous.rank : index + 1
   })
   insufficient.sort((a, b) => b.shots - a.shots || a.entity.name.localeCompare(b.entity.name))
-  return { ranked, insufficient }
+  return { ranked, insufficient, byPilot: new Map(ranked.map((row) => [row.pilot.entity.key, row])) }
 }
 
 export function weaponRows(pilot: PilotHits) {

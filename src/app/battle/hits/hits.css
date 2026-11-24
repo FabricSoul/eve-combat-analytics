@@ -52,6 +52,7 @@
 .hit-person-ranks { margin-block: var(--space-2); display: grid; gap: var(--space-1); }
 .hit-person-ranks > div { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: var(--space-2); align-items: baseline; }
 .hit-person-ranks small { display: block; color: var(--color-text-2); line-height: 1.2; }
+.hit-rank-value { display: block; text-align: start; }
 .hit-weapon-heading { margin-block-start: var(--space-2); color: var(--color-text-2); font-size: var(--fs-s); }
 
 @container hit-analysis (max-width: 420px) {

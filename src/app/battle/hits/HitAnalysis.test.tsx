@@ -1,11 +1,16 @@
 // @vitest-environment jsdom
+import { resolve } from 'node:path'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
+import { runnerImport } from 'vite'
 import { expect, it } from 'vitest'
+import { analyze } from '@/core/analysis/analyze'
+import type { BattleState } from '@/core/contract'
 import { BattleProvider } from '../../state/battle-store'
 import { useView, ViewProvider } from '../../state/view-store'
 import { loadUiFixture, uiReplayStart } from '../../test/ui-fixture'
 import { HitAnalysis } from '../HitAnalysis'
+import { PersonDrawer } from '../PersonDrawer'
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
@@ -31,10 +36,12 @@ it('shows ranked samples, measured enemy coverage, filters sides and recomputes 
     act(() => host.querySelector<HTMLButtonElement>('#minute')!.click())
     expect(row().cells[0]?.textContent).toMatch(/\d+ · \d+ 发/)
     expect(row().cells[2]?.textContent).not.toBe('90%')
+    const previousRank = row().cells[0]?.textContent
     const enemyFilter = [...view.querySelectorAll('.hit-analysis-controls details label')].find((label) => label.textContent?.trim() === '敌方')!
     act(() => enemyFilter.querySelector<HTMLInputElement>('input')!.click())
     expect([...view.querySelectorAll('.hit-card h3')].map((heading) => heading.textContent?.trim()))
       .not.toContain('敌方 据我方日志')
+    expect(row().cells[0]?.textContent).toBe(previousRank)
     expect([...view.querySelectorAll('tbody th small')].some((label) => label.textContent?.includes('敌方'))).toBe(false)
   } finally {
     act(() => root.unmount())
@@ -72,3 +79,59 @@ it('lists a smartbomb-only pilot under 样本不足 with a dash, reason and ungr
     act(() => root.unmount())
   }
 })
+
+it('keeps the full-fight rank and sample identical in the module and drawer for every J125990 pilot', async () => {
+  const { module } = await runnerImport<{ realBattleStateWithBr(): BattleState }>(
+    resolve('fixtures/real/j125990-20250622/load.ts'), { configFile: false },
+  )
+  const analysis = analyze(module.realBattleStateWithBr())
+  const battle = { summary: loadUiFixture().summary, analysis }
+  expect(battle.summary.logs).toHaveLength(17)
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    act(() => root.render(<BattleProvider static={battle}><ViewProvider defaultSide={1} syncUrl={false}>
+      <HitAnalysis /><PersonDrawer />
+    </ViewProvider></BattleProvider>))
+    const row = (key: string) => host.querySelector<HTMLTableRowElement>(`.hit-analysis tr[data-pilot-key="${key}"]`)!
+    expect(row('char:2121605780').cells[0]?.textContent).toBe('27 · 1,854 发')
+    expect(row('char:2118012410').cells[0]?.textContent).toBe('28 · 2,128 发')
+    const filter = [...host.querySelectorAll('.hit-analysis-controls label')].find((el) => el.textContent?.trim() === '敌方')!
+      .querySelector('input')!
+    act(() => filter.click())
+    expect(row('char:2121605780').cells[0]?.textContent).toBe('27 · 1,854 发')
+    act(() => filter.click())
+
+    const picker = host.querySelector('.hit-analysis-controls select') as unknown as HTMLSelectElement
+    const rankedFor = new Map<string, Map<string, { rank: string | null; value: string | null }>>()
+    for (const { value: metric } of picker.options) {
+      act(() => {
+        picker.value = metric
+        picker.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+      rankedFor.set(metric, new Map([...host.querySelectorAll<HTMLTableRowElement>('.hit-analysis tbody tr')]
+        .map((entry) => [entry.dataset.pilotKey!, { rank: entry.cells[0]!.textContent, value: entry.cells[2]!.textContent }])))
+    }
+    const ranked = [...host.querySelectorAll<HTMLTableRowElement>('.hit-analysis tbody tr')]
+    const insufficient = [...host.querySelectorAll('.hit-insufficient li')]
+    expect(ranked.length + insufficient.length).toBe(Object.values(analysis.entities).filter(({ charId }) => charId !== null).length)
+    for (const entry of ranked) {
+      act(() => entry.querySelector('button')!.click())
+      for (const [metric, ranks] of rankedFor) {
+        const expected = ranks.get(entry.dataset.pilotKey!)!
+        const drawer = host.querySelector(`.hit-person-ranks [data-hit-metric="${metric}"]`)!
+        expect(drawer.querySelector('dd:last-child .app-number')?.textContent, `${entry.dataset.pilotKey} ${metric}`)
+          .toBe(`第 ${expected.rank}`)
+        expect(drawer.querySelector('dt .app-number')?.textContent).toBe(expected.value)
+      }
+    }
+    for (const entry of insufficient) {
+      act(() => entry.querySelector('button')!.click())
+      const sample = entry.querySelector('.app-number')?.textContent
+      expect(host.querySelector('.u7-person .hit-person-ranks')).toBeNull()
+      expect(host.querySelector('.u7-person .hit-secondary .app-number')?.textContent).toBe(sample)
+    }
+  } finally {
+    act(() => root.unmount())
+  }
+}, 60_000)

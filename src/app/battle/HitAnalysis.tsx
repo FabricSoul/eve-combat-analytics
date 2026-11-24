@@ -10,7 +10,7 @@ import { HitQualityBar } from './compare/HitQualityBar'
 import { HitTrend } from './hits/HitTrend'
 import { HitRateValue, UngradedShots, WeaponClasses } from './hits/WeaponClasses'
 import {
-  hitMetricKeys, hitMetrics, hitObservationHint, MIN_RANKED_SHOTS, rankPilots, weaponRows, type HitMetric,
+  hitMetricKeys, hitMetrics, hitObservationHint, MIN_RANKED_SHOTS, weaponRows, type HitMetric,
 } from './hits/analysis'
 import { useHitAnalysis } from './hits/use-hit-analysis'
 import { RangeChip } from './RangeChip'
@@ -25,16 +25,16 @@ export function HitAnalysis() {
   const [metric, setMetric] = useState<HitMetric>('hitRate')
   const [reverse, setReverse] = useState(false)
   const [hidden, setHidden] = useState<ReadonlySet<number>>(() => new Set())
-  const ranks = useMemo(() => rankPilots(
-    hits ? [...hits.pilots.values()].filter(({ entity }) => !hidden.has(entity.side)) : [], metric,
-  ), [hits, hidden, metric])
   const order = useMemo(() => analysis ? sideOrder(analysis, oursSide) : [], [analysis, oursSide])
   if (!hits || !analysis) return <p className="hit-secondary" role="status">正在加载命中数据…</p>
 
   const sides = [...order, ...new Set([...hits.pilots.values()].map(({ entity }) => entity.side).filter((side) => !order.includes(side)))]
   const teams = sides.filter((side) => !hidden.has(side) && (side >= 0 || hits.sides.has(side)))
     .map((side) => ({ side, counts: hits.sides.get(side) }))
-  const rows = reverse ? [...ranks.ranked].reverse() : ranks.ranked
+  const ranking = hits.ranking(metric)
+  const rows = ranking.ranked.filter(({ pilot }) => !hidden.has(pilot.entity.side))
+  if (reverse) rows.reverse()
+  const insufficient = ranking.insufficient.filter(({ entity }) => !hidden.has(entity.side))
   const definition = hitMetrics[metric]
   const direction = reverse ? (definition.direction === 'ascending' ? 'descending' : 'ascending') : definition.direction
   let start = analysis.interactions[0]?.t ?? Infinity
@@ -98,7 +98,7 @@ export function HitAnalysis() {
         <h3>飞行员排名</h3>
         {rows.length > 0 ? <div className="hit-table-scroll" role="region" aria-label="飞行员命中排名" tabIndex={0}>
           <table>
-            <thead><tr><th scope="col">名次 / 样本</th><th scope="col">飞行员</th><th scope="col" aria-sort={direction}>
+            <thead><tr><th scope="col">全场名次 / 样本</th><th scope="col">飞行员</th><th scope="col" aria-sort={direction}>
               <button type="button" onClick={() => setReverse(!reverse)}>{definition.label} {direction === 'ascending' ? '↑' : '↓'}</button>
             </th><th scope="col">命中质量</th><th scope="col">出手最多的武器</th><th scope="col">武器类别 · 出手 / 命中率</th></tr></thead>
             <tbody>{rows.map(({ pilot, value, rank }) => {
@@ -124,10 +124,10 @@ export function HitAnalysis() {
           </table>
         </div> : <p className="hit-secondary">当前筛选下没有达到排名门槛的飞行员 · 调整选段或上传更多战斗日志。</p>}
         <details className="hit-insufficient">
-          <summary>样本不足 <span className="app-number">{fmtNum(ranks.insufficient.length)}</span> 人 · 少于 {MIN_RANKED_SHOTS} 发</summary>
-          <ul>{ranks.insufficient.map((pilot) => {
+          <summary>样本不足 <span className="app-number">{fmtNum(insufficient.length)}</span> 人 · 少于 {MIN_RANKED_SHOTS} 发</summary>
+          <ul>{insufficient.map((pilot) => {
             const { entity, shots, ungraded } = pilot
-            return <li key={entity.key} data-selected={selected === entity.key || undefined} onContextMenu={(event) => pilotMenu?.open(entity.key, event)}>
+            return <li key={entity.key} data-pilot-key={entity.key} data-selected={selected === entity.key || undefined} onContextMenu={(event) => pilotMenu?.open(entity.key, event)}>
               <div className="hit-pilot-cell">
                 <button type="button" onClick={() => select(entity.key)}>{entity.name}</button>
                 <PilotMore pilot={entity.key} name={entity.name} />

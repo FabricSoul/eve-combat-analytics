@@ -87,14 +87,15 @@ it('shows hit rate, team median, quality counts, and observed weapon breakdown f
     act(() => root.render(
       <BattleProvider static={fixture}><ViewProvider syncUrl={false} defaultSide={1}><Harness /></ViewProvider></BattleProvider>,
     ))
-    const tile = [...host.querySelectorAll('.u7-stat-tile')].find((el) => el.querySelector('h3')?.textContent === '命中')!
-    expect(tile?.textContent).toContain('90%')
-    expect(tile?.textContent).toContain('全队中位')
+    const tile = [...host.querySelectorAll('.u7-stat-tile')].find((el) => el.querySelector('h3')?.textContent === '命中率')!
+    expect.soft(tile?.textContent ?? '').toContain('90%')
+    expect.soft(tile?.textContent ?? '').toContain('全队中位')
     const breakdown = [...host.querySelectorAll('section')].find((el) => el.querySelector('h3')?.textContent === '命中质量')!
     expect(breakdown?.textContent).toContain('184')
     expect(breakdown?.textContent).toContain('无命中质量 726 发')
     const rankRows = breakdown.querySelectorAll('.hit-person-ranks > div')
     expect(rankRows).toHaveLength(4)
+    expect(rankRows[0]?.textContent).toContain('90%')
     expect(rankRows[0]?.textContent).toMatch(/同阵营.*第.*发.*全场.*第.*发/)
     const weaponRates = [...breakdown.querySelectorAll('.u7-hit-weapon')].map((el) => el.textContent)
     expect(weaponRates).toEqual(expect.arrayContaining([
@@ -154,7 +155,7 @@ it('labels the observed enemy hit sample in the tile, breakdown and ranks', () =
   }
   try {
     act(() => root.render(<BattleProvider static={fixture}><ViewProvider defaultSide={1} syncUrl={false}><Harness /></ViewProvider></BattleProvider>))
-    const tile = [...host.querySelectorAll('.u7-stat-tile')].find((el) => el.querySelector('h3')?.textContent === '命中')
+    const tile = [...host.querySelectorAll('.u7-stat-tile')].find((el) => el.querySelector('h3')?.textContent === '命中率')
     expect(tile?.querySelector('.app-number')?.textContent).toBe('100%')
     expect(tile?.textContent).toContain('据我方日志')
     expect(tile?.textContent).toContain('35 发')
@@ -163,6 +164,30 @@ it('labels the observed enemy hit sample in the tile, breakdown and ranks', () =
     expect(breakdown?.querySelector('.hit-classes')?.textContent).toContain('35 发 · 100%')
     expect(breakdown?.querySelector('.u7-hit-weapon')?.textContent).toContain('Veles Supratidal Entropic Disintegrator')
     expect(breakdown?.querySelector('[aria-label="命中排名"]')?.textContent).toContain('35 发')
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
+it('describes the output median using only teammates with measured output', () => {
+  const base = loadUiFixture()
+  const pilot = base.analysis.entities['char:2121605780']!
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  function Harness() {
+    const { select } = useView()
+    useEffect(() => { select(pilot.key) }, [select])
+    return <PersonDrawer />
+  }
+  try {
+    act(() => root.render(<BattleProvider static={base}><ViewProvider defaultSide={1} syncUrl={false}><Harness /></ViewProvider></BattleProvider>))
+    const tile = [...host.querySelectorAll('.u7-stat-tile')].find((t) => t.querySelector('h3')?.textContent === '输出')!
+    const values = base.analysis.stats.filter((s) => base.analysis.entities[s.key]?.side === pilot.side &&
+      base.analysis.entities[s.key]?.hasLog && s.damageOut > 0).map((s) => s.damageOut).sort((a, b) => a - b)
+    const value = (values[Math.floor((values.length - 1) / 2)]! + values[Math.floor(values.length / 2)]!) / 2
+    const tooltip = tile.querySelector('small')
+    expect(tooltip?.getAttribute('title')).toBe(`有数据的 ${values.length} 人的中位`)
+    expect(tooltip?.textContent).toContain(Math.round(value).toLocaleString('en-US'))
   } finally {
     act(() => root.unmount())
   }
