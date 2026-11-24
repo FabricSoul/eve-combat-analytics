@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UploadedLogSummary } from '@/core/contract'
 import { api, ApiFailure } from '../api/client'
-import { fmtHms } from '../lib/format'
+import { fmtDate, fmtHms } from '../lib/format'
 import { BattleProvider } from '../state/battle-store'
 import { ViewProvider } from '../state/view-store'
 import { loadUiFixture } from '../test/ui-fixture'
@@ -98,9 +98,32 @@ describe('UploadDock', () => {
     await settle()
     const row = host.querySelector(`.upload-row[data-status="${code}"]`)!
     expect(row.textContent).toContain(label)
-    expect(row.textContent).toContain('服务器的说明')
+    expect(row.textContent).not.toContain('服务器的说明')
     act(() => row.querySelector<HTMLButtonElement>('button')!.click())
     expect(host.querySelector('.upload-row')).toBeNull()
+  })
+
+  it('shows a generic failure in Chinese with the code in a tooltip', async () => {
+    mount()
+    vi.spyOn(api, 'uploadLog').mockRejectedValue(new ApiFailure('bad_request', 'Internal Server Error', 500))
+    await act(async () => { window.dispatchEvent(dragEvent('drop', [file('x.txt')])) })
+    await settle()
+    const row = host.querySelector('.upload-row[data-status="failed"]')!
+    expect(row.textContent).toContain('上传失败，请重试')
+    expect(row.textContent).not.toContain('Internal')
+    expect(row.querySelector('[title="bad_request"]')).not.toBeNull()
+  })
+
+  it('tells a log from another fight when it is, with the battle window (no_overlap)', async () => {
+    const fixture = mount()
+    vi.spyOn(api, 'uploadLog').mockRejectedValue(new ApiFailure('no_overlap', 'No log events fall within the battle windows', 400))
+    const text = ['Gamelog', '------', '  Listener: P', '  Session Started: 2026.11.21 07:56:05', '------', '[ 2026.11.21 07:56:10 ] (combat) 1 from X - G - Hits'].join('\n')
+    await act(async () => { window.dispatchEvent(dragEvent('drop', [file('other.txt', text)])) })
+    await settle()
+    const row = host.querySelector('.upload-row[data-status="no_overlap"]')!
+    expect(row.textContent).toContain('这份日志是 2026-11-21')
+    expect(row.textContent).toContain(`这场战斗在 ${fmtDate(fixture.summary.meta.windows[0]!.start)}`)
+    expect(row.textContent).not.toContain('No log events')
   })
 
   it('skips a file that is already in the battle and says which one it matches', async () => {

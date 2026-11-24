@@ -34,6 +34,7 @@ function detail(item: UploadItem, logCorrected: (log: UploadedLogSummary) => boo
       const parts = [`${fmtNum(log.events)} 条`, span(log), log.language && log.language !== 'unknown' ? language[log.language] : null]
       return <>{parts.filter(Boolean).join(' · ')}{logCorrected(log) && <> <Tag>据日志</Tag></>}</>
     }
+    case 'failed': return <span title={item.detail}>{item.message ?? failureLabel.failed}</span>
     default: return `${failureLabel[status]}：${item.message ?? ''}`
   }
 }

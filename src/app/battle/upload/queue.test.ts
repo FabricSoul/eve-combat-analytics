@@ -113,19 +113,60 @@ describe('runUpload', () => {
     const { deps, actions } = setup({ size: 10 * 1024 * 1024 + 1, readText })
     await runUpload(deps)
     expect(readText).not.toHaveBeenCalled()
-    expect(actions.at(-1)).toMatchObject({ type: 'fail', status: 'too_large' })
+    expect(actions.at(-1)).toMatchObject({ type: 'fail', status: 'too_large', message: '文件 10.0 MB，超过上限 10 MB' })
   })
 
-  it.each(['no_overlap', 'not_a_gamelog', 'unknown_character', 'too_large'] as const)('maps API error %s', async (code) => {
-    const { deps, actions } = setup({ uploadLog: async () => { throw new ApiFailure(code, '原因', 400) } })
+  const gamelog = [
+    'Gamelog', '------------------------------------------------------------',
+    '  Listener: Some Pilot', '  Session Started: 2026.11.21 07:56:05', '------------------------------------------------------------',
+    '[ 2026.11.21 07:56:10 ] (combat) 12 from Foe - Gun - Hits',
+    '[ 2026.11.21 08:30:00 ] (combat) 9 to Foe - Gun - Hits',
+  ].join('\n')
+  const windows = [{ start: Date.UTC(2025, 5, 22, 15, 0), end: Date.UTC(2025, 5, 22, 18, 0) }]
+  const rejected = (code: ApiFailure['code'], extra: Partial<Parameters<typeof runUpload>[0]> = {}) =>
+    setup({ readText: async () => gamelog, windows: () => windows, uploadLog: async () => { throw new ApiFailure(code, 'No log events fall within the battle windows', 400) }, ...extra })
+
+  it('explains no_overlap in Chinese with the log date and the battle window', async () => {
+    const { deps, actions } = rejected('no_overlap')
     await runUpload(deps)
-    expect(actions.at(-1)).toEqual({ type: 'fail', id: 7, status: code, message: '原因' })
+    expect(actions.at(-1)).toEqual({ type: 'fail', id: 7, status: 'no_overlap',
+      message: '这份日志是 2026-11-21 07:56:10–08:30:00 的，这场战斗在 2025-06-22 15:00–18:00' })
   })
 
-  it('maps other failures to failed', async () => {
-    const { deps, actions } = setup({ uploadLog: async () => { throw new ApiFailure('network', '无法连接到服务器') } })
+  it('names both dates when the battle crosses midnight', async () => {
+    const { deps, actions } = rejected('no_overlap', { windows: () => [{ start: Date.UTC(2025, 5, 22, 23, 30), end: Date.UTC(2025, 5, 23, 1, 0) }] })
     await runUpload(deps)
-    expect(actions.at(-1)).toEqual({ type: 'fail', id: 7, status: 'failed', message: '无法连接到服务器' })
+    expect(actions.at(-1)).toMatchObject({ message: expect.stringContaining('这场战斗在 2025-06-22 23:30–2025-06-23 01:00') })
+  })
+
+  it('falls back to the session date when the log has no events', async () => {
+    const { deps, actions } = rejected('no_overlap', { readText: async () => gamelog.split('\n').slice(0, 5).join('\n') })
+    await runUpload(deps)
+    expect(actions.at(-1)).toMatchObject({ message: '这份日志是 2026-11-21 的，这场战斗在 2025-06-22 15:00–18:00' })
+  })
+
+  it('explains not_a_gamelog', async () => {
+    const { deps, actions } = rejected('not_a_gamelog', { readText: async () => 'hello' })
+    await runUpload(deps)
+    expect(actions.at(-1)).toEqual({ type: 'fail', id: 7, status: 'not_a_gamelog', message: '这不是 EVE 战斗日志（找不到 Gamelog 文件头）' })
+  })
+
+  it('explains unknown_character with the listener', async () => {
+    const { deps, actions } = rejected('unknown_character')
+    await runUpload(deps)
+    expect(actions.at(-1)).toEqual({ type: 'fail', id: 7, status: 'unknown_character', message: '查不到日志主人 Some Pilot 的角色' })
+  })
+
+  it('explains a server too_large with size and limit', async () => {
+    const { deps, actions } = rejected('too_large', { size: 12 * 1024 * 1024 })
+    await runUpload(deps)
+    expect(actions.at(-1)).toEqual({ type: 'fail', id: 7, status: 'too_large', message: '文件 12.0 MB，超过上限 10 MB' })
+  })
+
+  it('shows a generic failure in Chinese and keeps the code for the tooltip', async () => {
+    const { deps, actions } = rejected('bad_request', { uploadLog: async () => { throw new ApiFailure('bad_request', 'Internal Server Error', 500) } })
+    await runUpload(deps)
+    expect(actions.at(-1)).toEqual({ type: 'fail', id: 7, status: 'failed', message: '上传失败，请重试', detail: 'bad_request' })
   })
 
   it('maps an unreadable file to failed', async () => {

@@ -95,6 +95,7 @@ export function UploadDock({ pickerRef }: UploadDockProps) {
         for (const item of latest.current.queue.items) if (item.log) known.set(item.log.id, item.name)
         return known
       },
+      windows: () => latest.current.summary?.meta.windows ?? [],
       uploadLog: (text, onProgress) => api.uploadLog(brId, text, onProgress),
       dispatch,
     })

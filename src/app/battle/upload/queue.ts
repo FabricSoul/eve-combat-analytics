@@ -14,6 +14,8 @@ export interface UploadItem {
   /** Name (or pilot) of the file this one is identical to. */
   duplicateOf?: string
   message?: string
+  /** Technical detail (error code) kept for a tooltip, never as the visible text. */
+  detail?: string
   /** Gallery rows built to show a state rather than a real upload. */
   demo?: boolean
   /** The file to upload, kept with its row so a row can never be paired with another batch's file. */
@@ -33,7 +35,7 @@ export type QueueAction =
   | { type: 'progress'; id: number; fraction: number }
   | { type: 'done'; id: number; log: UploadedLogSummary }
   | { type: 'duplicate'; id: number; of: string }
-  | { type: 'fail'; id: number; status: FailureStatus; message: string }
+  | { type: 'fail'; id: number; status: FailureStatus; message: string; detail?: string }
   | { type: 'remove'; id: number }
   /** The tray's × button: forget every settled row (done, duplicate, failed); queued and active uploads keep going. */
   | { type: 'clearSettled' }
@@ -76,7 +78,7 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
     case 'duplicate':
       return change(state, action.id, ({ status }) => isActive(status), (item) => ({ ...item, status: 'duplicate', duplicateOf: action.of }))
     case 'fail':
-      return change(state, action.id, ({ status }) => isActive(status), (item) => ({ ...item, status: action.status, message: action.message }))
+      return change(state, action.id, ({ status }) => isActive(status), (item) => ({ ...item, status: action.status, message: action.message, detail: action.detail }))
     case 'clearSettled': {
       const items = state.items.filter(({ status }) => !isSettled(status))
       return items.length === state.items.length ? state : { ...state, items }
