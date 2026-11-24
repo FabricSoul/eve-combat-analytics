@@ -11,7 +11,6 @@ import { PilotActions } from '../roster/PilotActions'
 import { BattleProvider } from '@/app/state/battle-store'
 import { ViewProvider } from '@/app/state/view-store'
 import { loadUiFixture } from '@/app/test/ui-fixture'
-import { projectileAt } from './projectile'
 
 const order = [0, 1]
 const killmails = [] as const
@@ -40,6 +39,7 @@ let host: HTMLDivElement
 let root: Root
 let frames: Map<number, FrameRequestCallback>
 let nextFrame: number
+const paintedText = vi.fn<(text: string, x: number, y: number) => void>()
 const select = vi.fn()
 
 async function refresh() {
@@ -83,12 +83,13 @@ beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ({
     setTransform: noOp, clearRect: noOp, setLineDash: noOp, beginPath: noOp,
     stroke: noOp, fill: noOp, moveTo: noOp, lineTo: noOp, arc: noOp,
-    strokeText: noOp, fillText: noOp, measureText: () => ({ width: 38 }),
+    strokeText: noOp, fillText: paintedText, measureText: () => ({ width: 38 }),
   }) as unknown as CanvasRenderingContext2D)
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
   select.mockClear()
+  paintedText.mockClear()
 })
 
 afterEach(async () => {
@@ -118,17 +119,15 @@ it('shows every graded hit and the miss in game order with the comparison labels
   expect(entries.querySelectorAll('canvas')).toHaveLength(expected.length)
 })
 
-it('reveals the full map weapon name while hovering its generic glyph', async () => {
+it('reveals the full map weapon name while hovering the abbreviated tracer text', async () => {
   const weapon = 'Test launcher without a module icon'
   await render(analysis([alpha, beta], [{ ...observation(beta.key), weapon }]), time + 250)
-  const point = (name: string) => {
-    const [, x, y] = /translate(?:3d)?\(([-.\d]+)px, ([-.\d]+)px/.exec(marker(name).style.transform)!
-    return { x: Number(x), y: Number(y) }
-  }
-  const { position } = projectileAt('damage', point(alpha.name), point(beta.name), 250, true, 1)
+  const caption = paintedText.mock.calls.find(([text]) => text === 'Test launcher…')
+  expect(caption).toBeDefined()
+  const [, x, y] = caption!
   const stage = host.querySelector('.replay-stage')!
   await act(() => stage.dispatchEvent(new PointerEvent('pointermove', {
-    clientX: position.x, clientY: position.y, bubbles: true,
+    clientX: x, clientY: y, bubbles: true,
   })))
   await refresh()
   const tip = stage.querySelector('.replay-miss-tooltip[data-positioned]')

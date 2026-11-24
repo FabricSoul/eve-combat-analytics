@@ -143,11 +143,12 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     const point = pointer.current
     if (!tip) return
     const missed = point && !point.overPilot && missedTracerAt(missTracers.current, point)
-    const label = point && (missed ? '未命中' : moduleAt(paintedModules.current, point))
+    const moduleName = point && moduleAt(paintedModules.current, point)
+    const label = moduleName ?? (missed ? '未命中' : null)
     tip.toggleAttribute('data-positioned', Boolean(label))
     if (!label || !point) return
     if (tip.textContent !== label) tip.textContent = label
-    if (missed) {
+    if (missed && !moduleName) {
       const x = Math.max(4, Math.min(stageWidth - 52, point.x + 10))
       const y = point.y >= 28 ? point.y - 26 : point.y + 10
       tip.style.transform = `translate3d(${x}px, ${y}px, 0)`
@@ -219,6 +220,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     let tooltipHeight = 0
     let labelSizes = new WeakMap<HTMLElement, Pick<Rect, 'width' | 'height'>>()
     let labelKey = ''
+    let pilotLabelRects: Rect[] = []
     const markerPositions = new WeakMap<HTMLElement, Point>()
 
     function schedule() {
@@ -279,12 +281,9 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       const live = painter.liveEdges(scene.edges, t)
       const pilotsChanged = layout.placeVisible(present, live)
       layout.placeUnassigned(present)
-      const { related, positions, bounds, misses, modules, animating, burst } = painter.paint(
+      const { related, positions, bounds, misses, modules, drawModuleNames, animating, burst } = painter.paint(
         layout, live, scene.pointSpans, present, { ...current, t, reducedMotion, pausedElapsed }, width, height, camera,
       )
-      missTracers.current = misses
-      paintedModules.current = modules
-      if (pointer.current) updateEffectTooltip(width)
       let bursting = false
       const labels: { element: HTMLElement; node: ReplayNode; center: Point; priority: number; required: boolean }[] = []
       let nextLabelKey = `${camera.x}|${camera.y}|${camera.scale}|${detailKey}`
@@ -409,6 +408,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
           return { ...label, size, bounds: labelBounds, radius: node.radius, uploader: node.entity.hasLog }
         })
         const placed = placeReplayLabels(names, occupied, labelFrame, showAll)
+        pilotLabelRects = [...placed.values()]
         const leaders = []
         for (const label of names) {
           const { element, center, radius, uploader } = label
@@ -429,6 +429,10 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         labelLeaders.current?.setAttribute('d', leaders.join(' '))
 
       }
+      drawModuleNames(pilotLabelRects, overlayRects, tooltipRect)
+      missTracers.current = misses
+      paintedModules.current = modules
+      if (pointer.current) updateEffectTooltip(width)
       if (!playing && (firstFrame || pilotsChanged || cameraChanged)) overlayLayoutChanged.current?.()
       firstFrame = false
       if (playing ? getTime !== undefined : !reducedMotion && (animating || bursting)) schedule()

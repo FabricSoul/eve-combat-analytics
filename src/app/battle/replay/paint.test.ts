@@ -175,7 +175,7 @@ it('paints legend effects from generic shapes, without loading icons or drawing 
   }
 })
 
-it('replaces missing map module art with a small shape and preserves the name for hit testing', async () => {
+it('draws a short name in place of missing map module art and preserves the full name for hit testing', async () => {
   const layout = makeLayout([pilot(1), pilot(2)], [1, 2], 500, 400)
   Object.assign(layout.nodes[0]!, { x: 100, y: 180 })
   Object.assign(layout.nodes[1]!, { x: 350, y: 200 })
@@ -193,8 +193,16 @@ it('replaces missing map module art with a small shape and preserves the name fo
   painter.paint(layout, [edge], [], present, frame, 500, 400)
   await vi.dynamicImportSettled()
   const painted = painter.paint(layout, [edge], [], present, frame, 500, 400)
-  expect(over.probe.strokeText).not.toHaveBeenCalled()
-  expect(over.probe.fillText).not.toHaveBeenCalled()
-  expect(over.probe.lineTo).toHaveBeenCalled()
-  expect(painted.modules).toEqual([{ name: weapon, rect: expect.objectContaining({ width: 10, height: 10 }) }])
+  painted.drawModuleNames([])
+  expect(over.probe.fillText).toHaveBeenCalledWith('Test launcher…', expect.any(Number), expect.any(Number))
+  expect(over.probe.lineTo).not.toHaveBeenCalled()
+  expect(painted.modules).toEqual([{ name: weapon, rect: expect.objectContaining({ width: 40, height: 14 }) }])
+
+  const occupied = painted.modules[0]!.rect
+  const moved = painter.paint(layout, [edge], [], present, frame, 500, 400)
+  moved.drawModuleNames([occupied])
+  expect(moved.modules[0]?.name).toBe(weapon)
+  const rect = moved.modules[0]!.rect
+  expect(rect.x >= occupied.x + occupied.width + 2 || occupied.x >= rect.x + rect.width + 2
+    || rect.y >= occupied.y + occupied.height + 2 || occupied.y >= rect.y + rect.height + 2).toBe(true)
 })
