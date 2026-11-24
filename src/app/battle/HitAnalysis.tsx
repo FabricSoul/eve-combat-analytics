@@ -147,7 +147,9 @@ export function HitAnalysis() {
             const { entity, shots, ungraded } = pilot
             return <li key={entity.key} data-pilot-key={entity.key} data-selected={selected === entity.key || undefined} onContextMenu={(event) => pilotMenu?.open(entity.key, event)}>
               <div className="hit-pilot-cell">
-                <button type="button" onClick={() => select(entity.key)}>{entity.name}</button>
+                <button className="hit-pilot-name" type="button" onClick={() => select(entity.key)}>
+                  <Portrait charId={entity.charId} size={20} /><span>{entity.name}</span>
+                </button>
                 <PilotMore pilot={entity.key} name={entity.name} />
               </div>
               <small>{sideLabel(entity.side, order)}</small>

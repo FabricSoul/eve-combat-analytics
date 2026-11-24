@@ -205,7 +205,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     if (!element || !lineCanvas || !effectsCanvas) return
     const previous = previousLayout.current
     const continued = previous?.width === width && previous.height === height
-      && previous.ours === layout.ours && previous.split === layout.split && previous.topInset === topInset
+      && previous.anchorOrder === layout.anchorOrder && previous.split === layout.split && previous.topInset === topInset
     if (continued && previous !== layout) layout.inheritPositions(previous)
     previousLayout.current = layout
     lineCanvas.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -370,8 +370,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       // Stable ship coordinates keep the label layout out of the transient effect draw.
       if (nextLabelKey !== labelKey) {
         labelKey = nextLabelKey
-        const occupied = [...overlayRects]
-        if (tooltipRect) occupied.push(tooltipRect)
+        const overlays = tooltipRect ? [...overlayRects, tooltipRect] : overlayRects
+        const occupied = [...overlays]
         // Keep compact overview labels out of the other fleet. The empty space
         // between fleets can hold labels from either side.
         const showAll = camera.scale >= allNamesZoom
@@ -407,7 +407,9 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
           const labelBounds = !split || node.entity.side < 0 ? labelFrame : node.entity.side === layout.ours ? ourBounds : enemyBounds
           return { ...label, size, bounds: labelBounds, radius: node.radius, uploader: node.entity.hasLog }
         })
-        const placed = placeReplayLabels(names, occupied, labelFrame, showAll)
+        const placed = placeReplayLabels(names, occupied, labelFrame, showAll, {
+          bounds: { ...bounds, y: 0, height }, obstacles: overlays,
+        })
         pilotLabelRects = [...placed.values()]
         const leaders = []
         for (const label of names) {

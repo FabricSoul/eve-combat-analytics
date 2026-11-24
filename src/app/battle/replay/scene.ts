@@ -104,7 +104,12 @@ interface CombatLink extends SimulationLinkDatum<ReplayNode> {
 }
 
 export function makeLayout(pilots: readonly ReplayPilot[], order: readonly number[], width: number, height: number, topInset = 0) {
-  const anchors = sideAnchors(order, width, height)
+  const populations = new Map<number, number>()
+  for (const { entity: { charId, side } } of pilots) {
+    if (charId !== null && side >= 0 && side !== order[0]) populations.set(side, (populations.get(side) ?? 0) + 1)
+  }
+  const anchors = sideAnchors(order, width, height, populations)
+  const anchorOrder = [...anchors.keys()].join(',')
   const compact = height < 420
   // Match the compact controls breakpoint. Use the longer axis for the two fleets.
   const split: 'x' | 'y' | null = width <= 430 && order.length === 2 ? (width >= height ? 'x' : 'y') : null
@@ -282,7 +287,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     }
   }
 
-  return { nodes, byKey, row, placed, width, height, topInset, split, ours: order[0], placeVisible, placeUnassigned, inheritPositions }
+  return { nodes, byKey, row, placed, width, height, topInset, split, ours: order[0], anchorOrder, placeVisible, placeUnassigned, inheritPositions }
 }
 
 export type ReplayLayout = ReturnType<typeof makeLayout>

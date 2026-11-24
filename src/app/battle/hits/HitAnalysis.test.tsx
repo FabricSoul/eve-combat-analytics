@@ -164,6 +164,12 @@ it('keeps the full-fight rank and sample identical in the module and drawer for 
     const ranked = [...host.querySelectorAll<HTMLTableRowElement>('.hit-analysis tbody tr')]
     const insufficient = [...host.querySelectorAll('.hit-insufficient li')]
     expect(ranked.length + insufficient.length).toBe(Object.values(analysis.entities).filter(({ charId }) => charId !== null).length)
+    expect(insufficient.length).toBeGreaterThan(0)
+    for (const entry of insufficient) {
+      const charId = entry.getAttribute('data-pilot-key')!.slice('char:'.length)
+      expect(entry.querySelector('button img[width="20"][height="20"]')?.getAttribute('src'))
+        .toBe(`https://images.evetech.net/characters/${charId}/portrait?size=64`)
+    }
     for (const entry of ranked) {
       act(() => entry.querySelector('button')!.click())
       for (const [metric, ranks] of rankedFor) {

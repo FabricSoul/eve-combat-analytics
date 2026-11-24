@@ -74,6 +74,7 @@ function ReplaySamples({ fixture, samples, oursSide }: {
           <option value={2}>两方</option>
           <option value={3}>三方（示例）</option>
           <option value={4}>四方（示例）</option>
+          <option value={5}>五方（示例）</option>
         </select>
         <Button aria-pressed={compact} onClick={() => setCompact(!compact)}>紧凑画布</Button>
         {selected && <Button aria-pressed={focusOnly} onClick={() => setFocusOnly(!focusOnly)}>只看选中人员</Button>}

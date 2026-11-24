@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EntityKey } from '@/core/contract'
-import { placeFightsWindow, placePilotLabel, placeReplayPopover } from './placement'
+import { placeFightsWindow, placePilotLabel, placeReplayLabels, placeReplayPopover } from './placement'
 import { makeLayout, type ReplayPilot } from './scene'
 
 function pilot(key: EntityKey, side: number): ReplayPilot {
@@ -58,6 +58,35 @@ describe('pilot label placement', () => {
     expect(placePilotLabel(center, 10, size, bounds, occupied)).toBeNull()
     expect(placePilotLabel(center, 10, size, bounds, occupied, true)).not.toBeNull()
     expect(placePilotLabel(center, 10, size, bounds, [bounds], true)).toBeNull()
+  })
+
+  it('keeps required labels in the stage when every slot is occupied', () => {
+    const stage = { x: 0, y: 0, width: 40, height: 20 }
+    const optional = { center: { x: 20, y: 10 }, radius: 10, size, bounds: stage, priority: 1, uploader: false, required: false }
+    const inspected = { ...optional, priority: 3, required: true }
+    const logged = { ...optional, priority: 2, uploader: true, required: true }
+    const placed = placeReplayLabels([optional, logged, inspected], [stage], stage)
+
+    for (const label of [inspected, logged]) {
+      const rect = placed.get(label)!
+      expect(rect).toMatchObject({ x: 0, width: 40, height: 16 })
+      expect(rect.y).toBeGreaterThanOrEqual(0)
+      expect(rect.y + rect.height).toBeLessThanOrEqual(stage.height)
+    }
+    expect(placed.has(optional)).toBe(false)
+  })
+
+  it('uses the full stage to keep required names clear of the replay controls', () => {
+    const stage = { x: 0, y: 32, width: 120, height: 40 }
+    const overlay = { x: 30, y: 35, width: 75, height: 39 }
+    const shipRings = { x: 0, y: 32, width: 120, height: 40 }
+    const required = { center: { x: 65, y: 55 }, radius: 10, size, bounds: stage, priority: 2, uploader: true, required: true }
+    const placement = placeReplayLabels([required], [overlay, shipRings], stage, false, {
+      bounds: { ...stage, y: 0, height: 76 }, obstacles: [overlay],
+    })
+    const rect = placement.get(required)!
+    expect(rect.width).toBe(size.width)
+    expect(rect.y + rect.height).toBeLessThanOrEqual(overlay.y)
   })
 })
 

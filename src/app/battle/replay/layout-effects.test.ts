@@ -18,8 +18,8 @@ describe('replay layout and effects', () => {
     expect(anchors.get(-1)).toEqual({ x: 500, y: 540 })
   })
 
-  it('places three sides left, right, and top in the supplied order', () => {
-    const anchors = sideAnchors([7, 2, 5], 1000, 600)
+  it('places three sides left, right, and top with larger opponents first', () => {
+    const anchors = sideAnchors([7, 5, 2], 1000, 600, new Map([[7, 1], [2, 9], [5, 5]]))
     expect(anchors.get(7)?.x).toBeLessThan(500)
     expect(anchors.get(2)?.x).toBeGreaterThan(500)
     expect(anchors.get(7)?.y).toBe(anchors.get(2)?.y)
@@ -28,7 +28,7 @@ describe('replay layout and effects', () => {
   })
 
   it('adds the fourth side below center with the unassigned row farther down', () => {
-    const anchors = sideAnchors([7, 2, 5, 9], 1000, 600)
+    const anchors = sideAnchors([7, 9, 5, 2], 1000, 600, new Map([[7, 1], [2, 9], [5, 5], [9, 3]]))
     expect(anchors.get(7)?.x).toBeLessThan(500)
     expect(anchors.get(2)?.x).toBeGreaterThan(500)
     expect(anchors.get(7)?.y).toBe(anchors.get(2)?.y)
@@ -40,16 +40,18 @@ describe('replay layout and effects', () => {
     expect(anchors.get(9)!.y).toBeLessThan(anchors.get(-1)!.y)
   })
 
-  it('fills upper-right and lower-right gaps before the left side', () => {
-    const anchors = sideAnchors([7, 2, 5, 9, 13, 11, 8, 3], 1000, 600)
-    expect(anchors.get(13)!.x).toBeGreaterThan(500)
-    expect(anchors.get(13)!.y).toBeLessThan(308)
-    expect(anchors.get(11)!.x).toBeGreaterThan(500)
-    expect(anchors.get(11)!.y).toBeGreaterThan(308)
-    expect(anchors.get(8)!.x).toBeLessThan(500)
-    expect(anchors.get(8)!.y).toBeLessThan(308)
-    expect(anchors.get(3)!.x).toBeLessThan(500)
-    expect(anchors.get(3)!.y).toBeGreaterThan(308)
+  it.each([5, 8])('keeps our side left and orders the other %i-side anchors from right through top', (size) => {
+    const order = [7, 9, 2, 13, 5, 3, 11, 8].slice(0, size)
+    const counts = new Map([[7, 2], [2, 15], [5, 12], [9, 8], [13, 6], [11, 4], [8, 3], [3, 1]])
+    const populationOrder = [2, 5, 9, 13, 11, 8, 3].filter((side) => order.includes(side))
+    const anchors = sideAnchors(order, 1000, 600, counts)
+    expect(anchors.get(7)).toEqual({ x: 220, y: 308 })
+    const angles = populationOrder.map((side) => {
+      const { x, y } = anchors.get(side)!
+      return Math.atan2((y - 308) / 174, (x - 500) / 280)
+    })
+    const expected = size === 5 ? [36, -36, -108, 108] : [0, -45, -90, -135, 135, 90, 45]
+    angles.forEach((angle, index) => expect(angle * 180 / Math.PI).toBeCloseTo(expected[index]!))
   })
 
   it('scales quantities logarithmically and independently by kind', () => {

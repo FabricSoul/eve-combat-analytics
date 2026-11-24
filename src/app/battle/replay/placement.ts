@@ -158,8 +158,10 @@ interface PilotLabel {
   required: boolean
 }
 
-export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], obstacles: readonly Rect[], stage: Rect, showAll = false) {
-  const mandatory = showAll ? labels : labels.filter((label) => label.uploader)
+export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], obstacles: readonly Rect[], stage: Rect, showAll = false,
+  fallback = { bounds: stage, obstacles: [] as readonly Rect[] }) {
+  const isMandatory = (label: T) => label.required || label.uploader
+  const mandatory = showAll ? labels : labels.filter(isMandatory)
   const reachFromCenter = (label: T) => maxLabelDistance + (showAll ? label.radius + 2 : 0)
   const options = (label: T, occupied: readonly Rect[], width: number, bounds = label.bounds, reach = reachFromCenter(label)) =>
     placePilotLabel(label.center, label.radius, { ...label.size, width }, bounds, occupied, true, reach)
@@ -241,7 +243,7 @@ export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], ob
     }
   }
 
-  // Reclaim space for longer names without taking an already placed uploader's slot.
+  // Reclaim space for longer names without taking an already placed required label's slot.
   for (const label of mandatory) {
     const slot = positions.get(label)
     if (slot?.width === label.size.width) continue
@@ -257,23 +259,34 @@ export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], ob
     }
   }
 
-  const occupied = [...obstacles, ...[...positions.values()].map(labelObstacle)]
+  const placedNames = Array.from(positions.values(), labelObstacle)
+  const occupied = [...obstacles, ...placedNames]
+  const protectedSpace = [...fallback.obstacles, ...placedNames]
   for (const label of mandatory) {
     if (positions.has(label)) continue
     const width = Math.min(46, label.size.width)
     const compactWidth = Math.min(24, width)
+    const { bounds } = fallback
+    const size = { width: Math.min(label.size.width, bounds.width), height: Math.min(label.size.height, bounds.height) }
+    const below = { ...size, x: label.center.x - size.width / 2, y: label.center.y + label.radius + 5 }
     const slot = options(label, occupied, width, label.bounds, Infinity)
       ?? options(label, occupied, compactWidth, label.bounds, Infinity)
       ?? options(label, occupied, width, stage, Infinity)
       ?? options(label, occupied, compactWidth, stage, Infinity)
-    if (!slot) continue
+      // Relax ship clearance first and keep controls clear even if names have to overlap.
+      ?? findPilotLabelSpace(label.center, size, bounds, protectedSpace, Infinity)
+      ?? findPilotLabelSpace(label.center, { ...size, width: Math.min(compactWidth, size.width) }, bounds, protectedSpace, Infinity)
+      ?? findPilotLabelSpace(label.center, size, bounds, fallback.obstacles, Infinity)
+      ?? placeAnnotation([below], bounds, occupied, true)!
     positions.set(label, slot)
-    occupied.push(labelObstacle(slot))
+    const obstacle = labelObstacle(slot)
+    protectedSpace.push(obstacle)
+    occupied.push(obstacle)
   }
 
-  const otherLabels = labels.filter((label) => !label.uploader).sort((a, b) => b.priority - a.priority)
+  const otherLabels = labels.filter((label) => !isMandatory(label)).sort((a, b) => b.priority - a.priority)
   for (const label of otherLabels) {
-    const slot = placePilotLabel(label.center, label.radius, label.size, label.bounds, occupied, label.required)
+    const slot = placePilotLabel(label.center, label.radius, label.size, label.bounds, occupied)
     if (!slot) continue
     positions.set(label, slot)
     occupied.push(labelObstacle(slot))

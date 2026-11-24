@@ -282,6 +282,33 @@ it('positions every present uploader label in the 1280 × 800 desktop canvas', a
     .map((pilot) => pilot.getAttribute('aria-label'))).toEqual([])
 })
 
+it('keeps all in-view uploader, selected and hovered names at the 900 × 680 minimum stage', async () => {
+  const fixture = loadUiFixture()
+  // Measured canvas within the 300 px stage, after controls and timeline.
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(882)
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(79)
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return Math.min(94, (this.textContent?.length ?? 0) * 6)
+  })
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(16)
+  const at = Date.UTC(2025, 5, 22, 15, 43, 2, 420)
+  const battle = { killmails: fixture.summary.meta.killmails, order: [1, 0] }
+  await render(fixture.analysis, at, null, battle)
+  const observers = host.querySelectorAll<HTMLElement>('.replay-marker[data-present] [data-log="false"]')
+  const selected = observers[0]!.parentElement!.dataset.pilotKey as EntityKey
+  const hovered = observers[1]!.parentElement!.dataset.pilotKey as EntityKey
+  await render(fixture.analysis, at, selected, battle)
+  const hoverTarget = host.querySelector(`[data-pilot-key="${hovered}"] .replay-pilot`)!
+  await act(() => hoverTarget.dispatchEvent(new PointerEvent('pointerover', { pointerType: 'mouse', bubbles: true })))
+  await refresh()
+
+  const uploaders = [...host.querySelectorAll('.replay-marker[data-present] [data-log="true"]')]
+  expect(uploaders).toHaveLength(17)
+  expect(host.querySelector(`[data-pilot-label="${hovered}"][data-inspected="true"]`)).not.toBeNull()
+  const required = [...uploaders.map((pilot) => pilot.parentElement!.dataset.pilotKey), selected, hovered]
+  expect(required.filter((key) => !host.querySelector(`[data-pilot-label="${key}"][data-positioned]`))).toEqual([])
+})
+
 it('keeps paused nodes still and keeps them still during quiet playback', async () => {
   vi.mocked(window.matchMedia).mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() } as unknown as MediaQueryList)
   const result = analysis()

@@ -2,21 +2,20 @@ import type { Interaction, InteractionKind } from '@/core/contract'
 
 export interface Point { x: number; y: number }
 
-export function sideAnchors(order: readonly number[], width: number, height: number): Map<number, Point> {
+export function sideAnchors(order: readonly number[], width: number, height: number, populations?: ReadonlyMap<number, number>): Map<number, Point> {
   const center = { x: width / 2, y: height / 2 + 8 }
   const anchors = new Map<number, Point>([[-1, { x: center.x, y: height * 0.9 }]])
-  // Quarter turns from the right in screen coordinates. Fill the cardinal positions first.
+  const [ours, ...opponents] = order
+  if (ours === undefined) return anchors
+  if (populations) opponents.sort((a, b) => (populations.get(b) ?? 0) - (populations.get(a) ?? 0))
+  // Quarter turns from the right in screen coordinates.
   const cardinal = [2, 0, -1, 1]
-  const quadrants = [[0, -1], [0, 1], [-2, -1], [2, 1]] as const
-  for (const [index, side] of order.entries()) {
-    let turn = cardinal[index]
-    if (turn === undefined) {
-      const extra = index - cardinal.length
-      const quadrant = extra % quadrants.length
-      const [start, end] = quadrants[quadrant]!
-      const slots = Math.ceil((order.length - cardinal.length - quadrant) / quadrants.length)
-      const slot = Math.floor(extra / quadrants.length) + 1
-      turn = start + (end - start) * slot / (slots + 1)
+  for (const [index, side] of [ours, ...opponents].entries()) {
+    let turn = cardinal[index]!
+    if (order.length >= 5 && index > 0) {
+      // Reserve the leftmost position. Start at the lower of the two rightmost positions for odd counts.
+      const offset = (Math.floor(order.length / 2) + index - 2) % opponents.length + 1
+      turn = 2 - 4 * offset / order.length
     }
     const angle = turn * Math.PI / 2
     anchors.set(side, {
