@@ -74,7 +74,7 @@ it('keeps repair green while damage bars follow side and aggregate damage stays 
 })
 
 it('shows hit rate, team median, quality counts, and observed weapon breakdown for a selected uploader', () => {
-  const fixture = loadUiFixture()
+  const fixture = loadUiFixture({ fullPilotEvents: true })
   const pilot = Object.values(fixture.analysis.entities).find(({ name }) => name === 'Blanchard2213')!
   const host = document.createElement('div')
   const root = createRoot(host)
@@ -85,17 +85,20 @@ it('shows hit rate, team median, quality counts, and observed weapon breakdown f
   }
   try {
     act(() => root.render(
-      <BattleProvider static={fixture}><ViewProvider syncUrl={false}><Harness /></ViewProvider></BattleProvider>,
+      <BattleProvider static={fixture}><ViewProvider syncUrl={false} defaultSide={1}><Harness /></ViewProvider></BattleProvider>,
     ))
     const tile = [...host.querySelectorAll('.u7-stat-tile')].find((el) => el.querySelector('h3')?.textContent === '命中')!
     expect(tile?.textContent).toContain('93%')
     expect(tile?.textContent).toContain('全队中位')
     const breakdown = [...host.querySelectorAll('section')].find((el) => el.querySelector('h3')?.textContent === '命中质量')!
     expect(breakdown?.textContent).toContain('184')
+    const rankRows = breakdown.querySelectorAll('.hit-person-ranks > div')
+    expect(rankRows).toHaveLength(4)
+    expect(rankRows[0]?.textContent).toMatch(/同阵营.*第.*发.*全场.*第.*发/)
     const weaponRates = [...breakdown.querySelectorAll('.u7-hit-weapon')].map((el) => el.textContent)
     expect(weaponRates).toEqual(expect.arrayContaining([
-      expect.stringMatching(/Veles Supratidal Entropic Disintegrator.*100%/),
-      expect.stringMatching(/Imperial Navy Curator.*97%/),
+      expect.stringMatching(/Veles Supratidal Entropic Disintegrator.*88%/),
+      expect.stringMatching(/Imperial Navy Curator.*91%/),
     ]))
     expect(breakdown?.textContent).toContain('立体炸弹')
   } finally {

@@ -15,6 +15,7 @@ import { CompareTable } from './CompareTable'
 import { EmptyBattle } from './EmptyBattle'
 import { EventFeed } from './EventFeed'
 import { FitTab } from './FitTab'
+import { HitAnalysis } from './HitAnalysis'
 import { KillsList } from './KillsList'
 import { PersonDrawer } from './PersonDrawer'
 import { ReplayCanvas } from './ReplayCanvas'
@@ -24,17 +25,17 @@ import { Timeline } from './Timeline'
 import { UploadDock } from './UploadDock'
 
 const tabs: readonly TabOption<PanelTab>[] = [
-  { value: 'roster', label: '名单' }, { value: 'compare', label: '对比' },
+  { value: 'roster', label: '名单' }, { value: 'compare', label: '对比' }, { value: 'hits', label: '命中' },
   { value: 'kills', label: '击毁' }, { value: 'fit', label: '配装' },
 ]
 
 const phoneTabs = [
-  { value: 'roster', label: '名单' }, { value: 'events', label: '事件' }, { value: 'compare', label: '对比' },
+  { value: 'roster', label: '名单' }, { value: 'events', label: '事件' }, { value: 'compare', label: '对比' }, { value: 'hits', label: '命中' },
 ] as const
 type PhoneTab = typeof phoneTabs[number]['value']
-const phonePanels = { roster: Roster, compare: CompareTable, events: EventFeed }
+const phonePanels = { roster: Roster, compare: CompareTable, hits: HitAnalysis, events: EventFeed }
 
-const panels = { roster: Roster, compare: CompareTable, kills: KillsList, fit: FitTab }
+const panels = { roster: Roster, compare: CompareTable, hits: HitAnalysis, kills: KillsList, fit: FitTab }
 const panelId = 'battle-panel'
 
 function BattleWorkspace() {

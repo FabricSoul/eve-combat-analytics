@@ -1,0 +1,63 @@
+.hit-analysis {
+  container: hit-analysis / inline-size;
+  min-width: 0;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+.hit-analysis[data-expanded="true"] { position: fixed; z-index: 2; inset: 48px 0 0; overflow: auto; }
+.battle-layout:has(.hit-analysis[data-expanded="true"]) .battle-upload { z-index: 1; }
+.hit-analysis-header, .hit-team-summary {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+}
+.hit-analysis-header { padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--color-hair); }
+.hit-analysis h2, .hit-analysis h3 { font-weight: 600; }
+.hit-analysis-body, .hit-team-grid { display: grid; gap: var(--space-3); }
+.hit-analysis-body { grid-template-columns: minmax(0, 1fr); }.hit-analysis-body { padding: var(--space-3) var(--space-4) var(--space-4); }
+.hit-secondary, .hit-analysis small { color: var(--color-text-2); font-size: var(--fs-s); }
+.hit-analysis-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.hit-analysis-controls details { position: relative; }
+.hit-analysis-controls summary, .hit-insufficient summary {
+  cursor: pointer; padding: var(--space-1) var(--space-2); border: 1px solid var(--color-hair);
+  border-radius: var(--radius-ctl); background: var(--color-raised);
+}
+.hit-analysis-controls details label { display: flex; gap: var(--space-2); align-items: center; padding: var(--space-1); }
+.hit-analysis-controls > label { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.hit-analysis-controls select { max-width: 100%; }
+.hit-team-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 235px), 1fr)); }
+.hit-card, .hit-trend {
+  display: grid; gap: var(--space-2); padding: var(--space-3);
+  border: 1px solid var(--color-hair); border-radius: var(--radius-card); background: var(--color-surface);
+}
+.hit-card h3, .hit-legend li, .hit-pilot-name { display: flex; align-items: center; gap: var(--space-2); }
+.hit-side-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.hit-classes > div { display: flex; gap: var(--space-2); justify-content: space-between; font-size: var(--fs-s); }
+.hit-classes dt { color: var(--color-text-2); }
+.hit-trend svg { display: block; width: 100%; max-height: 220px; }
+.hit-trend svg text { fill: var(--color-text-2); font: 10px var(--font-mono); }
+.hit-trend svg line { stroke: var(--color-hair); }
+.hit-legend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); font-size: var(--fs-s); }
+.hit-table-scroll { overflow-x: auto; margin-block: var(--space-2); border: 1px solid var(--color-hair); border-radius: var(--radius-card); }
+.hit-table-scroll table { width: 100%; min-width: 720px; border-collapse: collapse; }
+.hit-table-scroll th, .hit-table-scroll td { padding: var(--space-2); border-bottom: 1px solid var(--color-hair); }
+.hit-table-scroll th { text-align: start; }
+.hit-table-scroll thead { background: var(--color-raised); }
+.hit-table-scroll td:nth-child(4) { min-width: 96px; }
+.hit-table-scroll td:nth-child(6) { min-width: 150px; }
+.hit-pilot-name, .hit-table-scroll thead button, .hit-insufficient button { cursor: pointer; text-align: start; }
+.hit-insufficient ul { display: grid; gap: var(--space-1) var(--space-3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); }
+.hit-insufficient li { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: var(--space-2); padding: var(--space-1); align-items: baseline; }
+.hit-insufficient button { overflow-wrap: anywhere; }
+.hit-person-ranks { margin-block: var(--space-2); display: grid; gap: var(--space-1); }
+.hit-person-ranks > div { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: var(--space-2); align-items: baseline; }
+.hit-person-ranks small { display: block; color: var(--color-text-2); line-height: 1.2; }
+.hit-weapon-heading { margin-block-start: var(--space-2); color: var(--color-text-2); font-size: var(--fs-s); }
+
+@container hit-analysis (max-width: 420px) {
+  .hit-analysis-header, .hit-analysis-body { padding-inline: var(--space-2); }
+  .hit-trend { padding-inline: var(--space-1); }
+  .hit-trend svg text { font-size: 18px; }
+}
+
+@media (max-width: 759px) {
+  .hit-analysis[data-expanded="true"] { top: 44px; }
+}

@@ -7,7 +7,7 @@ import type { EntityKey } from '@/core/contract'
 export type LayerId = 'dmgOurs' | 'dmgTheirs' | 'primary' | 'repOurs' | 'point' | 'kills' | 'killIcons'
 export type FeedMode = 'merged' | 'raw' | 'key'
 export type DrawerTab = 'stats' | 'fit' | 'events'
-export type PanelTab = 'roster' | 'compare' | 'kills' | 'fit'
+export type PanelTab = 'roster' | 'compare' | 'hits' | 'kills' | 'fit'
 export type PlaybackSpeed = 1 | 2 | 4 | 8
 export type TimeRange = readonly [from: number, to: number]
 

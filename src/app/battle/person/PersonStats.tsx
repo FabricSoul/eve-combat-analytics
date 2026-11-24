@@ -4,9 +4,14 @@ import { fmtHms, fmtNum, fmtPct } from '../../lib/format'
 import { sideColor } from '../../lib/sides'
 import { TypeIcon } from '../../ui/TypeIcon'
 import { HitQualityBar } from '../compare/HitQualityBar'
-import { hitQualityHint, noHitQualityReason, topHitWeapons } from '../compare/hit-quality'
+import { noHitQualityReason } from '../compare/hit-quality'
+import { hitMetrics, hitObservationHint, weaponRows } from '../hits/analysis'
+import { PilotHitRanks } from '../hits/PilotHitRanks'
+import { useHitAnalysis } from '../hits/use-hit-analysis'
+import { WeaponClasses } from '../hits/WeaponClasses'
+import '../hits/hits.css'
 import {
-  damageKinds, metricValue, metrics, missingReason, rowMedian, seconds, shipId, unknownDamageReason, type CompareRow,
+  damageKinds, metricValue, metrics, median, missingReason, rowMedian, seconds, shipId, unknownDamageReason, type CompareRow,
 } from '../compare/metrics'
 
 const tileKeys = ['damageOut', 'damageIn', 'repairOut', 'repairIn', 'activeRatio', 'repReactionMedian', 'hitRate'] as const
@@ -54,28 +59,43 @@ export function PersonStats({ analysis, pilot, rows, interactions, bounds, order
   const row = rows.find(({ entity }) => entity.key === pilot.key)
   const team = useMemo(() => rows.filter(({ entity }) => entity.side === pilot.side && entity.side >= 0), [rows, pilot.side])
   const details = useMemo(() => relationship(pilot, interactions), [pilot, interactions])
-  const weapons = useMemo(() => pilot.hasLog ? topHitWeapons(interactions, pilot.key) : [], [interactions, pilot])
+  const hits = useHitAnalysis()
+  const observed = hits?.pilots.get(pilot.key)
+  const hitPilots = useMemo(() => [...(hits?.pilots.values() ?? [])], [hits])
+  const weapons = useMemo(() => observed ? weaponRows(observed).slice(0, 5) : [], [observed])
+  const sideHitMedian = useMemo(() => median(hitPilots.flatMap(({ entity, ...counts }) =>
+    entity.side === pilot.side && pilot.side >= 0 ? hitMetrics.hitRate.value(counts) ?? [] : [],
+  )), [hitPilots, pilot.side])
   const points = useMemo(() => pointSpans(analysis.ewarSpans, pilot.key, bounds), [analysis.ewarSpans, pilot.key, bounds])
   const counterpartyColor = (key: EntityKey) => sideColor(analysis.entities[key]?.side ?? -1, order)
   return <div className="u7-person-stack">
     <div className="u7-stat-tiles">
       {tileMetrics.map((metric) => {
-        const value = row ? metricValue(row, metric) : null
+        const isHitRate = metric.key === 'hitRate'
+        const value = isHitRate ? (observed ? hitMetrics.hitRate.value(observed) : null) : row ? metricValue(row, metric) : null
+        const middle = isHitRate ? sideHitMedian : rowMedian(team, metric)
+        const unavailable = isHitRate ? noHitQualityReason : row ? missingReason(row, metric) : undefined
         return <section key={metric.key} className="u7-stat-tile">
-          <h3>{metric.key === 'hitRate' ? '命中' : metric.label}</h3>
-          <div className="app-number" title={value === null && row ? missingReason(row, metric) : undefined}>{metric.format(value)}</div>
-          <small>全队中位 <span className="app-number">{metric.format(rowMedian(team, metric))}</span></small>
+          <h3>{isHitRate ? '命中' : metric.label}</h3>
+          <div className="app-number" title={value === null ? unavailable : undefined}>{metric.format(value)}</div>
+          <small>全队中位 <span className="app-number">{metric.format(middle)}</span></small>
         </section>
       })}
     </div>
     <section className="u7-person-card">
       <h3>命中质量</h3>
-      <p className="u7-secondary">{hitQualityHint}</p>
-      {row && row.entity.hasLog && <HitQualityBar stats={row.stats} color={sideColor(pilot.side, order)} showCounts />}
-      {weapons.length > 0 && <ul>{weapons.map(({ name, rate, shots }) => <li className="u7-hit-weapon" key={name}>
-        <span>{name}</span><span className="app-number">{fmtNum(shots)} 次</span><span className="app-number">{fmtPct(rate)}</span>
-      </li>)}</ul>}
-      {!weapons.length && <p className="u7-secondary">{pilot.hasLog ? noHitQualityReason : '没有上传他的战斗日志'}。</p>}
+      <p className="u7-secondary">{hitObservationHint}</p>
+      {observed && <PilotHitRanks pilot={observed} pilots={hitPilots} />}
+      {observed && observed.shots > 0 && <>
+        <HitQualityBar stats={observed} color={sideColor(pilot.side, order)} showCounts />
+        <WeaponClasses classes={observed.classes} />
+      </>}
+      {weapons.length > 0 && <><h4 className="hit-weapon-heading">武器 · 出手 / 命中率</h4>
+        <ul>{weapons.map(([name, counts]) => <li className="u7-hit-weapon" key={name}>
+        <span>{name}</span><span className="app-number">{fmtNum(counts.shots)} 次</span>
+        <span className="app-number">{fmtPct(hitMetrics.hitRate.value(counts))}</span>
+      </li>)}</ul></>}
+      {!weapons.length && <p className="u7-secondary">{noHitQualityReason}。</p>}
     </section>
     <section className="u7-person-card">
       <h3>按时间 · 每 10 秒</h3>

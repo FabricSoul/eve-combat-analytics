@@ -1,5 +1,5 @@
 .battle-drawer:has(.u7-person) { background: var(--color-bg); }
-.battle-layout:has(.u7-compare[data-expanded="true"]) .battle-drawer {
+.battle-layout:has(.u7-compare[data-expanded="true"], .hit-analysis[data-expanded="true"]) .battle-drawer {
   position: fixed; inset: 48px 0 0 auto; z-index: 3;
 }
 .battle-layout .battle-drawer:has(.u7-person[data-expanded="true"]) {
@@ -89,7 +89,7 @@
 }
 
 @media (max-width: 759px) {
-  .battle-layout .battle-drawer, .battle-layout .battle-layout:has(.u7-compare[data-expanded="true"]) .battle-drawer {
+  .battle-layout .battle-drawer, .battle-layout .battle-layout:has(.u7-compare[data-expanded="true"], .hit-analysis[data-expanded="true"]) .battle-drawer {
   position: fixed; inset: 48px 0 0 auto; z-index: 3;
 }
 .battle-layout .battle-drawer:has(.u7-person[data-expanded="true"]) {
