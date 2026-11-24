@@ -171,3 +171,14 @@ it('shows hit rate and a quality distribution for two uploaders and recomputes b
   expect(bar().getAttribute('title')).toContain('未命中 2')
   expect(widths()).toBeCloseTo(100)
 })
+
+it('tags observed pilots 据我方日志 in the compare rows', () => {
+  const pilot = Object.values(fixture.analysis.entities).find((e) => e.charId !== null && !e.hasLog)!
+  render(<CompareTable />, {
+    ...fixture,
+    analysis: { ...fixture.analysis, stats: fixture.analysis.stats.map((s) => s.key === pilot.key ? { ...s, source: 'observed' as const } : s) },
+  })
+  const rows = [...host.querySelectorAll('tbody tr')].filter((r) => r.textContent?.includes('据我方日志'))
+  expect(rows.length).toBe(1)
+  expect(rows[0]!.textContent).toContain(pilot.name)
+})

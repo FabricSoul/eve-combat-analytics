@@ -5,8 +5,8 @@ import { sideIndexOf } from './affiliation'
 import { shipNameById, shipTypeIdByName } from './ships'
 
 export interface RosterTag {
-  kind: 'log' | 'manual'
-  /** Hover text: the evidence for 据日志, the change time for 手动. */
+  kind: 'log' | 'manual' | 'merge'
+  /** Hover text: the evidence for 据日志, the change time for 手动 and 合并. */
   title: string
 }
 
@@ -17,6 +17,8 @@ export interface RosterRow {
   name: string
   side: number
   hasLog: boolean
+  /** No log of his own, but our logs saw him: his numbers are a lower bound. */
+  observed: boolean
   dead: boolean
   ship: string | null
   shipTypeId: number | null
@@ -51,6 +53,8 @@ export function fullSideOrder(analysis: Analysis, oursSide: number): number[] {
 }
 
 function tagOf(entity: Entity, charId: number, summary: BattleSummary, analysis: Analysis): RosterTag | null {
+  const merges = (summary.identityMerges ?? []).filter(({ to }) => to === `char:${charId}`)
+  if (merges.length) return { kind: 'merge', title: `合并 · ${merges.map(({ setAt }) => fmtHms(setAt).slice(0, 5)).join('、')} 设` }
   if (entity.sideSource === 'log') {
     const override = analysis.sideOverrides.find(({ subject }) => subject === `char:${charId}`)
     return { kind: 'log', title: override?.reason ?? '据日志修正' }
@@ -126,6 +130,7 @@ export function buildRoster(
 ): RosterGroup[] {
   const output = new Map(stats.map((stats) => [stats.key, [stats.damageOut, stats.killmailDamage] as const]))
   const bySide = new Map<number, RosterRow[]>()
+  const observed = new Set(analysis.stats.filter((entry) => entry.source === 'observed').map((entry) => entry.key))
 
   for (const entity of Object.values(analysis.entities)) {
     const { charId } = entity
@@ -137,7 +142,7 @@ export function buildRoster(
     const seenType = seenName === null ? null : sighted
     const ship = seenName ?? entity.shipTypes[0] ?? null
     const row: RosterRow = {
-      key: entity.key, charId, name: entity.name, side: entity.side, hasLog: entity.hasLog,
+      key: entity.key, charId, name: entity.name, side: entity.side, hasLog: entity.hasLog, observed: !entity.hasLog && observed.has(entity.key),
       dead: state?.dead ?? false, ship,
       shipTypeId: seenType ?? (keyType ? Number(keyType) : shipTypeIdByName(ship)),
       tag: charId === null ? null : tagOf(entity, charId, summary, analysis),

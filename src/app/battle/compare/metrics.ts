@@ -49,6 +49,8 @@ export interface Metric {
   format: (value: number | null) => string
   reason?: string
   battleReport?: boolean
+  /** Only computable from the pilot's own uploaded log: observed pilots show — for it. */
+  ownLog?: boolean
 }
 
 const amount = (value: number | null) => fmtNum(value === null ? null : Math.round(value))
@@ -57,22 +59,22 @@ export const seconds = (value: number | null) => fmtSec(value).replace(/ s$/, ' 
 export const metrics = [
   { key: 'damageOut', label: '输出', group: '输出', format: amount },
   { key: 'killmailDamage', label: '击毁报告伤害', group: '输出', format: amount, battleReport: true },
-  { key: 'activeRatio', label: '开火在线', group: '节奏', format: fmtPct },
+  { key: 'activeRatio', label: '开火在线', group: '节奏', format: fmtPct, ownLog: true },
   { key: 'primaryShare', label: '集火率', group: '节奏', format: fmtPct },
   { key: 'switchDelayMedian', label: '切目标', group: '节奏', format: seconds, reason: '这段时间没有本方主目标切换，或他没打到新目标' },
   { key: 'switchAfterKillMedian', label: '目标死后转火', group: '节奏', format: seconds, reason: '没有带击毁记录的前一个主目标，或他没打到下一个主目标' },
-  { key: 'firstShotDelay', label: '首枪', group: '节奏', format: seconds, reason: '这段时间没有可用于比较的首枪' },
+  { key: 'firstShotDelay', label: '首枪', group: '节奏', format: seconds, reason: '这段时间没有可用于比较的首枪', ownLog: true },
   { key: 'damageIn', label: '承伤', group: '承伤', format: amount },
   ...Object.entries(damageKinds).map(([key, { label }]): Metric => ({
-    key: key as DamageKind, label, group: '承伤', format: amount,
+    key: key as DamageKind, label, group: '承伤', format: amount, ownLog: true,
   })),
   { key: 'repairIn', label: '被修', group: '承伤', format: amount },
   { key: 'repairOut', label: '维修输出', group: '后勤', format: amount },
-  { key: 'repReactionMedian', label: '维修反应', group: '后勤', format: seconds, reason: '他没修过队友，或被修的人没有可对应的掉血记录' },
+  { key: 'repReactionMedian', label: '维修反应', group: '后勤', format: seconds, reason: '他没修过队友，或被修的人没有可对应的掉血记录', ownLog: true },
   { key: 'pointSeconds', label: '点控时长', group: '点控', format: seconds },
   { key: 'neutOut', label: '中和输出', group: '点控', format: amount },
   { key: 'neutIn', label: '被中和', group: '点控', format: amount },
-  { key: 'hitRate', label: '命中率', group: '命中', format: fmtPct, reason: noHitQualityReason },
+  { key: 'hitRate', label: '命中率', group: '命中', format: fmtPct, reason: noHitQualityReason, ownLog: true },
 ] satisfies readonly Metric[]
 
 export const defaultColumns = [
@@ -90,8 +92,13 @@ function isDamageKind(key: Metric['key']): key is DamageKind {
   return Object.hasOwn(damageKinds, key)
 }
 
+/** No log of his own, but uploaders' logs saw him: the numbers are a lower bound. */
+export const observedLabel = '据我方日志'
+export const observedHint = '他没有上传日志；数字只来自我方日志里看到的部分，实际只多不少'
+export const isObserved = (row: CompareRow) => !row.entity.hasLog && row.stats.source === 'observed'
+
 export function metricValue(row: CompareRow, metric: Metric): number | null {
-  if (!row.entity.hasLog && !metric.battleReport) return null
+  if (!row.entity.hasLog && !metric.battleReport && (!isObserved(row) || metric.ownLog)) return null
   if (isDamageKind(metric.key)) return row.damage?.[metric.key] ?? 0
   if (metric.battleReport && row.stats.killmailCount === 0) return null
   if (metric.key === 'primaryShare' && row.stats.damageOut === 0) return null
@@ -101,6 +108,7 @@ export function metricValue(row: CompareRow, metric: Metric): number | null {
 
 export function missingReason(row: CompareRow, metric: Metric): string {
   if (metric.battleReport) return '这段时间没有他的击毁报告'
+  if (isObserved(row) && metric.ownLog) return '需要他自己的战斗日志，我方日志看不到'
   if (!row.entity.hasLog) return '没有上传他的战斗日志'
   if (metric.key === 'primaryShare') return '这段时间没有输出'
   return metric.reason ?? '这段时间没有可用数据'

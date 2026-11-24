@@ -2,11 +2,12 @@ import { useId, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import type { EntityKey } from '@/core/contract'
 import { sideColor } from '../../lib/sides'
 import { Portrait } from '../../ui/Portrait'
+import { Tag } from '../../ui/Tag'
 import { TypeIcon } from '../../ui/TypeIcon'
 import { HitQualityBar } from './HitQualityBar'
 import { hitQualityHint } from './hit-quality'
 import {
-  damageKinds, median, metricValue, missingReason, shipId, unknownDamageReason, type CompareRow, type Metric,
+  damageKinds, isObserved, median, metricValue, observedHint, observedLabel, missingReason, shipId, unknownDamageReason, type CompareRow, type Metric,
 } from './metrics'
 
 export interface Column {
@@ -36,7 +37,8 @@ export function MetricLabel({ metric }: { metric: Metric }) {
 export function PilotName({ row, onClick }: { row: CompareRow; onClick?: () => void }) {
   const { entity } = row
   const name = <><Portrait charId={entity.charId} size={20} />
-    <TypeIcon typeId={shipId(entity)} size={16} /><span className="u7-ellipsis">{entity.name}</span></>
+    <TypeIcon typeId={shipId(entity)} size={16} /><span className="u7-ellipsis">{entity.name}</span>
+    {isObserved(row) && <Tag className="u7-observed" title={observedHint}>{observedLabel}</Tag>}</>
   return onClick
     ? <button type="button" className="u7-compare-who" title={entity.name} aria-label={entity.name} onClick={onClick}>{name}</button>
     : <span className="u7-compare-who" title={entity.name}>{name}</span>

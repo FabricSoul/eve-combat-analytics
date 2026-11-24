@@ -9,7 +9,7 @@ import { Portrait } from '../ui/Portrait'
 import { Tabs, type TabOption } from '../ui/Tabs'
 import { Tag } from '../ui/Tag'
 import { TypeIcon } from '../ui/TypeIcon'
-import { shipId, sideLabel, useCombatRows } from './compare/metrics'
+import { isObserved, observedHint, observedLabel, shipId, sideLabel, useCombatRows } from './compare/metrics'
 import { FitTab } from './FitTab'
 import { PersonStats, PointLog, pointSpans } from './person/PersonStats'
 import './person/person.css'
@@ -72,6 +72,7 @@ function PilotDrawer({ pilot, analysis }: { pilot: Entity; analysis: Analysis })
           </div>
           {corporation && <div className="u7-person-meta">{corporation}</div>}
           {pilot.sideSource === 'log' && <Tag>阵营据日志</Tag>}
+          {rows.some((row) => row.entity.key === pilot.key && isObserved(row)) && <Tag title={observedHint}>{observedLabel}</Tag>}
         </div>
         <div className="u7-person-actions">
           <Button variant="ghost" className="u7-drawer-expand" aria-label={expanded ? '还原抽屉' : '展开整页'}

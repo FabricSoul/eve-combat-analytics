@@ -50,7 +50,7 @@ describe('Roster', () => {
     expect(ship.querySelector('img.app-portrait')).toBeNull()
     expect(ship.querySelector('span.app-portrait')).not.toBeNull()
     expect(ship.querySelector('img.app-type-icon')?.getAttribute('src')).toContain('/types/587/icon')
-    expect(ship.querySelector('.roster-more')).toBeNull()
+    expect(ship.querySelector('.roster-more')).not.toBeNull()
     const enemy = mounted.container.querySelectorAll('section')[1]!
     expect(enemy.querySelector('.roster-count')?.textContent).toBe('2')
     const sub = enemy.querySelector('.roster-sub')!

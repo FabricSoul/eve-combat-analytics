@@ -168,3 +168,18 @@
 .roster-bare[data-hover] .roster-more { opacity: 1; }
 .roster-row .app-tag { font-size: 11px; line-height: 16px; }
 .roster-sub { margin: 0; padding: var(--space-2) var(--space-3) var(--space-1); font-size: var(--fs-s); font-weight: 400; color: var(--color-text-3); }
+
+.identity-scrim { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: color-mix(in srgb, var(--color-bg) 70%, transparent); }
+.identity-picker {
+  display: flex; flex-direction: column; gap: var(--space-2); width: min(420px, calc(100vw - 16px)); max-height: calc(100vh - 32px);
+  padding: var(--space-3); background: var(--color-surface); border: 1px solid var(--color-hair); border-radius: 8px; color: var(--color-text-1);
+}
+.identity-title { margin: 0; font-size: var(--fs-m); font-weight: 500; }
+.identity-search { padding: var(--space-2); background: var(--color-bg); border: 1px solid var(--color-hair); border-radius: 6px; color: inherit; font: inherit; }
+.identity-list { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
+.identity-head, .identity-empty { padding: var(--space-1) 0; color: var(--color-text-3); font-size: var(--fs-s); }
+.identity-item { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); background: none; border: 0; border-radius: 6px; color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.identity-item:hover, .identity-item:focus-visible { background: var(--color-raised); }
+.identity-text { display: flex; flex-direction: column; min-width: 0; }
+.identity-sub { color: var(--color-text-3); font-size: var(--fs-s); }
+.identity-close { align-self: flex-end; background: none; border: 0; color: var(--color-text-3); font: inherit; cursor: pointer; }

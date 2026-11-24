@@ -1,0 +1,33 @@
+import { describe, expect, it } from 'vitest'
+import { entity, stats } from '../roster/testing'
+import { metricValue, metrics, missingReason, type CompareRow } from './metrics'
+
+const row = (source: 'own' | 'observed' | undefined, hasLog: boolean): CompareRow => ({
+  entity: entity(1, 0, { hasLog }),
+  stats: { ...stats(1, 900), source, damageIn: 40, repairIn: 7, killmailDamage: 5, killmailCount: 1, primaryShare: 0.5, switchDelayMedian: 3, activeRatio: 0.4, repReactionMedian: 2, firstShotDelay: 1 },
+})
+const get = (r: CompareRow, key: string) => metricValue(r, metrics.find((m) => m.key === key)!)
+
+describe('observed pilots', () => {
+  it('show the numbers observed logs produce', () => {
+    const r = row('observed', false)
+    expect(get(r, 'damageOut')).toBe(900)
+    expect(get(r, 'damageIn')).toBe(40)
+    expect(get(r, 'repairIn')).toBe(7)
+    expect(get(r, 'primaryShare')).toBe(0.5)
+    expect(get(r, 'switchDelayMedian')).toBe(3)
+  })
+
+  it('keep — with a reason for metrics that need the pilot\'s own log', () => {
+    const r = row('observed', false)
+    for (const key of ['activeRatio', 'repReactionMedian', 'firstShotDelay', 'hitRate', 'kinetic']) {
+      expect(get(r, key), key).toBeNull()
+      expect(missingReason(r, metrics.find((m) => m.key === key)!), key).toContain('自己的战斗日志')
+    }
+  })
+
+  it('own-log pilots are unchanged and old analyses without source still hide the numbers', () => {
+    expect(get(row('own', true), 'activeRatio')).toBe(0.4)
+    expect(get(row(undefined, false), 'damageOut')).toBeNull()
+  })
+})

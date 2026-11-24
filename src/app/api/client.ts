@@ -1,5 +1,5 @@
 import type {
-  Analysis, ApiError, ApiErrorCode, BattleSummary, FitEntry, KillmailFit,
+  Analysis, ApiError, EntityKey, ApiErrorCode, BattleSummary, FitEntry, IdentityMerge, KillmailFit,
   SideEdit, SideOverride, SideSubject, UploadedLog, UploadedLogSummary, UploadResult,
 } from '@/core/contract'
 
@@ -124,6 +124,10 @@ export const api = {
 
   putSide(brId: string, subject: SideSubject, side: SideEdit['side']): Promise<SideOverride> {
     return request(`${battleApiPath(brId)}/sides`, json('PUT', { subject, side }))
+  },
+
+  putIdentity(brId: string, from: EntityKey, to: IdentityMerge['to'] | null): Promise<IdentityMerge | { removed: EntityKey }> {
+    return request(`${battleApiPath(brId)}/identities`, json('PUT', { from, to }))
   },
 
   getKillmailFit(id: number, hash: string): Promise<KillmailFit> {

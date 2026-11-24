@@ -24,6 +24,8 @@ export interface SideMenuProps {
   /** Offer 新建一方 as a target. */
   newSide?: number
   pinAction?: { label: string; run(): void }
+  /** Further plain items after the move sections. */
+  actions?: readonly { label: string; run(): void }[]
   onMove(subject: SideSubject, side: number): void
   onClose(): void
 }
@@ -31,7 +33,7 @@ export interface SideMenuProps {
 /** Row menu: the keyboard and right-click way to do what dragging does. */
 const edge = 8
 
-export function SideMenu({ x, y, anchorTop = y, returnFocus, sections, order, newSide, pinAction, onMove, onClose }: SideMenuProps) {
+export function SideMenu({ x, y, anchorTop = y, returnFocus, sections, order, newSide, pinAction, actions = [], onMove, onClose }: SideMenuProps) {
   const root = useRef<HTMLDivElement>(null)
   const [invoker] = useState(() => returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null))
   const [place, setPlace] = useState({ left: x, top: y, maxHeight: window.innerHeight - 2 * edge })
@@ -79,7 +81,7 @@ export function SideMenu({ x, y, anchorTop = y, returnFocus, sections, order, ne
   }
 
   return (
-    <div ref={root} className="side-menu" role="menu" aria-label={pinAction ? '飞行员操作' : '移到…'} onKeyDown={keys}
+    <div ref={root} className="side-menu" role="menu" aria-label={pinAction || actions.length ? '飞行员操作' : '移到…'} onKeyDown={keys}
       style={{ left: place.left, top: place.top, maxHeight: place.maxHeight, overflowY: 'auto' }}>
       {sections.map(({ heading, subject, current }) => (
         <div key={subject} role="group" aria-label={heading}>
@@ -99,6 +101,8 @@ export function SideMenu({ x, y, anchorTop = y, returnFocus, sections, order, ne
           )}
         </div>
       ))}
+      {actions.map(({ label, run }) => <button key={label} type="button" role="menuitem" className="side-menu-item"
+        onClick={() => { run(); onClose() }}>{label}</button>)}
       {pinAction && <button type="button" role="menuitem" className="side-menu-item"
         onClick={() => { pinAction.run(); onClose() }}>{pinAction.label}</button>}
     </div>

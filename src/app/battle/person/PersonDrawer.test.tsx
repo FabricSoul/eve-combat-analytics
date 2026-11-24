@@ -105,3 +105,31 @@ it('shows hit rate, team median, quality counts, and observed weapon breakdown f
     act(() => root.unmount())
   }
 })
+
+it('labels observed pilots 据我方日志 and shows their numbers instead of —', () => {
+  const base = loadUiFixture()
+  const pilot = Object.values(base.analysis.entities).find((e) => e.charId !== null && !e.hasLog)!
+  const fixture = {
+    ...base,
+    analysis: { ...base.analysis, stats: base.analysis.stats.map((s) => s.key === pilot.key ? { ...s, source: 'observed' as const, damageOut: 12_345 } : s) },
+  }
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  function Harness() {
+    const { select } = useView()
+    useEffect(() => { select(pilot.key) }, [])
+    return <PersonDrawer />
+  }
+  try {
+    act(() => root.render(<BattleProvider static={fixture}><ViewProvider syncUrl={false}><Harness /></ViewProvider></BattleProvider>))
+    expect(host.querySelector('.u7-person-header')?.textContent).toContain('据我方日志')
+    const tiles = [...host.querySelectorAll('.u7-stat-tile')].map((t) => t.textContent)
+    expect(tiles[0]).toContain('12,345')
+    // 维修反应 needs his own log: still —, with the reason on hover.
+    const reaction = [...host.querySelectorAll('.u7-stat-tile')].find((t) => t.textContent?.includes('维修反应'))!
+    expect(reaction.querySelector('.app-number')?.textContent).toBe('—')
+    expect(reaction.querySelector('.app-number')?.getAttribute('title')).toContain('自己的战斗日志')
+  } finally {
+    act(() => root.unmount())
+  }
+})
