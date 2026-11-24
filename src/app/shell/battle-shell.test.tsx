@@ -93,6 +93,29 @@ afterEach(() => {
 })
 
 describe('battle shell review', () => {
+  it('resets accidental shell scroll on both axes and preserves module scroll', async () => {
+    tablet = true
+    await render()
+    const shell = host.querySelector<HTMLElement>('.app-shell--battle')!
+    const modules = host.querySelector<HTMLElement>('.battle-module-scroll')!
+    modules.scrollTop = 120
+    modules.dispatchEvent(new Event('scroll'))
+    expect(modules.scrollTop).toBe(120)
+    shell.scrollTop = 536
+    shell.scrollLeft = 30
+    shell.dispatchEvent(new Event('scroll'))
+    expect([shell.scrollTop, shell.scrollLeft]).toEqual([0, 0])
+    expect(modules.scrollTop).toBe(120)
+  })
+
+  it('explains where to drag modules in the layout menu', async () => {
+    tablet = true
+    await render()
+    const layout = host.querySelector<HTMLDetailsElement>('.battle-module-controls')!
+    layout.open = true
+    expect(layout.querySelector('[aria-label="显示模块"]')?.textContent).toContain('拖动模块标题栏的 ⠿ 调整位置')
+  })
+
   it('I2: Escape closes sides before the top-bar menu, range and selection', async () => {
     await render()
     click(pilotButton())

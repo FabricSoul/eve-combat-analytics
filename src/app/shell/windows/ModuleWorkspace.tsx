@@ -35,6 +35,7 @@ export function ModuleControls({ layout, dispatch, columns }: {
     <details ref={disclosure} className="battle-module-controls">
       <summary title="布局"><WorkspaceIcon name="layout" />布局</summary>
       <div className="battle-module-menu" role="group" aria-label="显示模块">
+        <p className="battle-module-menu-hint">拖动模块标题栏的 ⠿ 调整位置</p>
         {areaNames.slice(0, columns).map((area, column) => <fieldset key={area}>
           <legend>第 {column + 1} 列</legend>
           {visibleArea(layout, column, columns).map((id) => {

@@ -412,6 +412,18 @@ export class BattleRoom extends ProductionRoom {
       assert.equal(await feed.locator('.battle-window-body').evaluate((node) => getComputedStyle(node).overscrollBehaviorY), 'contain')
       await page.screenshot({ path: join(output, 'walk2-gap-stage-pinned.png') })
       await moduleScroll.evaluate((node) => { node.scrollTop = 0 })
+      const deepRow = page.locator('[data-module="roster"] .roster-main').last()
+      const shellScroll = await deepRow.evaluate((node) => {
+        node.scrollIntoView()
+        const shell = node.closest('.app-shell--battle')
+        return [shell.scrollTop, shell.scrollLeft]
+      })
+      await page.screenshot({ path: join(output, 'walk3-deep-row.png') })
+      assert.deepEqual(shellScroll, [0, 0], 'scrollIntoView on a deep roster row leaves the battle shell at the origin')
+      assert.equal((await stage.boundingBox()).y, stageTop, 'scrollIntoView keeps the stage pinned')
+      assert.equal(await page.evaluate(() => window.scrollY), 0)
+      assert.ok(await moduleScroll.evaluate((node) => node.scrollTop > 0), 'the module area can scroll to the row')
+      await moduleScroll.evaluate((node) => { node.scrollTop = 0 })
       for (const [id, title] of [['feed', '事件'], ['compare', '对比'], ['roster', '名单'], ['hits', '命中'], ['kills', '击毁'], ['lanes', '按人时间线']]) {
         const area = page.locator(`[data-module="${id}"]`)
         assert.equal(await area.locator('.battle-module-handle svg').count(), 1)
@@ -508,6 +520,7 @@ export class BattleRoom extends ProductionRoom {
       assert.equal(await layoutMenu.textContent(), '布局')
       await layoutMenu.click()
       const toggles = page.getByRole('group', { name: '显示模块' })
+      await toggles.getByText('拖动模块标题栏的 ⠿ 调整位置', { exact: true }).waitFor({ timeout: 1500 })
       const firstColumn = toggles.getByRole('group', { name: '第 1 列' })
       const secondColumn = toggles.getByRole('group', { name: '第 2 列' })
       assert.equal(await firstColumn.getByRole('checkbox', { name: '对比' }).getAttribute('aria-describedby') !== null, true)

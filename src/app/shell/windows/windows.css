@@ -185,7 +185,7 @@ body.battle-window-dragging * {
 .battle-module[data-dragging] { opacity: .42; }
 .battle-module[data-module-ghost] {
   position: fixed; inset: 0 auto auto 0; z-index: 40; opacity: .74; pointer-events: none;
-  overflow: hidden; border-color: var(--color-accent-line);
+  overflow: clip; border-color: var(--color-accent-line);
 }
 .battle-module-drop { min-height: 32px; border: 1px dashed var(--color-accent-line); border-radius: var(--radius-card); background: var(--color-sel); }
 .battle-layout[data-density="compact"] .battle-drawer { z-index: 12; }
@@ -205,6 +205,7 @@ body.battle-window-dragging * {
   white-space: nowrap; background: var(--color-surface); color: var(--color-text);
 }
 .battle-module-menu { position: absolute; z-index: 2; inset: calc(100% + var(--space-1)) 0 auto auto; display: grid; gap: var(--space-2); min-width: 168px; padding: var(--space-3); background: var(--color-surface); border: 1px solid var(--color-hair); border-radius: var(--radius-ctl); }
+.battle-module-menu-hint { margin: 0; color: var(--color-text-2); font-size: var(--fs-s); }
 .battle-module-menu fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
 .battle-module-menu legend { color: var(--color-text-3); font-size: var(--fs-s); }
 .battle-module-menu small { margin-inline-start: auto; color: var(--color-text-2); font-size: var(--fs-s); }
@@ -249,7 +250,7 @@ body.battle-window-dragging * {
 .battle-undo button { color: var(--color-accent); cursor: pointer; min-height: var(--row); }
 /* With the button the toast is taller; trim its padding so it still sits below the module rows. */
 .battle-undo:has(button) { padding-block: var(--space-1); }
-.battle-person-page:has([data-battle-toast]) { display: flex; flex-direction: column; overflow: hidden; }
+.battle-person-page:has([data-battle-toast]) { display: flex; flex-direction: column; overflow: clip; }
 .battle-person-page:has([data-battle-toast]) > .u7-person { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .battle-person-page > [data-battle-toast] { position: static; flex: none; translate: none; margin: var(--space-2) auto; }
 

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useState, type ReactNode, type UIEvent } from 'react'
 import './workspace.css'
 import { TopBar, type TopBarProps } from './TopBar'
 
@@ -20,6 +20,11 @@ export interface AppShellProps {
   battle?: boolean
   home?: boolean
   topBar?: Omit<TopBarProps, 'appearance' | 'onToggleAppearance' | 'home'>
+}
+
+function resetShellScroll({ currentTarget }: UIEvent<HTMLDivElement>) {
+  if (currentTarget.scrollTop !== 0) currentTarget.scrollTop = 0
+  if (currentTarget.scrollLeft !== 0) currentTarget.scrollLeft = 0
 }
 
 export function AppShell({ children, battle = false, home = false, topBar }: AppShellProps) {
@@ -49,7 +54,7 @@ export function AppShell({ children, battle = false, home = false, topBar }: App
   }
 
   return (
-    <div className={battle ? 'app-shell app-shell--battle' : 'app-shell'}>
+    <div className={battle ? 'app-shell app-shell--battle' : 'app-shell'} onScroll={battle ? resetShellScroll : undefined}>
       <TopBar {...topBar} home={home} appearance={appearance} onToggleAppearance={toggleAppearance} />
       <main className="app-shell-body">{children}</main>
     </div>
