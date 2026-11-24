@@ -71,7 +71,7 @@ On desktop and tablet, aim for a combined stage height of 62% of the viewport by
 - **Kills** — show the victim, ship, timestamp and ISK loss. Selecting a kill seeks to that moment in the replay. Use the shared pilot selection and menu where a row identifies a pilot.
 - **Upload** — accept files anywhere on the battle page or from the top bar. Use a flat tray with queued, uploading, parsing and complete states. Show progress for upload and indeterminate activity for parsing. Completed rows report pilot, event count, time span and client language when known. Append uploads, explain duplicates and parsing failures, and give failed rows a removal action.
 - **Pilot and fit** — use a single editor per pilot. Show theory from pyfa next to observed active average and peak. Accept pasted EFT or prefill it from an eligible killmail for confirmation. Show loading on first calculation and explain base attributes where abyssal mutation data is unavailable. Show damage composition and log coverage in pilot details.
-- **Portraits** — show a character portrait wherever a pilot is named. Use 20 px in roster and Compare rows, 16 px in feed and upload rows, 28 px for kill victims and 56 px in pilot details. Use the game portrait and logo assets with a same-size fallback.
+- **Portraits** — show a character portrait wherever a pilot is named. Use 20 px in roster and Compare rows, 16 px in feed and upload rows, 28 px for kill victims (32 px kill rows, 16 px ship overlay) and 56 px in pilot details. Use the game portrait and logo assets with a same-size fallback.
 
 ## Interaction rules
 
