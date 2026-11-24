@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Analysis, BattleSummary, Interaction } from '@/core/contract'
 import { api } from '../../api/client'
 import { Roster } from '../Roster'
+import { useView } from '../../state/view-store'
 import { entity, mountApp, stats, tinyAnalysis, tinySummary } from './testing'
 
 let mounted: ReturnType<typeof mountApp>
@@ -196,6 +197,19 @@ describe('IdentityPicker', () => {
     mount()
     expect(row('Pilot2').querySelector('.roster-dot')?.getAttribute('title')).toContain('据我方日志')
     expect(row('Pilot1').querySelector('.roster-dot')?.getAttribute('title')).toBeNull()
+  })
+})
+
+describe('selection', () => {
+  it('moves the selection from the merged entity to the character it became', async () => {
+    let view!: ReturnType<typeof useView>
+    function Probe() { view = useView(); return null }
+    mounted = mountApp(createElement('div', null, createElement(Probe), createElement(Roster)), { summary: tinySummary, analysis })
+    act(() => view.select('name:Hidden'))
+    act(() => row('Hidden').querySelector<HTMLButtonElement>('.roster-more')!.click())
+    act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === '这是谁…')!.click())
+    await act(async () => picker()!.querySelector<HTMLButtonElement>('[data-suggestion]')!.click())
+    expect(view.selected).toBe('char:2')
   })
 })
 

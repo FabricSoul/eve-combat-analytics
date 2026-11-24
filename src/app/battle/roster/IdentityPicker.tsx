@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { suggestMerges } from '@/core/analysis/merges'
 import type { Analysis, BattleSummary, Entity, EntityKey, IdentityMerge } from '@/core/contract'
+import { useView } from '../../state/view-store'
 import { Portrait } from '../../ui/Portrait'
 import { useIdentity } from './use-identity'
 
@@ -42,6 +43,7 @@ export function IdentityPicker({ from, label, summary, analysis, returnFocus, on
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(-1)
   const [busy, setBusy] = useState<EntityKey | null>(null)
+  const view = useView()
   const identity = useIdentity(summary.meta.brId, summary.identityMerges, summary.analysisVersion)
 
   const suggestions = useMemo(() => suggestMerges(analysis, from).slice(0, suggestionLimit)
@@ -58,8 +60,12 @@ export function IdentityPicker({ from, label, summary, analysis, returnFocus, on
   async function pick(entity: Entity) {
     if (busy) return
     setBusy(entity.key)
-    if (await identity.put(from, `char:${entity.charId}` as IdentityMerge['to'])) onClose()
-    else setBusy(null)
+    const to = `char:${entity.charId}` as IdentityMerge['to']
+    if (await identity.put(from, to)) {
+      // The merged entity is gone: keep the drawer on the pilot it became.
+      if (view.selected === from) view.select(to)
+      onClose()
+    } else setBusy(null)
   }
 
   function keys(event: KeyboardEvent) {
