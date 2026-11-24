@@ -200,6 +200,21 @@ export class BattleRoom extends ProductionRoom {
   await legendDrawer.waitFor({ state: 'detached' })
   await assertLegendInView(false)
   console.log('Replay legend: all four labels fit at 1280px with the drawer open and closed')
+  const noiseTrigger = a.page.locator('.replay-noise summary')
+  const noisePanel = a.page.locator('.replay-noise .replay-popover')
+  await noiseTrigger.click()
+  await noisePanel.waitFor()
+  const [triggerBox, panelBox, stageBox] = await Promise.all([
+    noiseTrigger.boundingBox(), noisePanel.boundingBox(), a.page.locator('.replay-stage').boundingBox(),
+  ])
+  assert.ok(triggerBox && panelBox && stageBox)
+  assert.ok(Math.abs(panelBox.y - triggerBox.y - triggerBox.height - 4) < 1, 'replay filters open directly below the trigger')
+  const anchoredX = Math.max(stageBox.x + 8, triggerBox.x + triggerBox.width - panelBox.width)
+  assert.ok([anchoredX, triggerBox.x].some((x) => Math.abs(panelBox.x - x) < 1),
+    'replay filters align to a trigger edge or clamp to the stage edge')
+  assert.ok(panelBox.x >= stageBox.x && panelBox.y + panelBox.height <= stageBox.y + stageBox.height, 'replay filters fit inside the stage')
+  await noiseTrigger.click()
+  console.log('Replay damage filters: positioned below the trigger and inside the stage')
   await a.page.getByRole('button', { name: '排边', exact: true }).click()
   const fourSidePanel = a.page.getByRole('dialog', { name: '排边' })
   const viewport = fourSidePanel.locator('.sides-viewport')

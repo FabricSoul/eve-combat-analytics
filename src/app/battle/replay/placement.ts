@@ -26,6 +26,22 @@ export function placeAnnotation(candidates: readonly Rect[], bounds: Rect, occup
   } : null
 }
 
+export function placeReplayPopover(anchor: Rect, size: Size, bounds: Rect, gap: number): Rect {
+  const width = Math.min(size.width, bounds.width)
+  const belowY = anchor.y + anchor.height + gap
+  const aboveBottom = anchor.y - gap
+  const belowSpace = Math.max(0, bounds.y + bounds.height - belowY)
+  const aboveSpace = Math.max(0, aboveBottom - bounds.y)
+  const below = size.height <= belowSpace || belowSpace >= aboveSpace
+  const height = Math.min(size.height, below ? belowSpace : aboveSpace)
+  const rightmost = bounds.x + bounds.width - width
+  const endAligned = anchor.x + anchor.width - width
+  const flipInline = endAligned < bounds.x - gap && anchor.x <= rightmost
+  const x = Math.max(bounds.x, Math.min(flipInline ? anchor.x : endAligned, rightmost))
+  const y = below ? belowY : aboveBottom - height
+  return { x, y, width, height }
+}
+
 export function placePilotLabel(center: Point, radius: number, size: Size, bounds: Rect, occupied: readonly Rect[], required = false) {
   const { x, y } = center
   const gap = radius + 5

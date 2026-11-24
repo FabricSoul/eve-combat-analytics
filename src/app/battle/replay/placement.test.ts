@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EntityKey } from '@/core/contract'
-import { placePilotLabel } from './placement'
+import { placePilotLabel, placeReplayPopover } from './placement'
 import { makeLayout, type ReplayPilot } from './scene'
 
 function pilot(key: EntityKey, side: number): ReplayPilot {
@@ -31,6 +31,36 @@ describe('pilot label placement', () => {
     expect(placePilotLabel(center, 10, size, bounds, occupied)).toBeNull()
     expect(placePilotLabel(center, 10, size, bounds, occupied, true)).not.toBeNull()
     expect(placePilotLabel(center, 10, size, bounds, [bounds], true)).toEqual(below)
+  })
+})
+
+describe('replay popover placement', () => {
+  const stage = { x: 8, y: 56, width: 1264, height: 278 }
+  const trigger = { x: 120, y: 93, width: 78, height: 26 }
+  const panel = { width: 180, height: 100 }
+
+  it('aligns the panel with the button end and opens below it', () => {
+    expect(placeReplayPopover(trigger, panel, stage, 4)).toEqual({ x: 18, y: 123, ...panel })
+  })
+
+  it('clamps within the left and right edges of a narrow stage', () => {
+    const narrow = { ...stage, width: 182 }
+    expect(placeReplayPopover({ ...trigger, x: 80 }, panel, narrow, 4)).toEqual({ x: 8, y: 123, ...panel })
+    expect(placeReplayPopover(trigger, panel, narrow, 4)).toEqual({ x: 10, y: 123, ...panel })
+  })
+
+  it('flips to the trigger start when end alignment would crowd a phone edge', () => {
+    const phone = { ...stage, width: 374 }
+    expect(placeReplayPopover({ ...trigger, x: 98 }, panel, phone, 4)).toEqual({ x: 98, y: 123, ...panel })
+  })
+
+  it('opens above the trigger when the panel cannot fit beneath it', () => {
+    expect(placeReplayPopover({ ...trigger, y: 220 }, panel, stage, 4)).toEqual({ x: 18, y: 116, ...panel })
+  })
+
+  it('limits the panel height to the clear side of a short stage', () => {
+    expect(placeReplayPopover(trigger, panel, { ...stage, height: 120 }, 4))
+      .toEqual({ x: 18, y: 123, width: 180, height: 53 })
   })
 })
 
