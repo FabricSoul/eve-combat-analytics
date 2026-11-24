@@ -18,7 +18,7 @@ interface WindowFrameProps<Id extends string> {
   dispatch: Dispatch<WindowAction<Id>>
   state: WindowState
   children: ReactNode
-  overlay?: { domId: string; setCancel: (cancel: (() => boolean) | null) => void }
+  overlay?: { domId: string; minWidth?: number; setCancel: (cancel: (() => boolean) | null) => void }
   module?: {
     id: string
     tools?: ReactNode
@@ -50,7 +50,7 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
   const body = useId()
   const gesture = useRef<Gesture | null>(null)
   const [preview, setPreview] = useState<{ rect: WindowRect; target: DockEdge | null } | null>(null)
-  const stored = state.rect && clampWindow(state.rect, viewport, state.minimized)
+  const stored = state.rect && clampWindow(state.rect, viewport, state.minimized, overlay?.minWidth)
   const rect = preview?.rect ?? stored
   const { floating, minimized } = state
 
@@ -93,9 +93,9 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
       active.rect = clampWindow({ ...startRect,
         width: Math.min(viewport.width - startRect.x, startRect.width + dx),
         height: Math.min(viewport.height - startRect.y, startRect.height + dy),
-      }, viewport)
+      }, viewport, false, overlay?.minWidth)
     } else {
-      active.rect = clampWindow({ ...startRect, x: startRect.x + dx, y: startRect.y + dy }, viewport, minimized)
+      active.rect = clampWindow({ ...startRect, x: startRect.x + dx, y: startRect.y + dy }, viewport, minimized, overlay?.minWidth)
       if (module) module.onFloatMove(event)
       else if (!overlay) active.target = dockTarget(id, { x: event.clientX - bounds.left, y: event.clientY - bounds.top }, viewport)
     }
@@ -138,7 +138,7 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
     const step = event.shiftKey ? 32 : 8
     dispatch({ type: 'position', id, rect: clampWindow({
       ...stored, x: stored.x + delta[0] * step, y: stored.y + delta[1] * step,
-    }, viewport, minimized) })
+    }, viewport, minimized, overlay?.minWidth) })
   }
 
   const handlers = { onPointerMove: move, onPointerUp: end, onPointerCancel: end, onLostPointerCapture: end }

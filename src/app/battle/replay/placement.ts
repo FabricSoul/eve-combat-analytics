@@ -16,6 +16,31 @@ function fits(rect: Rect, bounds: Rect) {
     && rect.y + rect.height <= bounds.y + bounds.height
 }
 
+export function placeFightsWindow(stage: Rect, topRight: number, belowPills: number, size: Size, pilots: readonly Rect[]): Rect {
+  const width = Math.max(0, Math.min(size.width, stage.width - 24))
+  const left = stage.x + 12
+  const right = stage.x + stage.width - width - 12
+  const bottom = Math.max(stage.y, stage.y + stage.height - size.height - 8)
+  const boundedY = (y: number) => Math.max(stage.y, Math.min(bottom, y))
+  const candidates = [
+    { x: right, y: boundedY(topRight) },
+    { x: right, y: bottom },
+    { x: left, y: boundedY(belowPills) },
+  ]
+  let best = { ...candidates[0]!, ...size, width }
+  let fewest = Infinity
+  for (const candidate of candidates) {
+    const rect = { ...candidate, ...size, width }
+    const covered = pilots.reduce((count, pilot) => count + Number(overlaps(rect, pilot)), 0)
+    if (covered < fewest) {
+      best = rect
+      fewest = covered
+    }
+    if (covered === 0) break
+  }
+  return best
+}
+
 export function placeAnnotation(candidates: readonly Rect[], bounds: Rect, occupied: readonly Rect[], required = false): Rect | null {
   const preferred = candidates.find((rect) => fits(rect, bounds) && !occupied.some((other) => overlaps(rect, other)))
   if (preferred || !required) return preferred ?? null

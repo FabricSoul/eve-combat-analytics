@@ -23,7 +23,7 @@ export type ModuleAction = Drop
   | { type: 'replay'; action: ReplayOverlayAction }
   | { type: 'reset' }
 export const moduleStorageKey = 'eve-combat-analytics:module-layout'
-const version = 5
+const version = 6
 
 export function defaultModules(): ModuleLayout {
   return {
@@ -131,13 +131,16 @@ function validModule(value: unknown): value is ModuleState {
 export function loadModules(storage?: Pick<Storage, 'getItem'>): ModuleLayout {
   try {
     const value: unknown = JSON.parse((storage ?? localStorage).getItem(moduleStorageKey) ?? 'null')
-    if (isObject(value) && (value.version === version || value.version === 4)) {
+    if (isObject(value) && (value.version === version || value.version === 5 || value.version === 4)) {
       const { areas, modules, order, stageHeight, replay } = value
       if (Array.isArray(areas) && areas.length === 3 && areas.every(ids) && permutation(areas.flat())
         && isObject(modules) && Object.keys(modules).length === moduleIds.length && moduleIds.every((id) => validModule(modules[id]))
         && permutation(order) && (stageHeight === null || (number(stageHeight) && stageHeight >= 0)) && validReplayOverlays(replay)) {
+        const fights = replay.overlays.fights
+        const migratedReplay = value.version < version && fights.rect === null && fights.collapsed === false
+          ? { ...replay, overlays: { ...replay.overlays, fights: { ...fights, collapsed: null } } } : replay
         // In v4 the saved height included the timeline. Preserve the rest of the layout.
-        return { areas, modules: modules as ModuleLayout['modules'], order, stageHeight: value.version === 4 ? null : stageHeight, replay }
+        return { areas, modules: modules as ModuleLayout['modules'], order, stageHeight: value.version === 4 ? null : stageHeight, replay: migratedReplay }
       }
     }
   } catch {

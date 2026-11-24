@@ -114,14 +114,14 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
   const previousLayout = useRef<ReplayLayout | null>(null)
   const invalidate = useRef<() => void>(() => {})
   const [playback] = useState(createProjectilePlayback)
-  const [size, setSize] = useState({ width: 0, height: 0, dpr: 1 })
-  const { width, height, dpr } = size
+  const [size, setSize] = useState({ width: 0, height: 0, dpr: 1, topInset: 0 })
+  const { width, height, dpr, topInset } = size
   const [inspected, inspect] = useState<EntityKey | null>(null)
   const { toolbar, focused, updateTargets, onFocus, onBlur, onKeyDown } = useReplayKeyboard()
   const scene = useMemo(() => buildScene(analysis, killmails, order), [analysis, killmails, order])
   const layout = useMemo(() => (
-    width && height ? makeLayout(scene.pilots, order, width, height) : null
-  ), [scene, order, width, height])
+    width && height ? makeLayout(scene.pilots, order, width, height, topInset) : null
+  ), [scene, order, width, height, topInset])
   const lockedKey = focused ?? selected
   const menu = usePilotMenu()
   const detailKey = menu?.active ? null : inspected ?? focused ?? selected
@@ -174,13 +174,17 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
   useLayoutEffect(() => {
     const element = host.current
     if (!element) return
-    function resize() {
-      const next = { width: element!.clientWidth, height: element!.clientHeight, dpr: window.devicePixelRatio || 1 }
-      setSize((previous) => previous.width === next.width && previous.height === next.height && previous.dpr === next.dpr ? previous : next)
+    const controls = element.querySelector('.replay-header-actions')
+    const resize = () => {
+      const topInset = controls ? Math.max(0, Math.ceil(controls.getBoundingClientRect().bottom - element.getBoundingClientRect().top)) : 0
+      const next = { width: element.clientWidth, height: element.clientHeight, dpr: window.devicePixelRatio || 1, topInset }
+      setSize((previous) => previous.width === next.width && previous.height === next.height
+        && previous.dpr === next.dpr && previous.topInset === next.topInset ? previous : next)
     }
     resize()
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(resize)
     observer?.observe(element)
+    if (controls) observer?.observe(controls)
     window.addEventListener('resize', resize)
     return () => {
       observer?.disconnect()
@@ -196,7 +200,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     if (!element || !lineCanvas || !effectsCanvas) return
     const previous = previousLayout.current
     const continued = previous?.width === width && previous.height === height
-      && previous.ours === layout.ours && previous.split === layout.split
+      && previous.ours === layout.ours && previous.split === layout.split && previous.topInset === topInset
     if (continued && previous !== layout) layout.inheritPositions(previous)
     previousLayout.current = layout
     lineCanvas.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -460,7 +464,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       <div className="replay-header">
         <ReplayLegend analysis={analysis} order={order} />
         <div className="replay-header-actions">
-          <ReplayOverlays stage={host} closeFights={closeFights} fightTime={fightTime} />
+          <ReplayOverlays stage={host} closeFights={closeFights} fightTime={fightTime} placementTime={playing ? null : t} />
           {headerActions}
           {!stage && zoomControls}
         </div>

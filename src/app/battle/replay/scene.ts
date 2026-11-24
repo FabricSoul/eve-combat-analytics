@@ -103,7 +103,7 @@ interface CombatLink extends SimulationLinkDatum<ReplayNode> {
   count: number
 }
 
-export function makeLayout(pilots: readonly ReplayPilot[], order: readonly number[], width: number, height: number) {
+export function makeLayout(pilots: readonly ReplayPilot[], order: readonly number[], width: number, height: number, topInset = 0) {
   const anchors = sideAnchors(order, width, height)
   const compact = height < 420
   // Match the compact controls breakpoint. Use the longer axis for the two fleets.
@@ -142,7 +142,8 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     const ours = node.entity.side === order[0]
     const minX = split === 'x' && !ours ? width / 2 + inset : inset
     const maxX = split === 'x' && ours ? width / 2 - inset : width - inset
-    const minY = split === 'y' && !ours ? height / 2 + inset : (split ? 57 : 42) + inset
+    const top = split === 'y' && !ours ? height / 2 : split ? 57 : 42
+    const minY = Math.max(top, topInset) + inset
     const floor = height - inset - Math.max(bottomInset, node.labeled ? 20 : 8)
     const maxY = split === 'y' && ours ? Math.min(floor, height / 2 - inset) : floor
     return { x: Math.max(minX, Math.min(maxX, x)), y: Math.max(minY, Math.min(maxY, y)) }
@@ -272,7 +273,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     }
   }
 
-  return { nodes, byKey, row, placed, width, height, split, ours: order[0], placeVisible, placeUnassigned, inheritPositions }
+  return { nodes, byKey, row, placed, width, height, topInset, split, ours: order[0], placeVisible, placeUnassigned, inheritPositions }
 }
 
 export type ReplayLayout = ReturnType<typeof makeLayout>

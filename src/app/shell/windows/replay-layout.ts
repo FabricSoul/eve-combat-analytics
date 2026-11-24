@@ -2,11 +2,11 @@ import type { WindowAction, WindowRect } from './layout'
 
 export const replayOverlayIds = ['legend', 'fights'] as const
 export type ReplayOverlayId = typeof replayOverlayIds[number]
-export type ReplayOverlayAction = WindowAction<ReplayOverlayId>
+export type ReplayOverlayAction = WindowAction<ReplayOverlayId> | { type: 'collapse'; id: ReplayOverlayId; collapsed: boolean }
 
 interface ReplayOverlayState {
   open: boolean
-  collapsed: boolean
+  collapsed: boolean | null
   rect: WindowRect | null
 }
 
@@ -17,7 +17,7 @@ export interface ReplayOverlayLayout {
 
 export function defaultReplayOverlays(): ReplayOverlayLayout {
   return {
-    overlays: { legend: { open: false, collapsed: false, rect: null }, fights: { open: true, collapsed: false, rect: null } },
+    overlays: { legend: { open: false, collapsed: false, rect: null }, fights: { open: true, collapsed: null, rect: null } },
     order: [...replayOverlayIds],
   }
 }
@@ -38,6 +38,7 @@ export function replayOverlayReducer(layout: ReplayOverlayLayout, action: Replay
     case 'pop': return raise(update({ open: true }))
     case 'focus': return raise(layout)
     case 'minimize': return update({ collapsed: !state.collapsed })
+    case 'collapse': return update({ collapsed: action.collapsed })
     case 'position': return update({ rect: action.rect })
   }
 }
@@ -57,7 +58,8 @@ export function validReplayOverlays(value: unknown): value is ReplayOverlayLayou
     || !replayOverlayIds.every((id) => order.includes(id)) || !record(overlays)) return false
   return replayOverlayIds.every((id) => {
     const state = overlays[id]
-    if (!record(state) || typeof state.open !== 'boolean' || typeof state.collapsed !== 'boolean') return false
+    if (!record(state) || typeof state.open !== 'boolean'
+      || (typeof state.collapsed !== 'boolean' && state.collapsed !== null)) return false
     const { rect } = state
     return rect === null || (record(rect) && coordinate(rect.x) && coordinate(rect.y)
       && coordinate(rect.width) && rect.width > 0 && coordinate(rect.height) && rect.height > 0)

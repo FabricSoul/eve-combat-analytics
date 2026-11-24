@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type Dispatch, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
+import { Button } from '../../ui/Button'
 import { WorkspaceIcon } from '../../ui/icons/WorkspaceIcon'
 import { WindowFrame } from './WindowFrame'
 import { windowDragClass, type Viewport, type WindowAction } from './layout'
@@ -49,7 +50,7 @@ export function ModuleControls({ layout, dispatch, columns }: {
             </label>
           })}
         </fieldset>)}
-        <button type="button" onClick={restore}>恢复默认布局</button>
+        <Button variant="ghost" onClick={restore}>恢复默认布局</Button>
       </div>
     </details>
     {restored && <div className="battle-layout-confirmation" role="status">已恢复默认布局</div>}

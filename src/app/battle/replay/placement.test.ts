@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EntityKey } from '@/core/contract'
-import { placePilotLabel, placeReplayPopover } from './placement'
+import { placeFightsWindow, placePilotLabel, placeReplayPopover } from './placement'
 import { makeLayout, type ReplayPilot } from './scene'
 
 function pilot(key: EntityKey, side: number): ReplayPilot {
@@ -9,6 +9,23 @@ function pilot(key: EntityKey, side: number): ReplayPilot {
     ship: null, shipId: null, primaryEnemy: false, color: 'var(--color-side-n)', letter: null, deaths: [],
   }
 }
+
+it('chooses the corner that covers the fewest ships and prefers the upper right on ties', () => {
+  const stage = { x: 0, y: 0, width: 900, height: 350 }
+  const size = { width: 320, height: 164 }
+  const node = (x: number, y: number) => ({ x, y, width: 18, height: 18 })
+  expect(placeFightsWindow(stage, 36, 80, size, []).y).toBe(36)
+  expect(placeFightsWindow(stage, 36, 80, size, [node(650, 87), node(140, 150)]).y).toBe(178)
+  expect(placeFightsWindow(stage, 36, 80, size, [node(650, 87), node(650, 255)]).x).toBe(12)
+})
+
+it('keeps the pilot hull below the measured replay control inset', () => {
+  const layout = makeLayout([pilot('char:1', 0)], [0, 1], 900, 350, 150)
+  const ship = layout.byKey.get('char:1')!
+  ship.y = 20
+  layout.placeVisible(new Set(['char:1']), [])
+  expect(ship.y - ship.radius).toBeGreaterThanOrEqual(150)
+})
 
 describe('pilot label placement', () => {
   const center = { x: 100, y: 100 }

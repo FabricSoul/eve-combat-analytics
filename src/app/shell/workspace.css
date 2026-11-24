@@ -79,7 +79,12 @@
   .app-shell--battle .app-topbar-meta { display: inline; }
   .app-topbar:has(.app-topbar-short-title) .app-topbar-full-title { display: none; }
   .app-topbar .app-topbar-short-title { display: inline; }
-  .app-shell--battle .app-topbar-title { font-size: var(--fs); }
+  .app-shell--battle .app-topbar-title { min-width: 180px; font-size: var(--fs); }
+  .app-shell--battle .app-topbar-actions { min-width: 0; }
+  .app-shell--battle .app-topbar-side { min-width: 0; }
+  .app-shell--battle .app-topbar-side > .app-topbar-label { flex: none; }
+  .app-shell--battle .app-side-picker { min-width: 56px; }
+  .app-shell--battle .app-side-picker-trigger.app-button { max-width: min(100%, 222px, 26vw); }
 }
 
 @media (760px <= width < 880px) {

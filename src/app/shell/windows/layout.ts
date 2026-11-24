@@ -50,8 +50,8 @@ export function windowVisible(layout: WindowLayout, id: WindowId): boolean {
   return !hidden && (floating || !isPanel(id) || layout.activePanel === id)
 }
 
-export function clampWindow(rect: WindowRect, viewport: Viewport, minimized = false): WindowRect {
-  const width = Math.min(viewport.width, Math.max(220, rect.width))
+export function clampWindow(rect: WindowRect, viewport: Viewport, minimized = false, minWidth = 220): WindowRect {
+  const width = Math.min(viewport.width, Math.max(minWidth, rect.width))
   const height = Math.min(viewport.height, Math.max(120, rect.height))
   const effectiveHeight = minimized ? Math.min(viewport.height, windowHeight) : height
   return {

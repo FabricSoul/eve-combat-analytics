@@ -206,18 +206,11 @@ export class BattleRoom extends ProductionRoom {
     const canvasHeight = (await replay.boundingBox()).height
     const columnWidths = await page.locator('[data-module-area]').evaluateAll((columns) =>
       columns.map((column) => column.getBoundingClientRect().width))
-    const replayBox = await replay.boundingBox()
     const fights = page.getByRole('region', { name: '此刻交火', exact: true })
-    const fightsBox = await fights.boundingBox()
     const layoutIssues = []
     if (Math.abs(stageBox.height / height - 0.62) > 0.005) layoutIssues.push(`stage is ${stageBox.height}/${height}px, expected 62%`)
     if (Math.abs(columnWidths[0] / columnWidths[1] - 1.45) > 0.005 || Math.abs(columnWidths[2] / columnWidths[1] - 1) > 0.005) {
       layoutIssues.push(`module columns are ${columnWidths.join(':')}, expected 1.45:1:1`)
-    }
-    if (fightsBox.width > 224 || fightsBox.x + fightsBox.width > replayBox.x + replayBox.width
-      || replayBox.x + replayBox.width - fightsBox.x - fightsBox.width > 24 || fightsBox.y < replayBox.y
-      || fightsBox.y - replayBox.y > 40 || fightsBox.y + fightsBox.height > replayBox.y + replayBox.height) {
-      layoutIssues.push(`current fights window is not a narrow window inside the upper-right replay corner: ${JSON.stringify(fightsBox)}`)
     }
     assert.deepEqual(layoutIssues, [], `default layout at ${width}×${height}`)
     assert.ok((await page.locator('.battle-module-scroll').boundingBox()).height >= 220, 'modules retain at least 220 px by default')
@@ -259,7 +252,7 @@ export class BattleRoom extends ProductionRoom {
       const rect = button.getBoundingClientRect()
       return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
     })), true, 'all three replay controls are reachable with the legend open')
-    console.log(`Workspace ${width}×${height}: stage ${stageBox.height}px, columns ${columnWidths.map(Math.round).join(':')}px, legend gap ${legendGap}px, fights ${fightsBox.width}px`)
+    console.log(`Workspace ${width}×${height}: stage ${stageBox.height}px, columns ${columnWidths.map(Math.round).join(':')}px, legend gap ${legendGap}px`)
     await assertClearPilotLabels(page)
     await page.screenshot({ path: join(output, `replay-overlays-${width}x${height}-dark.png`) })
     const bar = await legend.getByRole('group', { name: '交互图例 标题栏' }).boundingBox()
@@ -314,6 +307,68 @@ export class BattleRoom extends ProductionRoom {
     // This is a fresh context. Restore the defaults before the remaining layout smoke steps.
     await page.locator('.battle-module-controls > summary').click()
     await page.getByRole('button', { name: '恢复默认布局' }).click()
+  }
+
+  async function checkFightsAndChrome(page, width) {
+    const replay = page.locator('.replay-stage')
+    const fights = page.getByRole('region', { name: '此刻交火', exact: true })
+    const replayBox = await replay.boundingBox()
+    const defaults = await fights.boundingBox()
+    const small = replayBox.width < 1200
+    const issues = []
+    if ((await fights.getAttribute('data-minimized')) !== String(small)) issues.push('fights collapse below 1200px of replay width')
+    if (defaults.width < 300) issues.push(`fights width was ${defaults.width}px, expected at least 300px`)
+    const pills = await replay.locator('.replay-header-actions').boundingBox()
+    const pilots = await replay.locator('.replay-marker[data-present] .replay-pilot').evaluateAll((nodes) =>
+      nodes.map((node) => node.getBoundingClientRect().toJSON()))
+    if (pilots.some((node) => node.top < pills.y + pills.height - 0.5)) issues.push('live pilot markers enter the replay control inset')
+    if (width === 900) {
+      const title = await page.locator('.app-topbar-title').evaluate((node) => ({
+        width: node.clientWidth, textWidth: node.querySelector('.app-topbar-short-title').getBoundingClientRect().width,
+      }))
+      if (title.width < 179 || title.textWidth > title.width) issues.push(`tablet title is clipped: ${JSON.stringify(title)}`)
+      const header = await page.locator('.app-topbar').evaluate((node) => ({
+        width: node.clientWidth, contentWidth: node.scrollWidth,
+      }))
+      if (header.contentWidth > header.width + 1) issues.push(`tablet battle actions overflow: ${JSON.stringify(header)}`)
+    }
+    assert.deepEqual(issues, [], `replay and top bar at ${width}px`)
+    assert.ok(defaults.x >= replayBox.x && defaults.y >= replayBox.y
+      && defaults.x + defaults.width <= replayBox.x + replayBox.width
+      && defaults.y + defaults.height <= replayBox.y + replayBox.height, 'the automatic fight window stays inside the replay')
+    await page.screenshot({ path: join(output, `final-review-workspace-${width}-dark.png`) })
+    if (small) await fights.getByRole('button', { name: '还原 此刻交火' }).click()
+    const widths = await fights.locator('thead th').evaluateAll((nodes) =>
+      nodes.map((node) => node.getBoundingClientRect().width))
+    assert.ok(widths[0] >= 90 && widths[1] >= 90, 'both participant columns have at least 90px')
+    assert.equal(await fights.locator('.battle-window-heading, .battle-window-subtitle').evaluateAll((nodes) =>
+      nodes.every((node) => node.scrollWidth <= node.clientWidth + 1)), true, 'the title and time subtitle fit')
+    if (width === 900) await page.screenshot({ path: join(output, 'final-review-fights-open-900-dark.png') })
+    if (small) await fights.getByRole('button', { name: '收起 此刻交火' }).click()
+
+    if (width === 1630) {
+      await replay.getByRole('button', { name: '交互图例', exact: true }).click()
+      const legend = page.getByRole('region', { name: '交互图例', exact: true })
+      const grip = page.getByRole('separator', { name: '调整舞台高度' })
+      await legend.waitFor()
+      const compare = page.getByRole('region', { name: '飞行员对比' })
+      await compare.getByRole('button', { name: '整页', exact: true }).click()
+      assert.equal(await legend.isVisible(), false)
+      assert.equal(await fights.isVisible(), false)
+      assert.equal(await grip.isVisible(), false)
+      await page.screenshot({ path: join(output, 'final-review-compare-full-1630-dark.png') })
+      await compare.getByRole('button', { name: '收起', exact: true }).click()
+      await legend.waitFor()
+      await fights.waitFor()
+      await grip.waitFor()
+      await legend.getByRole('button', { name: '关闭 交互图例' }).click()
+      const layout = page.locator('.battle-module-controls > summary')
+      await layout.click()
+      const resetLayout = page.getByRole('button', { name: '恢复默认布局' })
+      assert.equal(await resetLayout.getAttribute('data-variant'), 'ghost')
+      await page.screenshot({ path: join(output, 'final-review-layout-menu-1630-dark.png') })
+      await layout.click()
+    }
   }
 
   const a = await open(1280, 800, 'dark')
@@ -668,6 +723,7 @@ export class BattleRoom extends ProductionRoom {
       await assertClearPilotLabels(shot.page)
       await checkReplayOverlays(shot.page, width, height)
     }
+    if (width >= 900 && theme === 'dark') await checkFightsAndChrome(shot.page, width)
     if (width === 1280 && theme === 'dark') {
       const page = shot.page
       const feed = page.locator('[data-module="feed"]')
