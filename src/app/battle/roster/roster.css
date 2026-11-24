@@ -17,6 +17,7 @@
   font-size: var(--fs-s);
 }
 .roster-row:hover, .roster-row:focus-within { background: var(--color-raised); }
+.roster-row[data-roster-partial] { opacity: 0; pointer-events: none; }
 .roster-row[data-selected] { background: var(--color-sel); }
 .roster-row[data-selected]::before { content: ''; position: absolute; inset-block: 0; inset-inline-start: 0; width: 2px; background: var(--color-accent-line); }
 .roster-main {
@@ -176,7 +177,6 @@
 .roster-bare[data-hover] .roster-row { background: var(--color-raised); }
 .roster-bare[data-hover] .roster-more { opacity: 1; }
 .roster-row .app-tag { font-size: 11px; line-height: 16px; }
-.roster-sub { margin: 0; padding: var(--space-2) var(--space-3) var(--space-1); font-size: var(--fs-s); font-weight: 400; color: var(--color-text-3); }
 
 .identity-scrim { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: color-mix(in srgb, var(--color-bg) 70%, transparent); }
 .identity-picker {

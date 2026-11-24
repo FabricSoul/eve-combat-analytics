@@ -19,7 +19,7 @@ describe('Roster', () => {
     mounted = mountApp(createElement(Roster))
     expect(names()).toEqual(['Pilot3', 'Pilot1', 'Pilot2', 'Pilot5', 'Pilot4', 'Pilot6'])
     expect([...mounted.container.querySelectorAll('h3')].map((h) => h.textContent)).toEqual([
-      '我方 · 有日志 23', '敌方2', '未分边1',
+      '我方 · 有日志2', '我方 · 无日志1', '敌方2', '未分边1',
     ])
   })
 
@@ -134,11 +134,13 @@ describe('Roster', () => {
     expect(mounted.container.querySelector('[role="alert"]')?.textContent).toBe('无法移动')
   })
 
-  it('lists our pilots without a log under their own 无日志 sub-heading, not under 有日志', () => {
-    mounted = mountApp(createElement(Roster))
-    const ours = mounted.container.querySelector('section')!
-    const children = [...ours.children].map((el) => el.classList.contains('roster-sub') ? `#${el.textContent}` : el.querySelector?.('.roster-name')?.textContent ?? '')
-    expect(children.slice(1)).toEqual(['Pilot3', 'Pilot1', '#无日志 1', 'Pilot2'])
+  it('keeps friendly log subgroups separate when sorting alphabetically', () => {
+    mounted = mountApp(createElement(Roster, { alphabetical: true }))
+    const subgroup = (name: string) => mounted.container.querySelector(`section[aria-label="我方 · ${name}"]`)!
+    const groupedNames = (name: string) => [...subgroup(name).querySelectorAll('.roster-name')].map((el) => el.textContent)
+    expect(groupedNames('有日志')).toEqual(['Pilot1', 'Pilot3'])
+    expect(groupedNames('无日志')).toEqual(['Pilot2'])
+    expect(subgroup('无日志').querySelector('h3.roster-head')?.textContent).toBe('我方 · 无日志1')
   })
 
   it('the 名单 shows a "N 未识别" link that scrolls to the unidentified section', () => {

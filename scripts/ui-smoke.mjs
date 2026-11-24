@@ -710,6 +710,25 @@ export class BattleRoom extends ProductionRoom {
         if (!pitch.length || pitches.some((px) => px !== 24)) failures.push({ width, table: name, pitches })
       }
 
+      const roster = page.locator('[data-module="roster"]')
+      const firstUnlogged = roster.locator('.roster-row[data-nolog][data-pilot-key^="char:"]').first()
+      const sticky = await firstUnlogged.evaluate(async (row) => {
+        const list = row.closest('.battle-window-body')
+        const top = list.getBoundingClientRect().top + list.clientTop
+        list.scrollTop += row.getBoundingClientRect().top - top + 72 + 7
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+        const header = [...list.querySelectorAll('.roster-head')].find((heading) =>
+          Math.abs(heading.getBoundingClientRect().top - top) <= 1)
+        const edge = header?.getBoundingClientRect().bottom ?? top
+        const peeking = [...list.querySelectorAll('.roster-row')].some((element) => {
+          const bounds = element.getBoundingClientRect()
+          return bounds.top < edge && edge < bounds.bottom && Number(getComputedStyle(element).opacity) > 0
+        })
+        const result = { text: header?.textContent ?? '', peeking }
+        list.scrollTop = 0
+        return result
+      })
+      if (!/我方.*无日志/.test(sticky.text) || sticky.peeking) failures.push({ width, roster: sticky })
       const hitHeights = await tableHeights(hits)
       density.push({ width, table: '命中 module', max: Math.max(...hitHeights) })
 

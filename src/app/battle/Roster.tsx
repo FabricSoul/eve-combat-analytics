@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { statsForRange } from '@/core/analysis/range'
 import { sideColor, sideLetter } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
@@ -7,7 +7,7 @@ import { Portrait } from '../ui/Portrait'
 import { Tag } from '../ui/Tag'
 import { TypeIcon } from '../ui/TypeIcon'
 import { buildRoster, fullSideOrder, sideName } from './roster/model'
-import { revealInList } from './roster/reveal'
+import { hidePartialRosterRow, revealInList } from './roster/reveal'
 import { PilotActions, PilotMore, usePilotMenu } from './roster/PilotActions'
 import './roster/roster.css'
 
@@ -45,6 +45,9 @@ function RosterContent({ search, alphabetical, onSearchClose }: RosterProps) {
     () => summary && analysis ? buildRoster(summary, analysis, view.oursSide, at, rangeStats) : [],
     [summary, analysis, view.oursSide, at, rangeStats],
   )
+  useLayoutEffect(() => {
+    if (root.current) return hidePartialRosterRow(root.current)
+  }, [groups, needle, alphabetical, search])
   if (!summary || !analysis) return <div className="roster-note" role="status">正在等待分析结果…</div>
   if (groups.length === 0) return <div className="roster-note">上传飞行员的日志，名单会自动更新。</div>
   const order = fullSideOrder(analysis, view.oursSide)
@@ -98,43 +101,36 @@ function RosterContent({ search, alphabetical, onSearchClose }: RosterProps) {
         }}>{unidentified} 未识别</button>
       )}
       {needle && !groups.some(({ rows }) => rows.some(matches)) && <p className="module-empty">没有匹配的飞行员 · 试试其他名字或舰船。</p>}
-      {groups.map(({ side, rows: allRows, withLog }) => {
+      {groups.map(({ side, rows: allRows }) => {
         const rows = allRows.filter(matches)
         if (!rows.length) return null
         const ordered = alphabetical ? [...rows].sort((a, b) => a.name.localeCompare(b.name)) : rows
         const known = ordered.filter((row) => row.charId !== null)
         const unknown = ordered.filter((row) => row.charId === null)
+        const name = sideName(side, order)
         const letter = sideLetter(side, order)
+        const renderGroup = (pilots: typeof rows, detail?: '有日志' | '无日志' | '未识别') => {
+          if (!pilots.length) return null
+          const unidentified = detail === '未识别'
+          const title = unidentified ? `未识别 · ${name}` : detail ? `${name} · ${detail}` : name
+          return <section key={title} aria-label={title} data-unidentified={unidentified || undefined}>
+            <h3 className="roster-head">
+              <i className="side-dot" data-hollow={side < 0 || unidentified ? '' : undefined}
+                style={side < 0 || unidentified ? undefined : { background: sideColor(side, order) }} aria-hidden="true" />
+              <span>{unidentified ? title : <>{name}{letter && <span className="side-letter"> {letter}</span>}
+                {detail && ` · ${detail}`}</>}</span>
+              <span className="roster-count">{pilots.length}</span>
+            </h3>
+            {pilots.map(renderRow)}
+          </section>
+        }
         return (
           <div key={side} className="roster-group">
-            {known.length > 0 && (
-              <section aria-label={sideName(side, order)}>
-                <h3 className="roster-head">
-                  <i className="side-dot" data-hollow={side < 0 ? '' : undefined}
-                    style={side < 0 ? undefined : { background: sideColor(side, order) }} aria-hidden="true" />
-                  <span>{sideName(side, order)}{letter && <span className="side-letter"> {letter}</span>}{side === view.oursSide ? ` · 有日志 ${withLog}` : ''}</span>
-                  <span className="roster-count">{known.length}</span>
-                </h3>
-                {known.map((row, index) => (
-                  <Fragment key={row.key}>
-                    {side === view.oursSide && !row.hasLog && known[index - 1]?.hasLog && (
-                      <h4 className="roster-sub">无日志 {known.filter((other) => !other.hasLog).length}</h4>
-                    )}
-                    {renderRow(row)}
-                  </Fragment>
-                ))}
-              </section>
-            )}
-            {unknown.length > 0 && (
-              <section aria-label={`未识别 · ${sideName(side, order)}`} data-unidentified="">
-                <h3 className="roster-head roster-head-unidentified">
-                  <i className="side-dot" data-hollow="" aria-hidden="true" />
-                  <span>未识别 · {sideName(side, order)}</span>
-                  <span className="roster-count">{unknown.length}</span>
-                </h3>
-                {unknown.map(renderRow)}
-              </section>
-            )}
+            {side === view.oursSide ? <>
+              {renderGroup(known.filter(({ hasLog }) => hasLog), '有日志')}
+              {renderGroup(known.filter(({ hasLog }) => !hasLog), '无日志')}
+            </> : renderGroup(known)}
+            {renderGroup(unknown, '未识别')}
           </div>
         )
       })}
