@@ -2,10 +2,12 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
+import { statsForRange } from '@/core/analysis/range'
 import { BattleProvider } from '../../state/battle-store'
 import { useView, ViewProvider } from '../../state/view-store'
 import { loadUiFixture } from '../../test/ui-fixture'
 import { CompareTable } from '../CompareTable'
+import { PersonDrawer } from '../PersonDrawer'
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const fixture = loadUiFixture()
@@ -39,6 +41,46 @@ it('groups and sorts columns and shows a median', () => {
   act(() => header.querySelector('button')!.click())
   expect(header.getAttribute('aria-sort')).toBe('ascending')
   expect(host.querySelector('tbody tr')!.textContent).not.toBe(first)
+})
+
+function fullFixtureWithObservedStats() {
+  const data = loadUiFixture({ fullPilotEvents: true })
+  const { analysis, summary } = data
+  return { ...data, analysis: { ...analysis, stats: statsForRange(analysis, summary.meta.killmails, -Infinity, Infinity) } }
+}
+
+it('uses every numeric repair output cell in the real fight median', () => {
+  render(<CompareTable />, fullFixtureWithObservedStats())
+  const cells = [...host.querySelectorAll('tbody td[data-metric="repairOut"]')]
+  const values = cells.flatMap((cell) => {
+    const number = cell.querySelector('.app-number:not(summary)')?.textContent
+    return number === undefined ? [] : [Number(number.replaceAll(',', ''))]
+  }).sort((a, b) => a - b)
+  expect(values[0]).toBe(0)
+  expect(values.at(-1)).toBeGreaterThan(0)
+  const center = (values[Math.floor((values.length - 1) / 2)]! + values[Math.floor(values.length / 2)]!) / 2
+  expect(cells[0]?.querySelector('.u7-compare-median')?.getAttribute('title'))
+    .toBe(`有数据的 ${values.length} 人的中位 · ${Math.round(center).toLocaleString('en-US')}`)
+})
+
+it('shows observed incoming damage types and explains the unknown type in Compare and the drawer', () => {
+  const data = fullFixtureWithObservedStats()
+  const key = 'char:2113835664' // J125990: Kylo Kingdom, with no uploaded log.
+  expect(data.analysis.entities[key]?.hasLog).toBe(false)
+  render(<><CompareTable /><PersonDrawer /></>, data, 1)
+  for (const name of ['电磁', '未知类型']) {
+    const toggle = [...host.querySelectorAll('.u7-column-options label')].find((label) => label.textContent.trim() === name)!
+    act(() => toggle.querySelector('input')!.click())
+  }
+  const row = host.querySelector(`tr[data-pilot-key="${key}"]`)!
+  const amount = (kind: string) => row.querySelector(`td[data-metric="${kind}"] .app-number:not(summary)`)?.textContent
+  expect(row.textContent).toContain('据我方日志')
+  expect.soft(amount('em')).toBe('34,926')
+  expect.soft(amount('unknown')).toBe('34,080')
+  act(() => row.querySelector<HTMLButtonElement>('th button')!.click())
+  expect(host.querySelector('.u7-person-header')?.textContent).toContain('据我方日志')
+  expect.soft(host.querySelector('.u7-person-damage')?.textContent ?? '').toContain('电磁34,926')
+  expect.soft(host.querySelector('.u7-person-damage dt[title]')?.getAttribute('title') ?? '').toContain('弹药')
 })
 
 it('shows full and selected-range damage from the real fixture', () => {

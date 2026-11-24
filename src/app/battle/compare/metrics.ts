@@ -68,7 +68,7 @@ export const metrics = [
   { key: 'firstShotDelay', label: '首枪', group: '节奏', format: seconds, reason: '这段时间没有可用于比较的首枪', ownLog: true },
   { key: 'damageIn', label: '承伤', group: '承伤', format: amount },
   ...Object.entries(damageKinds).map(([key, { label }]): Metric => ({
-    key: key as DamageKind, label, group: '承伤', format: amount, ownLog: true,
+    key: key as DamageKind, label, group: '承伤', format: amount,
   })),
   { key: 'repairIn', label: '被修', group: '承伤', format: amount },
   { key: 'repairOut', label: '维修输出', group: '后勤', format: amount },
@@ -102,7 +102,10 @@ export const isObserved = (row: CompareRow) => !row.entity.hasLog && row.stats.s
 
 export function metricValue(row: CompareRow, metric: Metric): number | null {
   if (!row.entity.hasLog && !metric.battleReport && (!isObserved(row) || metric.ownLog)) return null
-  if (isDamageKind(metric.key)) return row.damage?.[metric.key] ?? 0
+  if (isDamageKind(metric.key)) {
+    if (!row.entity.hasLog && !row.damage) return null
+    return row.damage?.[metric.key] ?? 0
+  }
   if (metric.battleReport && row.stats.killmailCount === 0) return null
   if (metric.key === 'primaryShare' && row.stats.damageOut === 0) return null
   if (metric.key === 'hitRate') {
@@ -115,6 +118,7 @@ export function metricValue(row: CompareRow, metric: Metric): number | null {
 export function missingReason(row: CompareRow, metric: Metric): string {
   if (metric.battleReport) return '这段时间没有他的击毁报告'
   if (metric.key === 'hitRate' && isObserved(row)) return noHitQualityReason
+  if (isDamageKind(metric.key) && isObserved(row)) return '这段时间没有可用的承伤记录'
   if (isObserved(row) && metric.ownLog) return '需要他自己的战斗日志，我方日志看不到'
   if (!row.entity.hasLog) return '没有上传他的战斗日志'
   if (metric.key === 'primaryShare') return '这段时间没有输出'
@@ -133,18 +137,8 @@ export function medianSample(values: number[]) {
 type MedianSample = ReturnType<typeof medianSample>
 export const medianTooltip = ({ count }: MedianSample) => `有数据的 ${fmtNum(count)} 人的中位`
 
-// An additive total of zero records no activity. Rates and times can have measured zeroes.
-const activityTotals = new Set<Metric['key']>([
-  'damageOut', 'damageIn', 'killmailDamage', 'repairOut', 'repairIn', 'pointSeconds', 'neutOut', 'neutIn',
-])
-
 export function rowMedian(rows: readonly CompareRow[], metric: Metric) {
-  const needsActivity = activityTotals.has(metric.key) || isDamageKind(metric.key)
-  const values = rows.flatMap((row) => {
-    const value = metricValue(row, metric)
-    return value === null || (value === 0 && needsActivity) ? [] : [value]
-  })
-  return medianSample(values)
+  return medianSample(rows.flatMap((row) => metricValue(row, metric) ?? []))
 }
 
 export function useCombatRows() {
@@ -190,7 +184,6 @@ export function useCombatRows() {
           ungradedByPilot.set(from, counts)
         }
       }
-      if (!analysis.entities[event.to]?.hasLog) continue
       const kind = damageKind(event, ammo.get(event.from))
       const totals = damage.get(event.to) ?? {}
       totals[kind] = (totals[kind] ?? 0) + event.amount
@@ -199,7 +192,10 @@ export function useCombatRows() {
     const rows = stats.flatMap((entry): CompareRow[] => {
       const entity = analysis.entities[entry.key]
       if (!entity) return []
-      const row = { entity, stats: entry, damage: damage.get(entry.key) }
+      const row = {
+        entity, stats: entry,
+        damage: entity.hasLog || entry.source === 'observed' ? damage.get(entry.key) : undefined,
+      }
       if (isObserved(row)) return [{ ...row, observedHits: hits?.pilots.get(entry.key) }]
       const ungraded = ungradedByPilot.get(entry.key)
       if (!ungraded) return [row]

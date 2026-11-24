@@ -5,7 +5,7 @@ import classNames from './weapon-classes.json'
 
 export const MIN_RANKED_SHOTS = 30
 export const HIT_MINUTE = 60_000
-export const hitObservationHint = '命中率和排名样本只统计有质量的命中和明确未命中。立体炸弹、分裂者舱等无质量伤害另计。敌方数据仅覆盖对我方日志上传者的射击。'
+export const hitObservationHint = '命中率和排名样本只统计有质量的命中和明确未命中。立体炸弹、分裂者舱等无质量伤害另计。敌方未上传日志的飞行员仅统计对我方日志上传者的射击。上传者的射击在所有视角均计入。'
 export const classLabels = { turret: '炮台', missile: '导弹', drone: '无人机 / 铁骑舰载机', smartbomb: '立体炸弹', other: '其他 / 未识别' } as const
 export type WeaponClass = keyof typeof classLabels
 
@@ -82,7 +82,9 @@ export function aggregateHits(
     if (event.kind !== 'damage' && event.kind !== 'miss') continue
     if (range && (event.t < range[0] || event.t > range[1])) continue
     const source = entities[event.from]
-    if (!source || (source.side !== ours && !(uploaders.has(event.to) && entities[event.to]?.side === ours))) continue
+    if (!source) continue
+    if (!uploaders.has(event.from) && source.side !== ours &&
+      !(uploaders.has(event.to) && entities[event.to]?.side === ours)) continue
     const weapon = event.weapon ?? '未记录武器'
     const catalogClass = entry(classes, weapon, () => classifyWeapon(weapon))
     const weaponClass = catalogClass === 'breacher' ? 'missile' : catalogClass

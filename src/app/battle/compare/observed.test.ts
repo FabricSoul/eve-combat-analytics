@@ -20,10 +20,18 @@ describe('observed pilots', () => {
 
   it('keep — with a reason for metrics that need the pilot\'s own log', () => {
     const r = row('observed', false)
-    for (const key of ['activeRatio', 'repReactionMedian', 'firstShotDelay', 'kinetic']) {
+    for (const key of ['activeRatio', 'repReactionMedian', 'firstShotDelay']) {
       expect(get(r, key), key).toBeNull()
       expect(missingReason(r, metrics.find((m) => m.key === key)!), key).toContain('自己的战斗日志')
     }
+  })
+
+  it('distinguishes an observed zero damage type from a missing breakdown', () => {
+    const r = row('observed', false)
+    const metric = metrics.find(({ key }) => key === 'kinetic')!
+    expect(metricValue(r, metric)).toBeNull()
+    expect.soft(missingReason(r, metric)).toContain('没有可用的承伤记录')
+    expect.soft(metricValue({ ...r, damage: { em: 40 } }, metric)).toBe(0)
   })
 
   it('uses the observed hit sample and explains when it is empty', () => {

@@ -197,7 +197,7 @@ it('describes the output median using only teammates with measured output', () =
     act(() => root.render(<BattleProvider static={fixture}><ViewProvider defaultSide={1} syncUrl={false}><Harness /></ViewProvider></BattleProvider>))
     const tile = [...host.querySelectorAll('.u7-stat-tile')].find((t) => t.querySelector('h3')?.textContent === '输出')!
     const values = base.analysis.stats.filter((s) => base.analysis.entities[s.key]?.side === pilot.side &&
-      base.analysis.entities[s.key]?.hasLog && s.damageOut > 0).map((s) => s.damageOut).sort((a, b) => a - b)
+      base.analysis.entities[s.key]?.hasLog).map((s) => s.damageOut).sort((a, b) => a - b)
     const value = (values[Math.floor((values.length - 1) / 2)]! + values[Math.floor(values.length / 2)]!) / 2
     const tooltip = tile.querySelector('small')
     expect(tooltip?.getAttribute('title')).toContain(`有数据的 ${values.length} 人的中位`)
@@ -264,12 +264,16 @@ it('matches full-fight hit and repair medians independently calculated from iden
   }
   const rates = [...peers.values()].filter(({ hits, misses }) => hits + misses > 0)
     .map(({ hits, misses }) => hits / (hits + misses)).sort((a, b) => a - b)
-  const repair = [...peers.values()].map(({ repairs }) => repairs).filter((amount) => amount > 0).sort((a, b) => a - b)
+  const repair = analysis.stats.flatMap(({ key, source }) => {
+    const peer = peers.get(key)
+    return peer && (analysis.entities[key]?.hasLog || source === 'observed') ? [peer.repairs] : []
+  }).sort((a, b) => a - b)
   const center = (values: number[]) => (values[Math.floor((values.length - 1) / 2)]! + values[Math.floor(values.length / 2)]!) / 2
   expect(new Set(rates).size).toBeGreaterThan(1)
   expect(new Set(repair).size).toBeGreaterThan(1)
   expect(rates).toHaveLength(17)
-  expect(repair).toHaveLength(22)
+  expect(repair.filter((amount) => amount > 0)).toHaveLength(22)
+  expect(repair).toContain(0)
   const own = peers.get(pilot.key)!
   expect(center(rates)).not.toBe(own.hits / (own.hits + own.misses))
   expect(center(repair)).not.toBe(own.repairs)

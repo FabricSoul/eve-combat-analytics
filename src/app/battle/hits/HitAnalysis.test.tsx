@@ -9,10 +9,53 @@ import type { BattleState } from '@/core/contract'
 import { BattleProvider } from '../../state/battle-store'
 import { useView, ViewProvider } from '../../state/view-store'
 import { loadUiFixture, uiReplayStart } from '../../test/ui-fixture'
+import { CompareTable } from '../CompareTable'
 import { HitAnalysis } from '../HitAnalysis'
 import { PersonDrawer } from '../PersonDrawer'
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+
+it('keeps a logged pilot’s hit sample and rate in Hits, Compare and the drawer when 我方 has no uploads', async () => {
+  const { module } = await runnerImport<{ realBattleStateWithBr(): BattleState }>(
+    resolve('fixtures/real/j125990-20250622/load.ts'), { configFile: false },
+  )
+  const analysis = analyze(module.realBattleStateWithBr())
+  const battle = { summary: loadUiFixture().summary, analysis }
+  const key = 'char:2121605780' // Blanchard2213
+  const ownSide = analysis.entities[key]!.side
+  const emptySide = analysis.coverage.find(({ side, withLog }) => side >= 0 && side !== ownSide && withLog === 0)!.side
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  function Harness() {
+    const { setOursSide } = useView()
+    return <><button id="empty-side" onClick={() => setOursSide(emptySide)}>Switch side</button>
+      <HitAnalysis /><CompareTable /><PersonDrawer /></>
+  }
+  try {
+    act(() => root.render(<BattleProvider static={battle}><ViewProvider defaultSide={ownSide} syncUrl={false}><Harness /></ViewProvider></BattleProvider>))
+    const hitRow = () => host.querySelector<HTMLTableRowElement>(`.hit-analysis tr[data-pilot-key="${key}"]`)
+    const compareRow = host.querySelector(`.u7-compare tr[data-pilot-key="${key}"]`)!
+    act(() => hitRow()!.querySelector<HTMLButtonElement>('th button')!.click())
+    const readSample = () => {
+      const drawer = host.querySelector('.u7-person [data-hit-metric="hitRate"]')
+      const distribution = compareRow.querySelector('[data-metric="hitQuality"] [role="img"]')?.getAttribute('aria-label') ?? ''
+      const compareShots = [...distribution.matchAll(/ ([\d,]+)（/g)]
+        .reduce((shots, [, count]) => shots + Number(count!.replaceAll(',', '')), 0)
+      return {
+        hits: [hitRow()?.cells[0]?.textContent?.split(' · ')[1], hitRow()?.cells[2]?.textContent],
+        compare: [compareShots, compareRow.querySelector('[data-metric="hitRate"] .app-number')?.textContent],
+        drawer: [drawer?.querySelector('dd:last-child .app-number')?.textContent?.split(' · ')[1],
+          drawer?.querySelector('dt .app-number')?.textContent],
+      }
+    }
+    const expected = { hits: ['1,854 发', '90%'], compare: [1854, '90%'], drawer: ['1,854 发', '90%'] }
+    expect(readSample()).toEqual(expected)
+    act(() => host.querySelector<HTMLButtonElement>('#empty-side')!.click())
+    expect(readSample()).toEqual(expected)
+  } finally {
+    act(() => root.unmount())
+  }
+}, 60_000)
 
 it('shows ranked samples, measured enemy coverage, filters sides and recomputes on range change', () => {
   const fixture = loadUiFixture({ fullPilotEvents: true })
