@@ -127,52 +127,67 @@ describe('IdentityPicker', () => {
     expect(api.putIdentity).toHaveBeenCalledWith('tiny', 'name:Hidden', 'char:6')
   })
 
-  it('pending: disables the candidates with a spinner until the call settles, then closes', async () => {
-    let finish!: () => void
-    vi.spyOn(api, 'putIdentity').mockReturnValue(new Promise((resolve) => { finish = () => resolve({ from: 'name:Hidden', to: 'char:2', setAt: 1 }) }))
-    mount()
-    openPicker()
-    await act(async () => picker()!.querySelector<HTMLButtonElement>('[data-suggestion]')!.click())
-    const items = [...picker()!.querySelectorAll<HTMLButtonElement>('.identity-item')]
-    expect(items.every((b) => b.disabled)).toBe(true)
-    expect(picker()!.querySelector('[data-suggestion] .identity-spinner')).not.toBeNull()
-    expect(picker()!.querySelector('[aria-busy="true"]')).not.toBeNull()
-    await act(async () => finish())
-    expect(picker()).toBeNull()
-  })
-
-  it('applies the merge locally while saving and rolls it back when the call fails', async () => {
-    let fail!: () => void
-    vi.spyOn(api, 'putIdentity').mockReturnValue(new Promise((_, reject) => { fail = () => reject(new Error('x')) }))
-    const withHidden = { ...tinySummary }
-    mounted = mountApp(createElement(Roster), { summary: withHidden, analysis })
-    expect(row('Hidden')).toBeDefined()
+  it('closes at once on pick; the merge shows and the toast names both and offers 撤销 before the server answers', async () => {
+    vi.spyOn(api, 'putIdentity').mockReturnValue(new Promise(() => {}))
+    mounted = mountApp(createElement(BattleUndo, null, createElement(Roster)), { summary: tinySummary, analysis })
     act(() => row('Hidden').querySelector<HTMLButtonElement>('.roster-more')!.click())
     act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === '这是谁…')!.click())
     await act(async () => picker()!.querySelector<HTMLButtonElement>('[data-suggestion]')!.click())
-    expect(mounted.container.textContent).not.toContain('Hidden')
+    expect(picker()).toBeNull()
+    expect([...mounted.container.querySelectorAll('.roster-row')].some((r) => r.textContent?.includes('Hidden'))).toBe(false)
     expect(row('Pilot2').querySelector('.app-tag')?.textContent).toBe('合并')
+    expect(document.querySelector('[data-battle-toast]')?.textContent).toBe('已合并 Hidden → Pilot2撤销')
+  })
+
+  it('rolls the merge back and says so when the call fails', async () => {
+    let fail!: () => void
+    vi.spyOn(api, 'putIdentity').mockReturnValue(new Promise((_, reject) => { fail = () => reject(new Error('x')) }))
+    mounted = mountApp(createElement(BattleUndo, null, createElement(Roster)), { summary: tinySummary, analysis })
+    act(() => row('Hidden').querySelector<HTMLButtonElement>('.roster-more')!.click())
+    act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === '这是谁…')!.click())
+    await act(async () => picker()!.querySelector<HTMLButtonElement>('[data-suggestion]')!.click())
     await act(async () => fail())
     expect(row('Hidden')).toBeDefined()
     expect(row('Pilot2').querySelector('.app-tag')).toBeNull()
-    expect(picker()!.querySelector('[role="alert"]')).not.toBeNull()
+    expect(document.querySelector('[role="alert"]')).not.toBeNull()
+    expect(document.querySelector('[data-battle-toast]')).toBeNull()
   })
 
-  it('shows the failure and stays open when the call fails', async () => {
-    vi.spyOn(api, 'putIdentity').mockRejectedValue(new Error('x'))
-    mount()
-    openPicker()
+  it('撤销 straight away reverts the optimistic merge and sends the removal after the first call settles', async () => {
+    let finish!: () => void
+    const put = vi.spyOn(api, 'putIdentity').mockReturnValueOnce(new Promise((resolve) => { finish = () => resolve({ from: 'name:Hidden', to: 'char:2', setAt: 1 }) }))
+      .mockResolvedValue({ removed: 'name:Hidden' })
+    mounted = mountApp(createElement(BattleUndo, null, createElement(Roster)), { summary: tinySummary, analysis })
+    act(() => row('Hidden').querySelector<HTMLButtonElement>('.roster-more')!.click())
+    act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === '这是谁…')!.click())
     await act(async () => picker()!.querySelector<HTMLButtonElement>('[data-suggestion]')!.click())
-    expect(picker()!.querySelector('[role="alert"]')).not.toBeNull()
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[data-battle-toast] button')].find((b) => b.textContent === '撤销')!.click())
+    expect(row('Pilot2').querySelector('.app-tag')).toBeNull()
+    expect(put).toHaveBeenCalledTimes(1)
+    await act(async () => finish())
+    expect(put).toHaveBeenLastCalledWith('tiny', 'name:Hidden', null)
   })
 
-  it('a merged character carries a 合并 tag with the time, and 取消合并 removes it', async () => {
+  it('scrolls the merged pilot into view inside the list and flashes it once', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(api, 'putIdentity').mockResolvedValue({ from: 'name:Hidden', to: 'char:2', setAt: 1 })
+    mount()
+    act(() => row('Hidden').querySelector<HTMLButtonElement>('.roster-more')!.click())
+    act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === '这是谁…')!.click())
+    await act(async () => picker()!.querySelector<HTMLButtonElement>('[data-suggestion]')!.click())
+    expect(row('Pilot2').hasAttribute('data-flash')).toBe(true)
+    await act(async () => { vi.advanceTimersByTime(2000) })
+    expect(row('Pilot2').hasAttribute('data-flash')).toBe(false)
+    vi.useRealTimers()
+  })
+
+  it('a merged character\'s 合并 tag is a button that opens 取消合并; the time shows on hover', async () => {
     const merged = { ...tinySummary, identityMerges: [{ from: 'name:Hidden' as const, to: 'char:2' as const, setAt: Date.UTC(2025, 5, 22, 15, 42) }] }
     mount(merged, tinyAnalysis)
-    const tag = row('Pilot2').querySelector('.app-tag')!
+    const tag = row('Pilot2').querySelector<HTMLButtonElement>('button.app-tag')!
     expect(tag.textContent).toBe('合并')
-    expect(tag.getAttribute('title')).toBe('合并 · 2025-06-22 15:42 UTC 设')
-    act(() => row('Pilot2').querySelector<HTMLButtonElement>('.roster-more')!.click())
+    expect(tag.getAttribute('title')).toContain('合并 · 2025-06-22 15:42 UTC 设')
+    act(() => tag.click())
     const undo = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent?.startsWith('取消合并'))!
     await act(async () => undo.click())
     expect(api.putIdentity).toHaveBeenCalledWith('tiny', 'name:Hidden', null)
@@ -198,28 +213,6 @@ describe('IdentityPicker', () => {
     mount()
     expect(row('Pilot2').querySelector('.roster-dot')?.getAttribute('title')).toContain('据我方日志')
     expect(row('Pilot1').querySelector('.roster-dot')?.getAttribute('title')).toBeNull()
-  })
-})
-
-describe('undo toast', () => {
-  it('shows 正在应用… while saving, then 撤销 once the row change is visible; 撤销 puts the merge away again', async () => {
-    let finish!: () => void
-    vi.spyOn(api, 'putIdentity').mockReturnValueOnce(new Promise((resolve) => { finish = () => resolve({ from: 'name:Hidden', to: 'char:2', setAt: 1 }) }))
-      .mockResolvedValue({ removed: 'name:Hidden' })
-    mounted = mountApp(createElement(BattleUndo, null, createElement(Roster)), { summary: tinySummary, analysis })
-    const toast = () => document.querySelector('[data-battle-toast]')?.textContent ?? ''
-    act(() => row('Hidden').querySelector<HTMLButtonElement>('.roster-more')!.click())
-    act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === '这是谁…')!.click())
-    await act(async () => picker()!.querySelector<HTMLButtonElement>('[data-suggestion]')!.click())
-    expect(toast()).toBe('正在应用…')
-    expect(mounted.container.textContent).not.toContain('Hidden')
-    await act(async () => finish())
-    expect(toast()).toBe('已合并身份撤销')
-    expect(row('Pilot2').querySelector('.app-tag')?.textContent).toBe('合并')
-    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[data-battle-toast] button')].find((b) => b.textContent === '撤销')!.click())
-    expect(api.putIdentity).toHaveBeenLastCalledWith('tiny', 'name:Hidden', null)
-    expect(row('Pilot2').querySelector('.app-tag')).toBeNull()
-    expect(toast()).toBe('已撤销')
   })
 })
 

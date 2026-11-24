@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { suggestMerges } from '@/core/analysis/merges'
-import type { Analysis, BattleSummary, Entity, EntityKey, IdentityMerge } from '@/core/contract'
-import { useView } from '../../state/view-store'
+import type { Analysis, Entity, EntityKey } from '@/core/contract'
 import { Portrait } from '../../ui/Portrait'
-import { useIdentity } from './use-identity'
 
 const suggestionLimit = 5
 const resultLimit = 30
@@ -13,38 +11,35 @@ export interface IdentityPickerProps {
   from: EntityKey
   /** Name of the unidentified row, for the title. */
   label: string
-  summary: BattleSummary
   analysis: Analysis
   returnFocus?: HTMLElement | null
+  /** The character chosen. The dialog closes at once; the caller saves and reports. */
+  onPick(entity: Entity): void
   onClose(): void
 }
 
-function Candidate({ entity, reason, attr, active, busy, disabled, onPick }: {
-  entity: Entity; reason?: string; attr: 'data-suggestion' | 'data-result'; active: boolean; busy: boolean; disabled: boolean; onPick(): void
+function Candidate({ entity, reason, attr, active, onPick }: {
+  entity: Entity; reason?: string; attr: 'data-suggestion' | 'data-result'; active: boolean; onPick(): void
 }) {
   return (
     <button type="button" className="identity-item" id={`identity-option-${entity.key}`} {...{ [attr]: '' }}
-      data-active={active ? '' : undefined} disabled={disabled} onClick={onPick}
+      data-active={active ? '' : undefined} onClick={onPick}
       ref={(node) => { if (active) node?.scrollIntoView?.({ block: 'nearest' }) }}>
       <Portrait charId={entity.charId} size={24} />
       <span className="identity-text">
         <span className="identity-name">{entity.name}</span>
         <span className="identity-sub">{entity.shipTypes[0] ?? '未知舰船'}{reason ? ` · ${reason}` : ''}</span>
       </span>
-      {busy && <span className="identity-spinner" role="status" aria-label="正在保存" />}
     </button>
   )
 }
 
 /** "这是谁…": pick the known character an unidentified ship or label really is. */
-export function IdentityPicker({ from, label, summary, analysis, returnFocus, onClose }: IdentityPickerProps) {
+export function IdentityPicker({ from, label, analysis, returnFocus, onPick, onClose }: IdentityPickerProps) {
   const root = useRef<HTMLDivElement>(null)
   const [invoker] = useState(() => returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null))
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(-1)
-  const [busy, setBusy] = useState<EntityKey | null>(null)
-  const view = useView()
-  const identity = useIdentity(summary.meta.brId, summary.identityMerges, summary.analysisVersion)
 
   const suggestions = useMemo(() => suggestMerges(analysis, from).slice(0, suggestionLimit)
     .flatMap(({ to }) => analysis.entities[to] ?? []), [analysis, from])
@@ -57,15 +52,9 @@ export function IdentityPicker({ from, label, summary, analysis, returnFocus, on
   useEffect(() => { root.current?.querySelector('input')?.focus() }, [])
   useEffect(() => () => { if (invoker?.isConnected) invoker.focus() }, [invoker])
 
-  async function pick(entity: Entity) {
-    if (busy) return
-    setBusy(entity.key)
-    const to = `char:${entity.charId}` as IdentityMerge['to']
-    if (await identity.put(from, to)) {
-      // The merged entity is gone: keep the drawer on the pilot it became.
-      if (view.selected === from) view.select(to)
-      onClose()
-    } else setBusy(null)
+  function pick(entity: Entity) {
+    onPick(entity)
+    onClose()
   }
 
   function keys(event: KeyboardEvent) {
@@ -75,14 +64,14 @@ export function IdentityPicker({ from, label, summary, analysis, returnFocus, on
       onClose()
       return
     }
-    if (busy || items.length === 0) return
+    if (items.length === 0) return
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       const step = event.key === 'ArrowDown' ? 1 : -1
       setHighlight((highlight + step + items.length) % items.length)
     } else if (event.key === 'Enter' && event.target instanceof HTMLInputElement && items[highlight]) {
       event.preventDefault()
-      void pick(items[highlight]!)
+      pick(items[highlight]!)
     }
   }
 
@@ -93,18 +82,17 @@ export function IdentityPicker({ from, label, summary, analysis, returnFocus, on
         <input type="search" className="identity-search" placeholder="搜索已知飞行员" aria-label="搜索已知飞行员"
           value={query} aria-activedescendant={items[highlight] ? `identity-option-${items[highlight]!.key}` : undefined}
           onChange={(event) => { setQuery(event.target.value); setHighlight(event.target.value.trim() ? 0 : -1) }} />
-        {identity.error && <div className="roster-error" role="alert">{identity.error}</div>}
-        <div className="identity-list" aria-busy={busy ? 'true' : undefined}>
+        <div className="identity-list">
           {!needle && (suggestions.length > 0
             ? <>
               <div className="identity-head">可能是</div>
               {suggestions.map((entity, index) => <Candidate key={entity.key} entity={entity} reason={why} attr="data-suggestion"
-                active={index === highlight} busy={busy === entity.key} disabled={busy !== null} onPick={() => void pick(entity)} />)}
+                active={index === highlight} onPick={() => pick(entity)} />)}
             </>
             : <div className="identity-empty">没有自动建议，可以搜索。</div>)}
           {needle && (results.length > 0
             ? results.map((entity, index) => <Candidate key={entity.key} entity={entity} attr="data-result"
-              active={index === highlight} busy={busy === entity.key} disabled={busy !== null} onPick={() => void pick(entity)} />)
+              active={index === highlight} onPick={() => pick(entity)} />)
             : <div className="identity-empty">没有匹配的飞行员。</div>)}
         </div>
         <button type="button" className="identity-close" onClick={onClose}>取消</button>

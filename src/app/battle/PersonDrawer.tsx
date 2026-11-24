@@ -76,6 +76,11 @@ function PilotDrawer({ pilot, analysis }: { pilot: Entity; analysis: Analysis })
           {pilot.charId === null && pilotMenu && (
             <Button type="button" className="u7-identify" onClick={(event) => pilotMenu.identify(pilot.key, event.currentTarget)}>这是谁…</Button>
           )}
+          {pilotMenu && (summary?.identityMerges ?? []).filter(({ to }) => to === pilot.key).map(({ from }) => (
+            <Button key={from} type="button" className="u7-identify" onClick={() => pilotMenu.unmerge(from)}>
+              取消合并 · {analysis.entities[from]?.name ?? from.replace(/^(name|ship):(\d+:)?/, '')}
+            </Button>
+          ))}
           {pilot.sideSource === 'log' && <Tag>阵营据日志</Tag>}
           {rows.some((row) => row.entity.key === pilot.key && isObserved(row)) && <Tag title={observedHint}>{observedLabel}</Tag>}
         </div>

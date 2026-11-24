@@ -8,7 +8,10 @@ export const defaultFeedKinds: readonly FeedKind[] = ['damage', 'repair', 'ewar'
 export const windowMs = 10_000
 const mergedLimit = 16
 const rawLimit = 16
-const keyLimit = 14
+const normalKeyLimit = 14
+/** A Shift-drag range lists its events whole; these only keep a very long range from rendering tens of thousands of rows. */
+export const rangeLimit = 1000
+const rangeKeyLimit = 300
 
 export interface FeedRow {
   /** Row identity for React keys. */
@@ -59,9 +62,9 @@ function eventRow(i: Interaction, patch: Partial<FeedRow> = {}): FeedRow {
   }
 }
 
-/** Earliest and latest time the feed may show. */
+/** Earliest and latest time the feed may show: the whole range while one is set (the playhead does not matter), else up to t. */
 function bounds(t: number, range: FeedInput['range']): [from: number, to: number] {
-  return range ? [range[0], Math.max(range[0], Math.min(t, range[1]))] : [-Infinity, t]
+  return range ? [range[0], range[1]] : [-Infinity, t]
 }
 
 /** First index in `list` (sorted by `time`) whose time is >= t, or > t when `after`. */
@@ -119,6 +122,7 @@ function newest<T>(list: readonly T[], time: (item: T) => number, from: number, 
 }
 
 function keyRows({ analysis, summary, t, oursSide, focus, range }: FeedInput): FeedRow[] {
+  const keyLimit = range ? rangeKeyLimit : normalKeyLimit
   const [from, to] = bounds(t, range)
   const focusId = focus && /^char:(\d+)$/.test(focus) ? Number(focus.slice(5)) : null
   const { big, primaries } = keyIndex(analysis)
@@ -157,7 +161,7 @@ export function buildFeed(input: FeedInput): FeedRow[] {
   if (mode === 'key') return markCurrent(keyRows(input))
   const { interactions } = analysis
   const [from, to] = bounds(t, range)
-  const low = Math.max(boundary(interactions, eventTime, to - windowMs, true), boundary(interactions, eventTime, from, false))
+  const low = range ? boundary(interactions, eventTime, from, false) : boundary(interactions, eventTime, to - windowMs, true)
   const high = boundary(interactions, eventTime, to, true)
   const key = `${mode}|${low}|${high}|${kinds.join()}|${damageDealtOnly}|${focus ?? ''}`
   const cached = results.get(analysis)
@@ -174,7 +178,7 @@ export function buildFeed(input: FeedInput): FeedRow[] {
   }
   let rows: FeedRow[]
   if (mode === 'raw') {
-    rows = markCurrent(list.slice(-rawLimit).reverse().map((i, index) => eventRow(i, { id: `${index}-${i.t}-${i.from}-${i.to}-${i.kind}` })))
+    rows = markCurrent(list.slice(-(range ? rangeLimit : rawLimit)).reverse().map((i, index) => eventRow(i, { id: `${index}-${i.t}-${i.from}-${i.to}-${i.kind}` })))
   } else {
     const groups = new Map<string, FeedRow>()
     for (const i of list) {
@@ -187,17 +191,15 @@ export function buildFeed(input: FeedInput): FeedRow[] {
         group.weapon = i.weapon ?? i.ewar ?? i.repairType ?? group.weapon
       } else groups.set(id, eventRow(i, { id }))
     }
-    rows = markCurrent([...groups.values()].sort((a, b) => b.lastT - a.lastT || b.total - a.total).slice(0, mergedLimit))
+    rows = markCurrent([...groups.values()].sort((a, b) => b.lastT - a.lastT || b.total - a.total).slice(0, range ? rangeLimit : mergedLimit))
   }
   results.set(analysis, { key, rows })
   return rows
 }
 
-/** What time span the rows cover, for the feed's header. Key mode is not limited to the last 10 s. */
+/** What time span the rows cover, for the feed's header. A range is listed whole; key mode is not limited to the last 10 s. */
 export function scopeLabel(mode: FeedMode, t: number, range: FeedInput['range']): string {
   const seconds = windowMs / 1000
   if (!range) return mode === 'key' ? `${fmtHms(t)} 之前的关键事件` : `${fmtHms(t)} 之前 ${seconds} 秒`
-  const [from, to] = bounds(t, range)
-  const span = `${fmtHms(from)}–${fmtHms(to)} 内`
-  return mode === 'key' ? `${span}的关键事件` : `${span} · 最近 ${seconds} 秒`
+  return `${fmtHms(range[0])}–${fmtHms(range[1])}`
 }

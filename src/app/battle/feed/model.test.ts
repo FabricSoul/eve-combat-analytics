@@ -129,10 +129,19 @@ describe('range and focus in every mode', () => {
     expect(raw.map((r) => r.lastT)).toEqual([T - 5_000, T - 7_000])
   })
 
-  it('stops at the cursor inside a range and shows nothing before it', () => {
+  it('inside a range lists every event of the whole range, whatever the playhead (newest first)', () => {
     const range = [T - 8_000, T - 1_000] as const
-    expect(buildFeed({ analysis, summary: summary(), mode: 'raw', t: T - 6_000, oursSide: 0, range }).map((r) => r.lastT)).toEqual([T - 7_000])
-    expect(buildFeed({ analysis, summary: summary(), mode: 'raw', t: T - 9_500, oursSide: 0, range })).toEqual([])
+    for (const t of [T - 9_500, T - 8_000, T - 6_000, T]) {
+      const raw = buildFeed({ analysis, summary: summary(), mode: 'raw', t, oursSide: 0, range })
+      expect(raw.map((r) => r.lastT), `t=${t}`).toEqual([T - 1_000, T - 2_000, T - 5_000, T - 7_000])
+      expect(total(buildFeed({ analysis, summary: summary(), mode: 'merged', t, oursSide: 0, range }))).toBe(4)
+    }
+  })
+
+  it('a range wider than 10 s is not clipped to the last 10 s', () => {
+    const long = Array.from({ length: 30 }, (_, i) => hit(T - 60_000 + i * 2_000, '1', '2', { amount: 1 }))
+    const rows = buildFeed({ analysis: { ...empty, interactions: long }, summary: summary(), mode: 'raw', t: T - 60_000, oursSide: 0, range: [T - 60_000, T] })
+    expect(rows).toHaveLength(30)
   })
 
   it('key mode keeps only kills, primary switches and hits inside the range', () => {
@@ -154,11 +163,11 @@ describe('scopeLabel', () => {
     expect(scopeLabel('merged', T, null)).toBe(`${fmtHms(T)} 之前 10 秒`)
     expect(scopeLabel('raw', T, null)).toBe(`${fmtHms(T)} 之前 10 秒`)
     expect(scopeLabel('key', T, null)).toBe(`${fmtHms(T)} 之前的关键事件`)
-    expect(scopeLabel('merged', T, [T - 60_000, T - 30_000])).toBe(`${fmtHms(T - 60_000)}–${fmtHms(T - 30_000)} 内 · 最近 10 秒`)
-    expect(scopeLabel('key', T, [T - 60_000, T + 30_000])).toBe(`${fmtHms(T - 60_000)}–${fmtHms(T)} 内的关键事件`)
+    expect(scopeLabel('merged', T, [T - 60_000, T - 30_000])).toBe(`${fmtHms(T - 60_000)}–${fmtHms(T - 30_000)}`)
+    expect(scopeLabel('key', T, [T - 60_000, T + 30_000])).toBe(`${fmtHms(T - 60_000)}–${fmtHms(T + 30_000)}`)
   })
 })
 
-it('never prints a reversed scoped feed time window', () => {
-  expect(scopeLabel('merged', T - 5000, [T, T + 10000])).toBe(`${fmtHms(T)}–${fmtHms(T)} 内 · 最近 10 秒`)
+it('prints the whole range whatever the playhead, never "最近 10 秒"', () => {
+  expect(scopeLabel('merged', T - 5000, [T, T + 10000])).toBe(`${fmtHms(T)}–${fmtHms(T + 10000)}`)
 })

@@ -51,12 +51,15 @@ describe('Roster', () => {
     expect(ship.querySelector('span.app-portrait')).not.toBeNull()
     expect(ship.querySelector('img.app-type-icon')?.getAttribute('src')).toContain('/types/587/icon')
     expect(ship.querySelector('.roster-more')).not.toBeNull()
-    const enemy = mounted.container.querySelectorAll('section')[1]!
+    const sections = [...mounted.container.querySelectorAll('section')]
+    const enemy = sections.find((section) => section.getAttribute('aria-label') === '敌方')!
     expect(enemy.querySelector('.roster-count')?.textContent).toBe('2')
-    const sub = enemy.querySelector('.roster-sub')!
-    expect(sub.textContent).toBe('未识别 2')
-    expect(sub.nextElementSibling?.textContent).toContain('Hidden')
-    expect(sub.previousElementSibling?.textContent).toContain('Pilot4')
+    // The unidentified rows get a section and header of their own, so the side's sticky header cannot stay over them.
+    const unidentified = sections.find((section) => section.getAttribute('aria-label') === '未识别 · 敌方')!
+    expect(unidentified.querySelector('h3')?.textContent).toBe('未识别 · 敌方2')
+    expect(unidentified.hasAttribute('data-unidentified')).toBe(true)
+    expect(enemy.contains(unidentified)).toBe(false)
+    expect([...unidentified.querySelectorAll('.roster-name')].map((n) => n.textContent)).toEqual(['Hidden', 'Rifter'])
   })
 
   it('orders by stats of the Shift-drag range when one is set', () => {
@@ -129,6 +132,23 @@ describe('Roster', () => {
     act(() => row('Pilot2').querySelector<HTMLButtonElement>('.roster-more')!.click())
     await act(async () => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click())
     expect(mounted.container.querySelector('[role="alert"]')?.textContent).toBe('无法移动')
+  })
+
+  it('the 名单 shows a "N 未识别" link that scrolls to the unidentified section', () => {
+    const extra = [{ key: 'name:Hidden', name: 'Hidden', charId: null, side: 1, sideSource: 'br', shipTypes: ['Leshak'], hasLog: false }]
+    mounted = mountApp(createElement(Roster), {
+      summary: tinySummary,
+      analysis: { ...tinyAnalysis, entities: { ...tinyAnalysis.entities, ...Object.fromEntries(extra.map((e) => [e.key, { ...e, shipTypes: [...e.shipTypes] }])) } },
+    })
+    const link = mounted.container.querySelector<HTMLButtonElement>('.roster-jump')!
+    expect(link.textContent).toBe('1 未识别')
+    const section = mounted.container.querySelector<HTMLElement>('[data-unidentified]')!
+    const reveal = vi.fn()
+    section.scrollIntoView = reveal
+    act(() => link.click())
+    expect(document.activeElement).toBe(section.querySelector('.roster-main'))
+    // Never scrollIntoView (it would scroll the module area too): only the list scrolls.
+    expect(reveal).not.toHaveBeenCalled()
   })
 
   it('Esc in the search clears the text first, then closes it', () => {

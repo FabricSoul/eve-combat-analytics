@@ -102,3 +102,19 @@ describe.skipIf(!process.env.PERF)('feed timing on the full fight (PERF=1)', () 
     })
   }
 })
+
+describe('feed inside a Shift-drag range on the full real fight', () => {
+  it('lists every event of the range in all three modes even when the playhead sits at the range start', () => {
+    const start = analysis.interactions[0]!.t
+    const range = [start + 120_000, start + 240_000] as const
+    for (const mode of ['merged', 'raw', 'key'] as const) {
+      const rows = buildFeed({ analysis, summary, mode, t: range[0], oursSide: 0, range })
+      expect(rows.length, mode).toBeGreaterThan(10)
+      expect(rows.every((r) => r.lastT >= range[0] && r.lastT <= range[1]), mode).toBe(true)
+      expect(rows.map((r) => r.lastT), mode).toEqual([...rows.map((r) => r.lastT)].sort((a, b) => b - a))
+    }
+    // Raw covers more than the 10 s window the playhead would give.
+    const raw = buildFeed({ analysis, summary, mode: 'raw', t: range[0], oursSide: 0, range })
+    expect(raw[0]!.lastT - raw.at(-1)!.lastT).toBeGreaterThan(windowMs)
+  })
+})

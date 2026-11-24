@@ -3,7 +3,7 @@ import { fmtHms, fmtIsk, fmtNum } from '../lib/format'
 import { useBattleContext } from '../state/battle-store'
 import { useCoarseTime, useView, type FeedMode } from '../state/view-store'
 import { TypeIcon } from '../ui/TypeIcon'
-import { buildFeed, defaultFeedKinds, scopeLabel, type FeedKind, type FeedRow } from './feed/model'
+import { buildFeed, defaultFeedKinds, rangeLimit, scopeLabel, type FeedKind, type FeedRow } from './feed/model'
 import { useModuleTypeId } from './feed/item-icon'
 import { Who } from './feed/Who'
 import { useNoiseFilteredAnalysis } from './replay/noise'
@@ -137,7 +137,7 @@ export function EventFeed({ compact: forcedCompact, search, onSearchClose, showF
     <div ref={root} className="feed" data-mode={mode} data-compact={compactHead ? '' : undefined}>
       <div className="feed-bar">
         <div className="feed-title"><span>事件</span>{view.range
-          ? <RangeChip range={view.range} clearRange={view.clearRange} label={`选段 ${scopeLabel(mode, t, view.range)}`} />
+          ? <RangeChip range={view.range} clearRange={view.clearRange} label={`选段 ${scopeLabel(mode, t, view.range)} · ${rows.length >= rangeLimit ? "最新 " : ""}${rows.length} 条`} />
           : <span className="feed-at">{scopeLabel(mode, t, null)}</span>}</div>
         <div className="feed-modes" role="group" aria-label="事件流模式">
           {modes.map(({ value, label }) => (
@@ -161,7 +161,7 @@ export function EventFeed({ compact: forcedCompact, search, onSearchClose, showF
       <div className="feed-head" role="presentation">
         {heads.map((head, index) => <span key={index} className={index === heads.length - 1 && mode !== 'key' ? 'feed-r' : undefined}>{head}</span>)}
       </div>
-      {rows.length === 0 ? <div className="feed-empty" role="status">{needle ? '没有匹配的事件 · 试试其他飞行员或武器。' : '这一刻前后没有事件 · 移动时间轴或调整筛选条件'}</div> : renderRows()}
+      {rows.length === 0 ? <div className="feed-empty" role="status">{needle ? '没有匹配的事件 · 试试其他飞行员或武器。' : (view.range ? '选段内没有事件 · 调整筛选条件' : '这一刻前后没有事件 · 移动时间轴或调整筛选条件')}</div> : renderRows()}
     </div>
   )
 }
