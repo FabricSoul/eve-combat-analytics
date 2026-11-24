@@ -35,9 +35,7 @@ export function placeReplayPopover(anchor: Rect, size: Size, bounds: Rect, gap: 
   const below = size.height <= belowSpace || belowSpace >= aboveSpace
   const height = Math.min(size.height, below ? belowSpace : aboveSpace)
   const rightmost = bounds.x + bounds.width - width
-  const endAligned = anchor.x + anchor.width - width
-  const flipInline = endAligned < bounds.x - gap && anchor.x <= rightmost
-  const x = Math.max(bounds.x, Math.min(flipInline ? anchor.x : endAligned, rightmost))
+  const x = Math.max(bounds.x, Math.min(anchor.x, rightmost))
   const y = below ? belowY : aboveBottom - height
   return { x, y, width, height }
 }

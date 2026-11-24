@@ -89,7 +89,15 @@ export function ReplayNoiseControls() {
     observer?.observe(stage)
     observer?.observe(header)
     observer?.observe(button)
-    return () => observer?.disconnect()
+
+    const closeOutside = (event: PointerEvent) => {
+      if (!event.composedPath().includes(menu)) menu.open = false
+    }
+    document.addEventListener('pointerdown', closeOutside, true)
+    return () => {
+      observer?.disconnect()
+      document.removeEventListener('pointerdown', closeOutside, true)
+    }
   }, [open])
 
   return (

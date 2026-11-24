@@ -7,6 +7,7 @@ import { ReplayStage } from './ReplayStage'
 import { ReplayCanvas } from '../ReplayCanvas'
 import { EventFeed } from '../EventFeed'
 import { hitSegments } from '../compare/hit-quality'
+import { PilotActions } from '../roster/PilotActions'
 import { BattleProvider } from '@/app/state/battle-store'
 import { ViewProvider } from '@/app/state/view-store'
 import { loadUiFixture } from '@/app/test/ui-fixture'
@@ -243,6 +244,52 @@ it('keeps paused nodes still and keeps them still during quiet playback', async 
     await refresh()
     expect(positions()).toEqual(initial)
   }
+})
+
+it('dismisses damage filters on outside pointerdown while keeping inside presses in the menu', async () => {
+  const { summary } = loadUiFixture()
+  await act(() => root.render(
+    <BattleProvider static={{ summary, analysis: analysis() }}><ViewProvider initialTime={time} syncUrl={false}>
+      <ReplayCanvas stage />
+    </ViewProvider></BattleProvider>,
+  ))
+  const filter = host.querySelector<HTMLDetailsElement>('.replay-noise')!
+  await act(() => filter.querySelector('summary')!.click())
+  await act(() => filter.dispatchEvent(new Event('toggle')))
+  expect(filter.open).toBe(true)
+
+  await act(() => filter.querySelector('input')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
+  expect(filter.open).toBe(true)
+
+  await act(() => button(alpha.name).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
+  expect(filter.open).toBe(false)
+})
+
+it('hides the stage hover card while a pilot context menu is open', async () => {
+  const { summary } = loadUiFixture()
+  await act(() => root.render(
+    <BattleProvider static={{ summary, analysis: analysis() }}><ViewProvider initialTime={time} syncUrl={false}>
+      <PilotActions><ReplayCanvas stage /></PilotActions>
+    </ViewProvider></BattleProvider>,
+  ))
+  await refresh()
+  const pilot = button(alpha.name)
+  await act(() => pilot.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })))
+  await refresh()
+  expect(host.querySelector('.replay-tooltip[data-positioned] strong')?.textContent).toBe(alpha.name)
+
+  await act(() => pilot.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, button: 2, clientX: 100, clientY: 100 })))
+  await refresh()
+  const menu = document.body.querySelector('[role="menu"]')!
+  expect(menu).not.toBeNull()
+  expect(host.querySelector('.replay-tooltip')).toBeNull()
+
+  await act(() => menu.querySelector('[role="menuitem"]')!.dispatchEvent(
+    new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+  ))
+  await refresh()
+  expect(document.body.querySelector('[role="menu"]')).toBeNull()
+  expect(host.querySelector('.replay-tooltip[data-positioned] strong')?.textContent).toBe(alpha.name)
 })
 
 it('shows only damage dealt in the current fight before applying the row limit', async () => {

@@ -109,7 +109,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, killm
     width && height ? makeLayout(scene.pilots, order, width, height) : null
   ), [scene, order, width, height])
   const lockedKey = focused ?? selected
-  const detailKey = inspected ?? focused ?? selected
+  const menu = usePilotMenu()
+  const detailKey = menu?.active ? null : inspected ?? focused ?? selected
   const detail = detailKey ? layout?.byKey.get(detailKey) : undefined
   const frame = useRef({ t, playing, selected, focusOnly, detailKey, lockedKey, camera })
   const pauseClock = useRef<{ t: number; playing: boolean; since: number } | null>(null)
