@@ -187,6 +187,8 @@ describe('IdentityPicker', () => {
     const tag = row('Pilot2').querySelector<HTMLButtonElement>('button.app-tag')!
     expect(tag.textContent).toBe('合并')
     expect(tag.getAttribute('title')).toContain('合并 · 2025-06-22 15:42 UTC 设')
+    expect(tag.getAttribute('title')).toContain('合并操作…')
+    expect(tag.getAttribute('title')).not.toContain('点击取消合并')
     act(() => tag.click())
     const undo = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent?.startsWith('取消合并'))!
     await act(async () => undo.click())

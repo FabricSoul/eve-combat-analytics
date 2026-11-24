@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { statsForRange } from '@/core/analysis/range'
 import { sideColor, sideLetter } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
@@ -71,8 +71,8 @@ function RosterContent({ search, alphabetical, onSearchClose }: RosterProps) {
           <span className="roster-ship"><TypeIcon typeId={row.shipTypeId} size={16} />{row.ship}</span>
         </button>
         {row.tag && mergeTag && (
-          <button type="button" className="app-tag roster-tag-button" data-kind="merge" title={`${row.tag.title} · 点击取消合并`}
-            aria-label={`${row.name} 的合并 · 取消合并…`} aria-haspopup="menu"
+          <button type="button" className="app-tag roster-tag-button" data-kind="merge" title={`${row.tag.title} · 合并操作…`}
+            aria-label={`${row.name} 的合并操作`} aria-haspopup="menu"
             onClick={(event) => { event.stopPropagation(); menu?.open(row.key, event, true) }}>{tagLabel.merge}</button>
         )}
         <PilotMore pilot={row.key} name={row.name} className="roster-more" />
@@ -115,7 +115,14 @@ function RosterContent({ search, alphabetical, onSearchClose }: RosterProps) {
                   <span>{sideName(side, order)}{letter && <span className="side-letter"> {letter}</span>}{side === view.oursSide ? ` · 有日志 ${withLog}` : ''}</span>
                   <span className="roster-count">{known.length}</span>
                 </h3>
-                {known.map(renderRow)}
+                {known.map((row, index) => (
+                  <Fragment key={row.key}>
+                    {side === view.oursSide && !row.hasLog && known[index - 1]?.hasLog && (
+                      <h4 className="roster-sub">无日志 {known.filter((other) => !other.hasLog).length}</h4>
+                    )}
+                    {renderRow(row)}
+                  </Fragment>
+                ))}
               </section>
             )}
             {unknown.length > 0 && (

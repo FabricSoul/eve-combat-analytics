@@ -134,6 +134,13 @@ describe('Roster', () => {
     expect(mounted.container.querySelector('[role="alert"]')?.textContent).toBe('无法移动')
   })
 
+  it('lists our pilots without a log under their own 无日志 sub-heading, not under 有日志', () => {
+    mounted = mountApp(createElement(Roster))
+    const ours = mounted.container.querySelector('section')!
+    const children = [...ours.children].map((el) => el.classList.contains('roster-sub') ? `#${el.textContent}` : el.querySelector?.('.roster-name')?.textContent ?? '')
+    expect(children.slice(1)).toEqual(['Pilot3', 'Pilot1', '#无日志 1', 'Pilot2'])
+  })
+
   it('the 名单 shows a "N 未识别" link that scrolls to the unidentified section', () => {
     const extra = [{ key: 'name:Hidden', name: 'Hidden', charId: null, side: 1, sideSource: 'br', shipTypes: ['Leshak'], hasLog: false }]
     mounted = mountApp(createElement(Roster), {

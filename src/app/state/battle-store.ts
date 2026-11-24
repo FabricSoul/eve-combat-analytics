@@ -1,6 +1,7 @@
-import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Analysis, BattleSummary, EntityKey, IdentityMerge, ServerMessage } from '@/core/contract'
 import { api, ApiFailure, battleApiPath } from '../api/client'
+import { foldIdentities } from './merge-view'
 
 export interface BattleView {
   summary: BattleSummary | null
@@ -265,34 +266,67 @@ export type BattleProviderProps = {
   children: ReactNode
 } & ({ brId: string; static?: never } | { brId?: never; static: BattleData })
 
-type LocalIdentities = ReadonlyMap<EntityKey, IdentityMerge['to'] | null>
-/** Apply an identity merge (or its removal, to = null) locally until the server's list confirms; the returned function rolls it back. */
+/** What the user did locally to an unidentified entity, until the server's state shows the same thing. */
+interface LocalOp { to: IdentityMerge['to'] | null; seq: number; at: number }
+type LocalIdentities = ReadonlyMap<EntityKey, LocalOp>
+/** Apply an identity merge (or its removal, to = null) locally until the server's state matches; the returned function rolls it back. */
 const LocalIdentityContext = createContext<((from: EntityKey, to: IdentityMerge['to'] | null) => () => void) | null>(null)
 export const useLocalIdentity = () => useContext(LocalIdentityContext)
+/** A server echo older than the user's last action is ignored; give up waiting after this long. */
+const localOpLifetime = 60_000
+
+function serverTo(summary: BattleSummary | null, from: EntityKey): IdentityMerge['to'] | null {
+  return summary?.identityMerges?.find((merge) => merge.from === from)?.to ?? null
+}
 
 function withLocal(summary: BattleSummary | null, local: LocalIdentities): BattleSummary | null {
   if (!summary || local.size === 0) return summary
   const merges = (summary.identityMerges ?? []).filter(({ from }) => !local.has(from))
-  for (const [from, to] of local) if (to) merges.push({ from, to, setAt: Date.now() })
+  for (const [from, { to }] of local) if (to) merges.push({ from, to, setAt: Date.now() })
   return { ...summary, identityMerges: merges }
 }
 
 export function BattleProvider({ brId, static: data, children }: BattleProviderProps) {
   const battle = useBattle(brId ?? null)
   const [local, setLocal] = useState<LocalIdentities>(new Map())
+  const seq = useRef(0)
   const base: BattleView = data ? { ...initialBattle, ...data, analyzedSummary: data.summary, status: 'ready' } : battle
   const serverMerges = base.summary?.identityMerges
-  // identities_set (or a rerender with new data) is the server's answer: drop what was applied locally.
-  useEffect(() => { setLocal(new Map()) }, [serverMerges])
+  // A local op ends when the server's list says what the user asked for; a stale echo (an older state) leaves it standing.
+  useEffect(() => {
+    setLocal((previous) => {
+      let next: Map<EntityKey, LocalOp> | null = null
+      for (const [from, op] of previous) {
+        if (serverTo(base.summary, from) === op.to || Date.now() - op.at > localOpLifetime) (next ??= new Map(previous)).delete(from)
+      }
+      return next ?? previous
+    })
+  }, [serverMerges])
   const apply = useCallback((from: EntityKey, to: IdentityMerge['to'] | null) => {
-    setLocal((previous) => new Map(previous).set(from, to))
+    const mine = ++seq.current
+    setLocal((previous) => new Map(previous).set(from, { to, seq: mine, at: Date.now() }))
     return () => setLocal((previous) => {
+      if (previous.get(from)?.seq !== mine) return previous // a newer local action owns this entity now
       const next = new Map(previous)
       next.delete(from)
       return next
     })
   }, [])
-  const value = useMemo<BattleView>(() => ({ ...base, summary: withLocal(base.summary, local) }), [base, local])
+
+  // Analyses the user's later action has outdated: an entity they un-merged locally must not vanish because the server
+  // finished folding the earlier merge. Hold the last analysis that still had it.
+  const shown = useRef<Analysis | null>(null)
+  const analysis = useMemo(() => {
+    let current = base.analysis
+    if (current && shown.current) {
+      for (const [from, op] of local) {
+        if (op.to === null && shown.current.entities[from] && !current.entities[from]) { current = shown.current; break }
+      }
+    }
+    shown.current = current
+    return current && local.size ? foldIdentities(current, [...local].flatMap(([from, { to }]) => to ? [{ from, to }] : [])) : current
+  }, [base.analysis, local])
+  const value = useMemo<BattleView>(() => ({ ...base, analysis, summary: withLocal(base.summary, local) }), [base, analysis, local])
   return createElement(LocalIdentityContext.Provider, { value: apply }, createElement(BattleContext.Provider, { value }, children))
 }
 
