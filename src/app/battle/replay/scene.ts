@@ -112,6 +112,10 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   const logBalance = split ? pilots.reduce((balance, { entity }) => !entity.hasLog ? balance
     : balance + (entity.side === order[0] ? 1 : entity.side === order[1] ? -1 : 0), 0) : 0
   const splitRatio = 0.5 + Math.sign(logBalance) * 0.05
+  const compactTop = 57
+  // Allocate more of the space lost to wrapped controls to the fleet with fewer names.
+  const upperFleetShare = 0.5 + Math.sign(logBalance) * 0.35
+  const verticalDivider = height * splitRatio + Math.max(0, topInset - compactTop) * upperFleetShare
   if (split === 'x') {
     anchors.get(order[0]!)!.x = width * 0.28
     anchors.get(order[1]!)!.x = width * 0.84
@@ -146,10 +150,10 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     const ours = node.entity.side === order[0]
     const minX = split === 'x' && !ours ? width * splitRatio + inset : inset
     const maxX = split === 'x' && ours ? width * splitRatio - inset : width - inset
-    const top = split === 'y' && !ours ? height * splitRatio : split ? 57 : 42
+    const top = split === 'y' && !ours ? verticalDivider : split ? compactTop : 42
     const minY = Math.max(top, topInset) + inset
     const floor = height - inset - Math.max(bottomInset, node.labeled ? 20 : 8)
-    const maxY = split === 'y' && ours ? Math.min(floor, height * splitRatio - inset) : floor
+    const maxY = split === 'y' && ours ? Math.min(floor, verticalDivider - inset) : floor
     return { x: Math.max(minX, Math.min(maxX, x)), y: Math.max(minY, Math.min(maxY, y)) }
   }
 

@@ -155,7 +155,7 @@ export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], ob
   const options = (label: T, occupied: readonly Rect[], width: number, bounds = label.bounds, reach = maxLabelDistance) =>
     placePilotLabel(label.center, label.radius, { ...label.size, width }, bounds, occupied, true, reach)
 
-  function pack(limit: number) {
+  function pack(limit: number, first?: ReadonlySet<T>) {
     const occupied = [...obstacles]
     const placed = new Map<T, Rect>()
     // Put pilots with little nearby room first, so pilots at the edge can use the gaps left over.
@@ -164,7 +164,8 @@ export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], ob
       const nearest = slot && closestPoint(label.center, slot)
       const distance = nearest ? Math.hypot(nearest.x - label.center.x, nearest.y - label.center.y) : Infinity
       return { label, distance }
-    }).sort((a, b) => b.distance - a.distance)
+    }).sort((a, b) =>
+      Number(first?.has(b.label) ?? false) - Number(first?.has(a.label) ?? false) || b.distance - a.distance)
     for (const { label } of order) {
       const slot = options(label, occupied, Math.min(limit, label.size.width))
       if (!slot) continue
@@ -180,6 +181,13 @@ export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], ob
     if (positions.size === uploaders.length) break
     const retry = pack(width)
     if (retry.size > positions.size) positions = retry
+    if (width <= 32 && retry.size < uploaders.length) {
+      // A pilot with a short path can still have only one free slot. Let omitted
+      // pilots claim a slot first, then try fitting their neighbors around them.
+      const missing = new Set(uploaders.filter((label) => !retry.has(label)))
+      const rebalanced = pack(width, missing)
+      if (rebalanced.size > positions.size) positions = rebalanced
+    }
   }
 
   // Reclaim space for longer names without taking an already placed uploader's slot.
