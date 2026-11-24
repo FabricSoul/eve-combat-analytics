@@ -55,10 +55,17 @@ describe('battle modules', () => {
   })
 
   it('budgets the timeline inside the default stage height and leaves at least 220px for modules where possible', () => {
-    expect(replayHeightBounds(800, 752, 176)).toEqual({ min: 220, max: 346, initial: 318 })
-    expect(replayHeightBounds(940, 892, 176)).toEqual({ min: 220, max: 486, initial: 405 })
-    expect(replayHeightBounds(1500, 1452, 150)).toEqual({ min: 220, max: 1072, initial: 778 })
-    expect(replayHeightBounds(400, 352, 150)).toEqual({ min: 120, max: 120, initial: 120 })
+    expect(replayHeightBounds(800, 752, 176)).toMatchObject({ initial: 318 })
+    expect(replayHeightBounds(940, 892, 176)).toMatchObject({ initial: 405 })
+    expect(replayHeightBounds(1500, 1452, 150)).toMatchObject({ initial: 778 })
+    expect(replayHeightBounds(680, 632, 150)).toMatchObject({ initial: 252 })
+  })
+
+  it('clamps the combined stage to 300px and 75% while keeping the timeline intact', () => {
+    expect(replayHeightBounds(800, 752, 176)).toEqual({ min: 122, max: 422, initial: 318, fixedHeight: 178 })
+    expect(replayHeightBounds(940, 892, 200)).toEqual({ min: 98, max: 503, initial: 381, fixedHeight: 202 })
+    expect(replayHeightBounds(400, 352, 150)).toEqual({ min: 148, max: 148, initial: 148, fixedHeight: 152 })
+    expect(replayHeightBounds(320, 272, 150)).toEqual({ min: 88, max: 88, initial: 88, fixedHeight: 152 })
   })
 
   it('migrates the old default fights state to automatic collapse and remembers an explicit override', () => {

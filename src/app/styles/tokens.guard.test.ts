@@ -124,6 +124,25 @@ function hasColorLiteral(source: string, path: string): boolean {
 }
 
 describe('design tokens', () => {
+  it('keeps the design guide aligned with individual events and sampled ranks', () => {
+    const design = readFileSync(resolve('DESIGN.md'), 'utf8')
+    expect.soft(design).not.toMatch(/\bdefaults?(?: to| is)? (?:the )?merged\b|\bmerged\b[^.\n]*\b(?:by default|(?:is|as) the default)\b/i)
+    expect.soft(design).not.toMatch(/\b(?:bans?|forbids?|avoid|no|never)\b[^.\n]*\brank(?:ing)? columns?\b/i)
+    expect.soft(design).not.toMatch(/\brank(?:ing)? columns? (?:are|is) (?:banned|forbidden|disallowed)\b/i)
+    for (const name of ['--row-compact', '--fs-compact-table', '--fs-compact-body']) expect.soft(design).toContain(name)
+  })
+
+  it('uses a flat upload tray and a stroke for replay label legibility', () => {
+    const upload = readFileSync(resolve(appDirectory, 'battle/upload/upload.css'), 'utf8')
+    const replay = readFileSync(resolve(appDirectory, 'battle/replay/replay.css'), 'utf8')
+    const tray = upload.match(/\.upload-tray\s*\{([^}]+)\}/)?.[1]
+    const label = replay.match(/\.replay-pilot-label\s*\{([^}]+)\}/)?.[1]
+    expect.soft(tray).not.toMatch(/box-shadow\s*:/)
+    expect.soft(label).not.toMatch(/text-shadow\s*:/)
+    expect.soft(label).toMatch(/-webkit-text-stroke\s*:\s*\d+px var\(--color-bg\)/)
+    expect.soft(label).toMatch(/paint-order\s*:\s*stroke\b/)
+  })
+
   it('lists every CSS token once and describes its use', () => {
     const css = readFileSync(resolve(appDirectory, 'styles/tokens.css'), 'utf8')
     const declared = [...new Set(Array.from(css.matchAll(/(--[\w-]+)\s*:/g), (match) => match[1]))]

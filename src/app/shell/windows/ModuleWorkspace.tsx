@@ -58,15 +58,15 @@ export function ModuleControls({ layout, dispatch, columns }: {
 }
 
 export function StageGrip({ height, limits, dispatch }: {
-  height: number; limits: { min: number; max: number }; dispatch: Dispatch<ModuleAction>
+  height: number; limits: { min: number; max: number; fixedHeight: number }; dispatch: Dispatch<ModuleAction>
 }) {
   const pointer = useRef<{ id: number; start: number; height: number } | null>(null)
   function release(event: PointerEvent) {
     if (pointer.current?.id === event.pointerId) pointer.current = null
   }
   return <div className="battle-stage-grip" role="separator" tabIndex={0} title="拖动调整高度，双击恢复"
-    aria-label="调整舞台高度" aria-orientation="horizontal" aria-valuemin={limits.min}
-    aria-valuemax={limits.max} aria-valuenow={height}
+    aria-label="调整舞台高度" aria-orientation="horizontal" aria-valuemin={limits.min + limits.fixedHeight}
+    aria-valuemax={limits.max + limits.fixedHeight} aria-valuenow={height + limits.fixedHeight}
     onDoubleClick={() => dispatch({ type: 'stage', height: null })}
     onKeyDown={(event) => {
       if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown' && event.key !== 'Home') return

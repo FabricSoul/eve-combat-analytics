@@ -143,9 +143,8 @@
   font: 11px/16px var(--font-ui);
   white-space: nowrap;
   pointer-events: none;
-  text-shadow:
-    1px 1px var(--color-bg), -1px 1px var(--color-bg),
-    -1px -1px var(--color-bg), 1px -1px var(--color-bg);
+  -webkit-text-stroke: 3px var(--color-bg);
+  paint-order: stroke fill;
 }
 
 .replay-pilot-label[data-positioned] { visibility: visible; }

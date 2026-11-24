@@ -36,7 +36,6 @@
   border: 1px solid var(--color-hair);
   border-radius: var(--radius-card);
   background: var(--color-surface);
-  box-shadow: 0 12px 32px color-mix(in srgb, var(--color-text) 22%, transparent);
 }
 .upload-tray-head {
   display: flex;

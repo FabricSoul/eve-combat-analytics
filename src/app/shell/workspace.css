@@ -3,8 +3,6 @@
 .app-topbar .app-topbar-menu-toggle,
 .app-topbar-menu-meta { display: none; }
 
-.app-shell .upload-tray { box-shadow: none; }
-
 .app-topbar-github {
   display: inline-flex;
   align-items: center;

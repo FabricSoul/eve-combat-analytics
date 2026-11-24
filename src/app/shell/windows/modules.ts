@@ -94,15 +94,14 @@ export function keyboardDrop(layout: ModuleLayout, id: ModuleId, key: string, co
 export const timelineMinHeight = 150
 
 export function replayHeightBounds(viewportHeight: number, workspaceHeight: number, timelineHeight: number) {
-  const stageBorders = 2
   const stageGutter = 8
-  const timeline = Math.max(timelineMinHeight, timelineHeight)
-  const available = Math.max(0, Math.floor(workspaceHeight - timeline - stageBorders - stageGutter))
-  const modules = Math.min(220, Math.max(0, available - 120))
-  const max = available - modules
-  const min = Math.min(220, max)
-  const initial = Math.round(viewportHeight * 0.62) - timeline - stageBorders
-  return { min, max, initial: Math.min(max, Math.max(min, initial)) }
+  const fixedHeight = Math.max(timelineMinHeight, timelineHeight) + 2 // Timeline and stage borders.
+  const available = Math.floor(workspaceHeight - stageGutter)
+  // The persisted height is the replay alone. Apply the limits to the whole stage.
+  const max = Math.max(0, Math.min(Math.floor(viewportHeight * 0.75), available) - fixedHeight)
+  const min = Math.min(max, Math.max(0, 300 - fixedHeight))
+  const initial = Math.min(Math.round(viewportHeight * 0.62), available - 220) - fixedHeight
+  return { min, max, initial: Math.min(max, Math.max(min, initial)), fixedHeight }
 }
 
 export function clampStage(height: number, { min, max }: Pick<ReturnType<typeof replayHeightBounds>, 'min' | 'max'>) {

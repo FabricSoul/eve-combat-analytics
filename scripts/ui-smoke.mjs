@@ -217,6 +217,19 @@ try {
     await checkTimeline()
     await grip.dblclick()
     assert.equal((await replay.boundingBox()).height, canvasHeight)
+    for (const [edge, y, expected] of [['min', 60, 300], ['max', height - 2, Math.floor(height * 0.75)]]) {
+      const box = await grip.boundingBox()
+      const x = box.x + box.width / 2
+      await page.mouse.move(x, box.y + box.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(x, y, { steps: 8 })
+      await page.mouse.up()
+      assert.equal((await stage.boundingBox()).height, expected, `the stage drag reaches its ${edge} height`)
+      assert.equal(Number(await grip.getAttribute(`aria-value${edge}`)), expected, 'the grip reports the whole stage height')
+      await checkTimeline()
+    }
+    await grip.dblclick()
+    assert.equal((await stage.boundingBox()).height, stageBox.height, 'double-click restores the default stage height')
     const extraLayers = ['我方维修', '点人', '击毁用舰船图标'].map((name) => timeline.getByRole('button', { name, exact: true }))
     for (const layer of extraLayers) await layer.click()
     await checkTimeline()
