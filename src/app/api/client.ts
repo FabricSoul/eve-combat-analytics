@@ -122,6 +122,10 @@ export const api = {
     return request(`${battleApiPath(brId)}/fits/${charId}`, { method: 'PUT', headers: textHeaders, body: eft })
   },
 
+  deleteFit(brId: string, charId: number): Promise<{ removed: number }> {
+    return request(`${battleApiPath(brId)}/fits/${charId}`, { method: 'DELETE' })
+  },
+
   putSide(brId: string, subject: SideSubject, side: SideEdit['side']): Promise<SideOverride> {
     return request(`${battleApiPath(brId)}/sides`, json('PUT', { subject, side }))
   },

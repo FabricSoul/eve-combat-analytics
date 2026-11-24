@@ -376,4 +376,12 @@ export class BattleStorage {
       this.markAnalysisDirty()
     })
   }
+
+  deleteFit(charId: number): boolean {
+    return this.storage.transactionSync(() => {
+      const removed = this.sql.exec('DELETE FROM fits WHERE charId = ?', charId).rowsWritten > 0
+      if (removed) this.markAnalysisDirty()
+      return removed
+    })
+  }
 }

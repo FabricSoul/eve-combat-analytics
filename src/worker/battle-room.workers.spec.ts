@@ -858,3 +858,24 @@ it('does not let a shared equipment bucket be merged into a pilot', async () => 
   expect(result.status).toBe(400)
   expect(await result.json()).toMatchObject({ error: 'bad_request' })
 })
+
+it('deletes a saved fit and broadcasts its removal to another viewer', async () => {
+  const id = await prepare(987)
+  const viewer = await connect(id)
+  try {
+    await viewer.next()
+    const saved = await setFit(id, '[Rifter, Fleet]')
+    expect(saved.status).toBe(200)
+    await saved.json()
+    expect(await viewer.next()).toMatchObject({ type: 'fit_set' })
+    const remove = () => worker.default.fetch(`${battle(id)}/fits/100`, { method: 'DELETE' })
+    const deleted = await remove()
+    expect(deleted.status).toBe(200)
+    expect(await deleted.json()).toEqual({ removed: 100 })
+    expect(await viewer.next()).toEqual({ type: 'fit_removed', charId: 100 })
+    expect((await state(id)).fits).toEqual([])
+    expect((await remove()).status).toBe(200)
+  } finally {
+    viewer.close()
+  }
+})

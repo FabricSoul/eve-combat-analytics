@@ -167,12 +167,13 @@ export class BattleRoom extends DurableObject<Env> {
         const id = await sha256(text)
         return await this.inOrder(() => this.upload(id, text))
       }
-      if (request.method === 'PUT' && route.startsWith('fits/')) {
+      if ((request.method === 'PUT' || request.method === 'DELETE') && route.startsWith('fits/')) {
         const charIdText = route.slice('fits/'.length)
         const charId = Number(charIdText)
         if (!/^\d+$/.test(charIdText) || !Number.isSafeInteger(charId) || charId <= 0) {
           throw new ApiFailure('bad_request', 'Invalid character ID')
         }
+        if (request.method === 'DELETE') return await this.inOrder(() => this.deleteFit(charId))
         const eft = await readText(request, 64 * 1024, 'EFT fits must be at most 64 KiB')
         return await this.inOrder(() => this.setFit(charId, eft))
       }
@@ -391,6 +392,15 @@ export class BattleRoom extends DurableObject<Env> {
     this.store.setFit(fit)
     this.broadcast({ type: 'fit_set', fit })
     return Response.json(fit)
+  }
+
+  private async deleteFit(charId: number): Promise<Response> {
+    await this.store.migrateIfNeeded((await this.battle()).meta)
+    if (this.store.deleteFit(charId)) {
+      await this.scheduleAnalysis()
+      this.broadcast({ type: 'fit_removed', charId })
+    }
+    return Response.json({ removed: charId })
   }
 
   private async setSide(data: unknown): Promise<Response> {
