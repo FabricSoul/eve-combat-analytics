@@ -2,7 +2,8 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import type { EntityKey } from '@/core/contract'
-import { makePainter } from './paint'
+import { makePainter, missedTracerAt } from './paint'
+import { createProjectilePlayback } from './projectile'
 import { makeLayout, type ReplayEdge, type ReplayPilot } from './scene'
 
 function pilot(id: number): ReplayPilot {
@@ -34,7 +35,7 @@ describe('replay paint anchors', () => {
     const under = canvasProbe()
     const over = canvasProbe()
     const paint = makePainter(under.context, over.context, document.createElement('div'), () => {}).paint
-    const frame = { t: 800, selected: null, focusOnly: false, reducedMotion: false, playing: false }
+    const frame = { t: 400, selected: null, focusOnly: false, reducedMotion: false, playing: false }
     const present = new Set<EntityKey>(['char:1', 'char:2'])
     const moving = paint(layout, [edge], [], present, frame, 500, 400)
     const sourceMarker = moving.positions.get(source!)
@@ -69,7 +70,7 @@ it('clears temporary pulse rings as wall time advances at the same paused instan
   host.style.setProperty('--dur-edge-fade', '3s')
   const painter = makePainter(under.context, over.context, host, () => {})
   const present = new Set<EntityKey>(['char:1', 'char:2'])
-  const frame = { t: 800, selected: null, focusOnly: false, reducedMotion: false, playing: false, pausedElapsed: 0 }
+  const frame = { t: 400, selected: null, focusOnly: false, reducedMotion: false, playing: false, pausedElapsed: 0 }
   const initial = painter.paint(layout, [edge], [], present, frame, 500, 400)
   expect(under.probe.arc.mock.calls.some(([, , radius]) => radius > 10)).toBe(true)
 
@@ -79,4 +80,74 @@ it('clears temporary pulse rings as wall time advances at the same paused instan
   expect(settled.positions.get(layout.nodes[1]!)).toEqual({ x: 350, y: 200 })
   expect(initial.animating).toBe(true)
   expect(settled.animating).toBe(false)
+})
+
+describe('miss and paused-shot encoding', () => {
+  const edge: ReplayEdge = {
+    t: 0, from: 'char:1', to: 'char:2', kind: 'damage', amount: 500, weapon: null, quality: 'Hits',
+    repairType: null, ewar: null, sources: [], corroborated: false, strength: 1,
+  }
+  const frame = { t: 125, selected: null, focusOnly: false, reducedMotion: false, playing: false, pausedElapsed: 2000 }
+  function draw(sample: ReplayEdge) {
+    const layout = makeLayout([pilot(1), pilot(2)], [1, 2], 500, 400)
+    Object.assign(layout.nodes[0]!, { x: 100, y: 180 })
+    Object.assign(layout.nodes[1]!, { x: 350, y: 180 })
+    const under = canvasProbe()
+    const over = canvasProbe()
+    const painter = makePainter(under.context, over.context, document.createElement('div'), () => {})
+    const present = new Set<EntityKey>(['char:1', 'char:2'])
+    const frameResult = painter.paint(layout, [sample], [], present, frame, 500, 400)
+    return { under: under.probe, over: over.probe, painter, ...frameResult }
+  }
+
+  it('marks a miss endpoint with × and makes the dashed trace and marker hoverable', () => {
+    const result = draw({ ...edge, kind: 'miss', amount: 0 })
+    const marker = result.over.fillText.mock.calls.find(([text]) => text === '×')!
+    expect(marker).toBeDefined()
+    expect(marker.slice(1)).toEqual([265, 180])
+    expect(result.under.setLineDash).toHaveBeenCalledWith([2, 4])
+    expect(missedTracerAt(result.misses, { x: 140, y: 184 })).toBe(true)
+    expect(missedTracerAt(result.misses, { x: 267, y: 180 })).toBe(true)
+    expect(missedTracerAt(result.misses, { x: 300, y: 180 })).toBe(false)
+    expect(missedTracerAt(result.misses, { x: 140, y: 200 })).toBe(false)
+    result.over.fillText.mockClear()
+    result.painter.paintSample('miss', 90, 34, 250, false)
+    expect(result.over.fillText.mock.calls.some(([text]) => text === '×')).toBe(true)
+  })
+
+  it('keeps a paused hit mid-flight on a solid trace without a miss marker or an impact', () => {
+    const result = draw(edge)
+    expect(result.under.setLineDash.mock.calls.every(([dash]) => dash.length === 0)).toBe(true)
+    const head = result.under.lineTo.mock.calls.at(-1)?.[0]
+    expect(head).toBeGreaterThan(100)
+    expect(head).toBeLessThan(350)
+    expect(result.over.arc).toHaveBeenCalled()
+    expect(result.over.fillText).not.toHaveBeenCalled()
+    expect(result.misses).toEqual([])
+  })
+})
+
+it('renders the landing frame after changing focus and outliving the configured fade', () => {
+  const layout = makeLayout([pilot(1), pilot(2)], [1, 2], 500, 400)
+  Object.assign(layout.nodes[0]!, { x: 100, y: 180 })
+  Object.assign(layout.nodes[1]!, { x: 350, y: 180 })
+  const edge: ReplayEdge = {
+    t: 0, from: 'char:1', to: 'char:2', kind: 'damage', amount: 10, weapon: null, quality: 'Hits',
+    repairType: null, ewar: null, sources: [], corroborated: false, strength: 0.5,
+  }
+  const under = canvasProbe()
+  const over = canvasProbe()
+  const host = document.createElement('div')
+  host.style.setProperty('--dur-edge-fade', '60ms')
+  const playback = createProjectilePlayback()
+  const { paint } = makePainter(under.context, over.context, host, () => {}, playback)
+  const present = new Set<EntityKey>(['char:1', 'char:2'])
+  const frame = { t: 125, selected: null, focusOnly: false, reducedMotion: false, playing: true }
+  paint(layout, [edge], [], present, frame, 500, 400)
+  expect(playback.endpoints()).toEqual(present)
+  over.probe.arc.mockClear()
+  const arrived = paint(layout, [], [], playback.endpoints(), { ...frame, t: 300, selected: 'char:9', focusOnly: true }, 500, 400)
+  const stop = arrived.positions.get(layout.nodes[1]!)!
+  expect(over.probe.arc).toHaveBeenCalledWith(stop.x, stop.y, 2.5, 0, Math.PI * 2)
+  expect(playback.endpoints().size).toBe(0)
 })

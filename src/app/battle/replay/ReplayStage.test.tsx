@@ -213,6 +213,37 @@ describe('replay keyboard navigation', () => {
 })
 
 
+it('shows the miss tooltip when the pointer crosses the trace and hides it off the trace', async () => {
+  await render(analysis([alpha, beta], [{ ...observation(beta.key), kind: 'miss', amount: 0 }]), time + 250)
+  const stage = host.querySelector('.replay-stage')!
+  const xy = (name: string) => marker(name).style.transform.match(/translate3d\(([^,]+), ([^,]+)/)!.slice(1).map(parseFloat)
+  const [ax, ay] = xy(alpha.name)
+  const [bx, by] = xy(beta.name)
+  const move = (clientX: number, clientY: number) => act(() => stage.dispatchEvent(
+    new PointerEvent('pointermove', { clientX, clientY, pointerType: 'mouse', bubbles: true }),
+  ))
+  await move((ax! + bx!) / 2, (ay! + by!) / 2)
+  expect(host.querySelector('.replay-miss-tooltip[data-positioned]')?.textContent).toBe('未命中')
+  await move(0, 0)
+  expect(host.querySelector('.replay-miss-tooltip[data-positioned]')).toBeNull()
+})
+
+it('shows a portrait badge and label on each visible pilot when zoomed', async () => {
+  const unidentified: Entity = { ...neutral, charId: null, name: 'Unknown pilot', shipTypes: ['Rifter'] }
+  await render(analysis([alpha, beta, unidentified]))
+  expect(marker(alpha.name).querySelector('.replay-pilot-portrait img')?.getAttribute('width')).toBe('16')
+  const unknown = host.querySelector('[data-pilot-key="char:3"]')!
+  expect(unknown.querySelector('.replay-pilot-portrait img')).toBeNull()
+  expect(unknown.querySelector('.replay-pilot-portrait')).not.toBeNull()
+  expect(unknown.querySelector('.replay-pilot-label')?.textContent).toBe('Rifter')
+  const stage = host.querySelector('.replay-stage')!
+  await act(() => stage.dispatchEvent(new WheelEvent('wheel', {
+    deltaY: -250, clientX: 300, clientY: 490, bubbles: true, cancelable: true,
+  })))
+  await refresh()
+  expect(host.querySelectorAll('.replay-marker[data-present] .replay-pilot-label[data-positioned]')).toHaveLength(3)
+})
+
 it('positions every present uploader label in the 1280 × 800 desktop canvas', async () => {
   const fixture = loadUiFixture()
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })))

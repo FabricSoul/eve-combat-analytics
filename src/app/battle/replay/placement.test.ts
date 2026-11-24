@@ -26,12 +26,22 @@ describe('pilot label placement', () => {
     expect(placePilotLabel(center, 10, size, bounds, [below, above, right])).toEqual(left)
   })
 
-  it('hides a blocked label unless the pilot is selected or inspected', () => {
+  it('searches farther for a required label and skips it when no space exists', () => {
     const occupied = [below, above, right, left]
     expect(placePilotLabel(center, 10, size, bounds, occupied)).toBeNull()
     expect(placePilotLabel(center, 10, size, bounds, occupied, true)).not.toBeNull()
-    expect(placePilotLabel(center, 10, size, bounds, [bounds], true)).toEqual(below)
+    expect(placePilotLabel(center, 10, size, bounds, [bounds], true)).toBeNull()
   })
+})
+
+it('places required pilot labels without overlapping, even when all nearby spots are occupied', () => {
+  const size = { width: 60, height: 16 }
+  const bounds = { x: 0, y: 0, width: 400, height: 300 }
+  const wall = { x: 0, y: 20, width: 270, height: 250 }
+  const label = placePilotLabel({ x: 100, y: 150 }, 14, size, bounds, [wall], true)
+  expect(label).not.toBeNull()
+  expect(label!.x).toBeGreaterThanOrEqual(272)
+  expect(placePilotLabel({ x: 100, y: 150 }, 14, size, bounds, [bounds], true)).toBeNull()
 })
 
 describe('replay popover placement', () => {

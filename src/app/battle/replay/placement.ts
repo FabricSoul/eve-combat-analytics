@@ -3,8 +3,9 @@ import type { Point } from './layout-effects'
 interface Size { width: number; height: number }
 export interface Rect extends Point, Size {}
 
+const gap = 2
+
 function overlaps(a: Rect, b: Rect) {
-  const gap = 2
   return a.x < b.x + b.width + gap && a.x + a.width + gap > b.x
     && a.y < b.y + b.height + gap && a.y + a.height + gap > b.y
 }
@@ -40,6 +41,43 @@ export function placeReplayPopover(anchor: Rect, size: Size, bounds: Rect, gap: 
   return { x, y, width, height }
 }
 
+function findPilotLabelSpace(center: Point, size: Size, bounds: Rect, occupied: readonly Rect[]): Rect | null {
+  const maxX = bounds.x + bounds.width - size.width
+  const maxY = bounds.y + bounds.height - size.height
+  if (maxX < bounds.x || maxY < bounds.y) return null
+  const preferredX = center.x - size.width / 2
+  const preferredY = center.y - size.height / 2
+  const rows = [Math.max(bounds.y, Math.min(preferredY, maxY)), bounds.y, maxY]
+  for (const rect of occupied) {
+    rows.push(rect.y - size.height - gap, rect.y + rect.height + gap)
+  }
+  const obstacles = [...occupied].sort((a, b) => a.x - b.x)
+  for (const y of [...new Set(rows)].sort((a, b) => Math.abs(a - preferredY) - Math.abs(b - preferredY))) {
+    if (y < bounds.y || y > maxY) continue
+    let left = bounds.x
+    let bestX: number | null = null
+    let bestDistance = Infinity
+    const consider = (right: number) => {
+      if (left > right) return
+      const x = Math.max(left, Math.min(preferredX, right))
+      const distance = Math.abs(x - preferredX)
+      if (distance < bestDistance) {
+        bestX = x
+        bestDistance = distance
+      }
+    }
+    for (const rect of obstacles) {
+      if (y >= rect.y + rect.height + gap || y + size.height + gap <= rect.y) continue
+      consider(Math.min(maxX, rect.x - gap - size.width))
+      left = Math.max(left, rect.x + rect.width + gap)
+      if (left > maxX) break
+    }
+    consider(maxX)
+    if (bestX !== null) return { ...size, x: bestX, y }
+  }
+  return null
+}
+
 export function placePilotLabel(center: Point, radius: number, size: Size, bounds: Rect, occupied: readonly Rect[], required = false) {
   const { x, y } = center
   const gap = radius + 5
@@ -67,5 +105,5 @@ export function placePilotLabel(center: Point, radius: number, size: Size, bound
       )
     }
   }
-  return placeAnnotation(farther, bounds, occupied) ?? placeAnnotation(nearby, bounds, occupied, true)
+  return placeAnnotation(farther, bounds, occupied) ?? findPilotLabelSpace(center, size, bounds, occupied)
 }

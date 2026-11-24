@@ -1,17 +1,18 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, ReactNode } from 'react'
+import type { CSSProperties, PointerEvent, ReactNode } from 'react'
 import type { Analysis, EntityKey, Killmail } from '@/core/contract'
-import { typeRenderUrl } from '@/app/lib/images'
+import { portraitUrl, typeRenderUrl } from '@/app/lib/images'
 import { sideColor, sideLetter } from '@/app/lib/sides'
-import { maxZoom, minZoom, zoomStep } from './camera'
+import { maxZoom, minZoom, projectPoint, zoomStep } from './camera'
 import { useReplayCamera } from './useReplayCamera'
 import { Bracket } from '@/app/ui/Bracket'
 import { Portrait } from '@/app/ui/Portrait'
 import { usePilotMenu } from '../roster/PilotActions'
 import { ReplayOverlays } from './ReplayOverlays'
 import { useReplayKeyboard, type ReplayFocusTarget } from './keyboard'
-import { makePainter } from './paint'
-import type { ReplayFrame } from './paint'
+import { makePainter, missedTracerAt, type MissTracer, type ReplayFrame } from './paint'
+import type { Point } from './layout-effects'
+import { createProjectilePlayback } from './projectile'
 import { placePilotLabel } from './placement'
 import { deathAt, recentEngagement } from './presence'
 import type { Rect } from './placement'
@@ -34,22 +35,22 @@ interface PilotMarkerProps {
   node: ReplayNode
   selected: boolean
   inspected: boolean
-  labelEligible: boolean
   register: (key: EntityKey, element: HTMLDivElement | null) => void
   onInspect: (key: EntityKey | null) => void
   onSelect: (key: EntityKey) => void
 }
 
-const PilotMarker = memo(function PilotMarker({ node, selected, inspected, labelEligible, register, onInspect, onSelect }: PilotMarkerProps) {
+const PilotMarker = memo(function PilotMarker({ node, selected, inspected, register, onInspect, onSelect }: PilotMarkerProps) {
   const menu = usePilotMenu()
   const { entity: { key, name, charId, hasLog, side }, color, radius, ship, shipId, letter } = node
+  const label = charId === null ? ship ?? name : name
 
   return (
     <div ref={(element) => { register(key, element) }} className="replay-marker" data-pilot-key={key} data-selected={selected} inert
       data-unassigned={side === -1 || undefined}
       style={{ '--replay-side': color, '--replay-diameter': `${radius * 2}px` } as CSSProperties}>
       <button type="button" tabIndex={-1} className="replay-pilot" data-log={hasLog} aria-pressed={selected}
-        aria-label={ship ? `${name} · ${ship}` : name}
+        aria-label={ship && ship !== label ? `${label} · ${ship}` : label}
         onContextMenu={(event) => menu?.open(key, event)} onPointerEnter={() => onInspect(key)} onPointerLeave={() => onInspect(null)} onClick={() => onSelect(key)}>
         {shipId !== null && (
           <img key={shipId} data-src={typeRenderUrl(shipId, radius * 2)} alt="" draggable={false}
@@ -59,13 +60,14 @@ const PilotMarker = memo(function PilotMarker({ node, selected, inspected, label
         <span className="replay-hull" aria-hidden="true" />
         <span className="replay-death-mark" aria-hidden="true">×</span>
         {letter && <span className="replay-side-letter" aria-hidden="true">{letter}</span>}
-      </button>
-      {(selected || inspected || labelEligible) && (
-        <span key={selected ? 'selected' : 'plain'} className="replay-pilot-label" aria-hidden="true">
-          {selected && <Portrait charId={charId} size={16} />}
-          <span>{name}</span>
+        <span className="app-image app-portrait replay-pilot-portrait" aria-hidden="true">
+          {charId !== null && <img data-src={portraitUrl(charId, 16)} width={16} height={16} alt="" draggable={false}
+            onError={(event) => { event.currentTarget.hidden = true }} />}
         </span>
-      )}
+      </button>
+      <span key={selected ? 'selected' : 'plain'} className="replay-pilot-label" data-inspected={inspected || undefined} aria-hidden="true">
+        <span>{label}</span>
+      </span>
     </div>
   )
 })
@@ -98,9 +100,13 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
   const over = useRef<HTMLCanvasElement>(null)
   const bracket = useRef<HTMLDivElement>(null)
   const tooltip = useRef<HTMLDivElement>(null)
+  const missTooltip = useRef<HTMLDivElement>(null)
+  const missTracers = useRef<readonly MissTracer[]>([])
+  const pointer = useRef<Point | null>(null)
   const markers = useRef(new Map<EntityKey, HTMLDivElement>())
   const previousLayout = useRef<ReplayLayout | null>(null)
   const invalidate = useRef<() => void>(() => {})
+  const [playback] = useState(createProjectilePlayback)
   const [size, setSize] = useState({ width: 0, height: 0, dpr: 1 })
   const { width, height, dpr } = size
   const [inspected, inspect] = useState<EntityKey | null>(null)
@@ -120,6 +126,31 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     if (element) markers.current.set(key, element)
     else markers.current.delete(key)
   }, [])
+
+  const updateMissTooltip = useCallback((stageWidth: number) => {
+    const tip = missTooltip.current
+    const point = pointer.current
+    if (!tip) return
+    const visible = point !== null && missedTracerAt(missTracers.current, point)
+    tip.toggleAttribute('data-positioned', visible)
+    if (!visible || !point) return
+    const x = Math.max(4, Math.min(stageWidth - 52, point.x + 10))
+    const y = point.y >= 28 ? point.y - 26 : point.y + 10
+    tip.style.transform = `translate3d(${x}px, ${y}px, 0)`
+  }, [])
+
+  function movePointer(event: PointerEvent<HTMLDivElement>) {
+    handlers.onPointerMove(event)
+    const target = event.target
+    if (event.pointerType === 'touch' || event.buttons || menu?.active
+      || (target instanceof Element && target.closest('.replay-pilot, .replay-header, .replay-close-fights, .replay-stage-zoom'))) {
+      pointer.current = null
+    } else {
+      const { left, top } = event.currentTarget.getBoundingClientRect()
+      pointer.current = { x: event.clientX - left, y: event.clientY - top }
+    }
+    updateMissTooltip(width)
+  }
 
   useLayoutEffect(() => {
     if (!selected) inspect(null)
@@ -163,14 +194,17 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     let tooltipWidth = 0
     let tooltipHeight = 0
     let labelSizes = new WeakMap<HTMLElement, Pick<Rect, 'width' | 'height'>>()
+    let labelPositions = new Map<HTMLElement, Rect>()
+    let labelKey = ''
 
     function schedule() {
       if (!disposed && animation === null) animation = requestAnimationFrame(draw)
     }
 
-    const painter = makePainter(lineCanvas, effectsCanvas, element, schedule)
+    const painter = makePainter(lineCanvas, effectsCanvas, element, schedule, playback)
     void document.fonts?.ready.then(() => {
       labelSizes = new WeakMap()
+      labelKey = ''
       tooltipKey = undefined
       schedule()
     })
@@ -200,7 +234,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       const pausedElapsed = playing ? 0 : now - pause.since
       const reducedMotion = reduced.matches
       const recent = recentEngagement(scene.edges, t)
-      const present = scene.visibleAt(t, selected, recent)
+      const present = new Set(scene.visibleAt(t, selected, recent))
+      for (const key of playback.endpoints(t, playing)) present.add(key)
       const opponents = scene.recentOpponents(recent)
       if (detailKey !== tooltipKey) {
         tooltipKey = detailKey
@@ -211,11 +246,14 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       const live = painter.liveEdges(scene.edges, t)
       layout.placeVisible(present, live)
       layout.placeUnassigned(present)
-      const { related, positions, occupied, bounds, animating, burst } = painter.paint(
+      const { related, positions, bounds, misses, animating, burst } = painter.paint(
         layout, live, scene.pointSpans, present, { ...current, reducedMotion, pausedElapsed }, width, height, camera,
       )
+      missTracers.current = misses
+      if (pointer.current) updateMissTooltip(width)
       let bursting = false
-      const labels: { element: HTMLElement; node: ReplayNode; priority: number }[] = []
+      const labels: { element: HTMLElement; node: ReplayNode; center: Point; priority: number; required: boolean }[] = []
+      let nextLabelKey = `${camera.x}|${camera.y}|${camera.scale}|${detailKey}`
       const focusTargets: ReplayFocusTarget[] = []
       const previouslyFocused = document.activeElement
       for (const node of layout.nodes) {
@@ -230,8 +268,9 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         }
         if (!position) continue
         if (firstFrame || visibilityChanged) {
-          const image = marker.querySelector<HTMLImageElement>('img[data-src]:not([src])')
-          if (image?.dataset.src) image.src = image.dataset.src
+          for (const image of marker.querySelectorAll<HTMLImageElement>('img[data-src]:not([src])')) {
+            if (image.dataset.src) image.src = image.dataset.src
+          }
         }
 
         const button = marker.firstElementChild
@@ -239,7 +278,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         const { x, y } = position
         const lastLoss = deathAt(node.deaths, t)
         const keep = selected === null || selected === key || related.has(key)
-        marker.style.transform = `translate3d(${x}px, ${y}px, 0)`
+        const transform = `translate3d(${x}px, ${y}px, 0px)`
+        if (marker.style.transform !== transform) marker.style.transform = transform
         if (side === -1) marker.style.setProperty('--replay-diameter', `${node.radius * 2}px`)
         marker.toggleAttribute('data-dead', lastLoss !== undefined)
         marker.toggleAttribute('data-dim', !keep)
@@ -257,9 +297,13 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         }
         const label = marker.querySelector<HTMLElement>('.replay-pilot-label')
         if (label) {
-          const inView = x + node.radius > 0 && x - node.radius < width && y + node.radius > 0 && y - node.radius < height
-          if (inView && (key === selected || key === detailKey || (height >= 420 && (node.entity.hasLog || opponents.has(key))))) {
-            labels.push({ element: label, node, priority: node.entity.hasLog ? 3 : key === selected ? 2 : key === detailKey ? 1 : 0 })
+          const inset = node.radius + 2
+          const inView = x + inset > 0 && x - inset < width && y + inset > 0 && y - inset < height
+          if (inView) {
+            const priority = key === selected || key === detailKey ? 3 : node.entity.hasLog ? 2 : opponents.has(key) ? 1 : 0
+            const center = projectPoint(camera, node)
+            labels.push({ element: label, node, center, priority, required: priority >= 2 || camera.scale >= 1.5 })
+            nextLabelKey += `|${node.ordinal}:${node.x}:${node.y}:${node.radius}:${priority}:${key === selected}`
           } else label.removeAttribute('data-positioned')
         }
       }
@@ -270,28 +314,47 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
 
       const detailNode = detailKey ? layout.byKey.get(detailKey) : undefined
       const detailPosition = detailNode && positions.get(detailNode)
+      let tooltipRect: Rect | null = null
       if (tooltip.current && detailPosition) {
         const { x, y } = detailPosition
         const tooltipX = Math.max(4, Math.min(width - tooltipWidth - 4, x - tooltipWidth / 2))
         const tooltipY = y > 118 ? y - detailNode.radius - 12 - tooltipHeight : y + detailNode.radius + 25
         tooltip.current.style.transform = `translate3d(${tooltipX}px, ${tooltipY}px, 0)`
         tooltip.current.toggleAttribute('data-positioned', true)
-        occupied.push({ x: tooltipX, y: tooltipY, width: tooltipWidth, height: tooltipHeight })
+        tooltipRect = { x: tooltipX, y: tooltipY, width: tooltipWidth, height: tooltipHeight }
       } else {
         tooltip.current?.removeAttribute('data-positioned')
       }
 
-      // Read new label sizes together before writing their positions.
-      for (const { element } of labels) {
-        if (!labelSizes.has(element)) labelSizes.set(element, { width: element.offsetWidth, height: element.offsetHeight })
+      // Stable ship coordinates keep the label layout out of the transient effect draw.
+      if (nextLabelKey !== labelKey) {
+        labelKey = nextLabelKey
+        labelPositions = new Map()
+        const occupied: Rect[] = tooltipRect ? [tooltipRect] : []
+        for (const { node, center: { x, y } } of labels) {
+          const inset = node.radius + 2
+          occupied.push(
+            { x: x - inset, y: y - inset, width: inset * 2 + (node.letter ? 7 : 0), height: inset * 2 },
+            { x: x - node.radius - 6, y: y + node.radius - 12, width: 18, height: 18 },
+          )
+        }
+        for (const { element } of labels) {
+          if (!labelSizes.has(element)) labelSizes.set(element, { width: element.offsetWidth, height: element.offsetHeight })
+        }
+        for (const { element, node, center, required } of labels.sort((a, b) => b.priority - a.priority)) {
+          const rect = placePilotLabel(center, node.radius, labelSizes.get(element)!, bounds, occupied, required)
+          element.toggleAttribute('data-positioned', rect !== null)
+          if (!rect) continue
+          labelPositions.set(element, rect)
+          occupied.push(rect)
+        }
       }
-      for (const { element, node, priority } of labels.sort((a, b) => b.priority - a.priority)) {
-        const center = positions.get(node)!
-        const rect = placePilotLabel(center, node.radius, labelSizes.get(element)!, bounds, occupied, priority > 0)
-        element.toggleAttribute('data-positioned', rect !== null)
+      for (const { element, node } of labels) {
+        const rect = labelPositions.get(element)
         if (!rect) continue
-        element.style.transform = `translate3d(${rect.x - center.x}px, ${rect.y - center.y}px, 0)`
-        occupied.push(rect)
+        const center = positions.get(node)!
+        const transform = `translate3d(${rect.x - center.x}px, ${rect.y - center.y}px, 0px)`
+        if (element.style.transform !== transform) element.style.transform = transform
       }
       firstFrame = false
       if (!reducedMotion && !playing && (animating || bursting)) schedule()
@@ -305,7 +368,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       appearanceObserver.disconnect()
       reduced.removeEventListener('change', schedule)
     }
-  }, [layout, scene, width, height, dpr, updateTargets])
+  }, [layout, scene, width, height, dpr, playback, updateTargets, updateMissTooltip])
 
   useLayoutEffect(() => {
     frame.current = { t, playing, selected, focusOnly, detailKey, lockedKey, camera }
@@ -321,17 +384,18 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     <button type="button" onClick={reset}>适应全部</button>
   </div>
   return (
-    <div ref={host} className="replay-stage" data-zoomed={camera.scale > 1 || undefined} {...handlers}>
+    <div ref={host} className="replay-stage" data-zoomed={camera.scale > 1 || undefined} {...handlers}
+      onPointerMove={movePointer} onPointerLeave={() => { pointer.current = null; updateMissTooltip(width) }}>
       <canvas ref={under} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer" aria-hidden="true" />
       <div ref={toolbar} role="toolbar" aria-label="回放飞行员" tabIndex={-1}
         onFocus={onFocus} onBlur={onBlur} onKeyDown={onKeyDown}>
         {layout?.nodes.map((node) => (
           <PilotMarker key={node.entity.key} node={node} selected={selected === node.entity.key} inspected={detailKey === node.entity.key}
-            labelEligible={height >= 420 && (node.entity.hasLog || (node.entity.side >= 0 && node.entity.side !== order[0]))}
             register={register} onInspect={inspect} onSelect={select} />
         ))}
       </div>
       <canvas ref={over} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer replay-effects" aria-hidden="true" />
+      <div ref={missTooltip} className="replay-miss-tooltip" role="tooltip">未命中</div>
       {locked && (
         <div ref={bracket} className="replay-lock">
           <Bracket />

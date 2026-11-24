@@ -26,7 +26,7 @@ it('paints a short miss trace with dashes while leaving the target still', () =>
   let dash: number[] = []
   const noOp = () => {}
   const context = {
-    clearRect: noOp, beginPath: noOp, moveTo: noOp, arc: noOp, fill: noOp,
+    clearRect: noOp, beginPath: noOp, moveTo: noOp, arc: noOp, fill: noOp, strokeText: noOp, fillText: noOp,
     lineTo: (x: number, y: number) => ends.push({ x, y }),
     setLineDash: (value: number[]) => { dash = value },
     stroke: () => strokeDashes.push(dash),

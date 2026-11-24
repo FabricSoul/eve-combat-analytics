@@ -117,7 +117,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
       x: anchor.x + Math.cos(angle) * spread,
       y: anchor.y + Math.sin(angle) * spread,
       radius: hasLog ? (compact ? 12 : 15) : pilot.primaryEnemy ? (compact ? 11 : 13) : (compact ? 8 : 9),
-      labeled: !compact && (hasLog || pilot.primaryEnemy),
+      labeled: hasLog || (!compact && pilot.primaryEnemy),
     }
   })
   const byKey = new Map(nodes.map((node) => [node.entity.key, node]))

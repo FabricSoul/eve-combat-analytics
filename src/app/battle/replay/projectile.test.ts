@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
-import { projectileAt, projectilePerPair, shotTravelMs } from './projectile'
+import { createProjectilePlayback, projectileAt, projectilePerPair, projectileTravelMs, shotTravelMs } from './projectile'
+import type { ReplayEdge } from './scene'
 
 const source = { x: 10, y: 20 }
 const target = { x: 110, y: 70 }
@@ -29,4 +30,30 @@ it('keeps only the newest module on a directed pair, including different interac
   const reply = { from: 'B', to: 'A', age: 200, weapon: 'reply' }
   const latest = { from: 'A', to: 'B', age: 100, weapon: 'new' }
   expect(projectilePerPair([prior, reply, latest])).toEqual([latest, reply])
+})
+
+it('uses 1,100 screen pixels per second between the travel clamps', () => {
+  const at = { x: 0, y: 0 }
+  expect(projectileTravelMs(at, { x: 100, y: 0 })).toBe(250)
+  expect(projectileTravelMs(at, { x: 330, y: 0 })).toBeCloseTo(300)
+  expect(projectileTravelMs(at, { x: 660, y: 0 })).toBeCloseTo(600)
+  expect(projectileTravelMs(at, { x: 1500, y: 0 })).toBe(900)
+})
+
+it('keeps the oldest three shots in flight and queues the next one without dropping either endpoint', () => {
+  const edge = (t: number): ReplayEdge => ({
+    t, from: 'char:1', to: 'char:2', kind: 'damage', amount: 10, weapon: 'test gun',
+    quality: 'Hits', repairType: null, ewar: null, sources: [], corroborated: false, strength: 0.5,
+  })
+  const shots = [edge(0), edge(25), edge(50), edge(75)]
+  const playback = createProjectilePlayback()
+  const first = playback.advance(shots, 75, true, 2000, () => 500)
+  expect(first.map(({ start, end }) => [start, end])).toEqual([[0, 500], [25, 525], [50, 550], [500, 1000]])
+  expect(first.filter(({ start }) => start <= 75)).toHaveLength(3)
+  expect(playback.endpoints()).toEqual(new Set(['char:1', 'char:2']))
+  expect(playback.advance(shots, 500, true, 2000, () => null)).toEqual(first)
+  expect(first[0]?.arrived).toBe(false)
+  first.forEach((flight) => { flight.arrived = true })
+  expect(playback.endpoints().size).toBe(0)
+  expect(playback.advance(shots, 3500, true, 2000, () => null)).toEqual([])
 })
