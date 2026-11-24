@@ -22,3 +22,5 @@
 }
 .u7-hit-weapon { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--space-2); align-items: baseline; }
 .u7-hit-weapon > span:first-child { overflow-wrap: anywhere; }
+.u7-hit-sample { display: block; color: var(--color-text-2); font-size: var(--fs-s); }
+.u7-compare-pair-measure > .u7-hit-sample { grid-column: 1 / -1; }

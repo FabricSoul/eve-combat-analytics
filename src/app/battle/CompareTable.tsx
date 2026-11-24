@@ -147,8 +147,8 @@ export function CompareTable(_props: CompareTableProps) {
             {columns.map((column) => <td key={column.metric.key} data-compact={column.metric.key === activeCompact}>
               <MetricValue row={row} metric={column.metric} />
               <MetricBar value={metricValue(row, column.metric)} column={column} color={sideColor(row.entity.side, order)} />
-              {column.metric.key === 'hitRate' && row.entity.hasLog &&
-                <HitQualityBar stats={row.stats} color={sideColor(row.entity.side, order)} />}
+              {column.metric.key === 'hitRate' && (row.entity.hasLog || row.observedHits) &&
+                <HitQualityBar stats={row.observedHits ?? row.stats} color={sideColor(row.entity.side, order)} />}
             </td>)}
           </tr>)}</tbody></table>
           {!sorted.length && <p className="u7-compare-message">没有符合筛选条件的飞行员。</p>}

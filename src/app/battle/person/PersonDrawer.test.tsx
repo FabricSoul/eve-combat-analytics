@@ -134,3 +134,36 @@ it('labels observed pilots 据我方日志 and shows their numbers instead of �
     act(() => root.unmount())
   }
 })
+
+it('labels the observed enemy hit sample in the tile, breakdown and ranks', () => {
+  const base = loadUiFixture()
+  const pilot = base.analysis.entities['char:2120391968']!
+  expect(pilot.name).toBe('Kohera Hakomairos')
+  expect(pilot.hasLog).toBe(false)
+  const fixture = {
+    ...base,
+    // The archived counters predate the observed source field. The shots are real excerpted events.
+    analysis: { ...base.analysis, stats: base.analysis.stats.map((s) => s.key === pilot.key ? { ...s, source: 'observed' as const } : s) },
+  }
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  function Harness() {
+    const { select } = useView()
+    useEffect(() => { select(pilot.key) }, [])
+    return <PersonDrawer />
+  }
+  try {
+    act(() => root.render(<BattleProvider static={fixture}><ViewProvider defaultSide={1} syncUrl={false}><Harness /></ViewProvider></BattleProvider>))
+    const tile = [...host.querySelectorAll('.u7-stat-tile')].find((el) => el.querySelector('h3')?.textContent === '命中')
+    expect(tile?.querySelector('.app-number')?.textContent).toBe('100%')
+    expect(tile?.textContent).toContain('据我方日志')
+    expect(tile?.textContent).toContain('35 发')
+    const breakdown = [...host.querySelectorAll('.u7-person-card')].find((el) => el.querySelector('h3')?.textContent === '命中质量')
+    expect(breakdown?.textContent).toContain('据我方日志')
+    expect(breakdown?.querySelector('.hit-classes')?.textContent).toContain('35 发 · 100%')
+    expect(breakdown?.querySelector('.u7-hit-weapon')?.textContent).toContain('Veles Supratidal Entropic Disintegrator')
+    expect(breakdown?.querySelector('[aria-label="命中排名"]')?.textContent).toContain('35 发')
+  } finally {
+    act(() => root.unmount())
+  }
+})

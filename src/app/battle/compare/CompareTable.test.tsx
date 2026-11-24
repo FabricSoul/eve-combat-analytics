@@ -21,9 +21,9 @@ afterEach(() => {
   host.remove()
 })
 
-function render(children = <CompareTable />, data = fixture) {
+function render(children = <CompareTable />, data = fixture, defaultSide = 0) {
   act(() => root.render(
-    <BattleProvider static={data}><ViewProvider syncUrl={false}>{children}</ViewProvider></BattleProvider>,
+    <BattleProvider static={data}><ViewProvider defaultSide={defaultSide} syncUrl={false}>{children}</ViewProvider></BattleProvider>,
   ))
 }
 
@@ -181,4 +181,19 @@ it('tags observed pilots 据我方日志 in the compare rows', () => {
   const rows = [...host.querySelectorAll('tbody tr')].filter((r) => r.textContent?.includes('据我方日志'))
   expect(rows.length).toBe(1)
   expect(rows[0]!.textContent).toContain(pilot.name)
+})
+
+it('shows the measured rate and sample for an enemy firing on uploaders in J125990', () => {
+  const key = 'char:2120391968' // Kohera Hakomairos, 35 eligible observed shots in the archived excerpt.
+  render(<CompareTable />, {
+    ...fixture,
+    // The archived counters predate the observed source field.
+    analysis: { ...fixture.analysis, stats: fixture.analysis.stats.map((s) => s.key === key ? { ...s, source: 'observed' as const } : s) },
+  }, 1)
+  const row = [...host.querySelectorAll('tbody tr')].find((el) => el.querySelector('th')?.textContent?.includes('Kohera Hakomairos'))
+  const hitCell = row?.querySelector('td:last-child')
+  expect(hitCell?.querySelector('.app-number')?.textContent).toBe('100%')
+  expect(hitCell?.textContent).toContain('据我方日志')
+  expect(hitCell?.textContent).toContain('35 发')
+  expect(hitCell?.querySelector('.u7-hit-quality')).not.toBeNull()
 })

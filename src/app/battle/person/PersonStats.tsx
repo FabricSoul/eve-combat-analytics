@@ -5,13 +5,12 @@ import { sideColor } from '../../lib/sides'
 import { TypeIcon } from '../../ui/TypeIcon'
 import { HitQualityBar } from '../compare/HitQualityBar'
 import { noHitQualityReason } from '../compare/hit-quality'
-import { hitMetrics, hitObservationHint, shotTotal, weaponRows } from '../hits/analysis'
+import { hitMetrics, hitObservationHint, shotTotal, weaponRows, type aggregateHits } from '../hits/analysis'
 import { PilotHitRanks } from '../hits/PilotHitRanks'
-import { useHitAnalysis } from '../hits/use-hit-analysis'
-import { HitRateValue, UngradedShots, WeaponClasses } from '../hits/WeaponClasses'
+import { HitRateValue, ObservedHitSample, UngradedShots, WeaponClasses } from '../hits/WeaponClasses'
 import '../hits/hits.css'
 import {
-  damageKinds, metricValue, metrics, median, missingReason, rowMedian, seconds, shipId, unknownDamageReason, type CompareRow,
+  damageKinds, isObserved, metricValue, metrics, median, missingReason, rowMedian, seconds, shipId, unknownDamageReason, type CompareRow,
 } from '../compare/metrics'
 
 const tileKeys = ['damageOut', 'damageIn', 'repairOut', 'repairIn', 'activeRatio', 'repReactionMedian', 'hitRate'] as const
@@ -50,8 +49,9 @@ function relationship(pilot: Entity, events: readonly Interaction[]) {
   return { repaired: top(repaired), attacked: top(attacked), attackers: top(attackers), repair, damage }
 }
 
-export function PersonStats({ analysis, pilot, rows, interactions, bounds, order, select }: {
+export function PersonStats({ analysis, pilot, rows, interactions, hits, bounds, order, select }: {
   analysis: Analysis; pilot: Entity; rows: readonly CompareRow[]; interactions: readonly Interaction[];
+  hits: ReturnType<typeof aggregateHits> | null;
   bounds: readonly [number, number]; order: readonly number[]; select(key: EntityKey): void
 }) {
   const origin = Math.floor(bounds[0] / bucketDuration) * bucketDuration
@@ -59,8 +59,8 @@ export function PersonStats({ analysis, pilot, rows, interactions, bounds, order
   const row = rows.find(({ entity }) => entity.key === pilot.key)
   const team = useMemo(() => rows.filter(({ entity }) => entity.side === pilot.side && entity.side >= 0), [rows, pilot.side])
   const details = useMemo(() => relationship(pilot, interactions), [pilot, interactions])
-  const hits = useHitAnalysis()
   const observed = hits?.pilots.get(pilot.key)
+  const observedSample = row && isObserved(row) ? observed : undefined
   const hitPilots = useMemo(() => [...(hits?.pilots.values() ?? [])], [hits])
   const weapons = useMemo(() => observed ? weaponRows(observed).slice(0, 5) : [], [observed])
   const sideHitMedian = useMemo(() => median(hitPilots.flatMap(({ entity, ...counts }) =>
@@ -78,12 +78,14 @@ export function PersonStats({ analysis, pilot, rows, interactions, bounds, order
         return <section key={metric.key} className="u7-stat-tile">
           <h3>{isHitRate ? '命中' : metric.label}</h3>
           <div className="app-number" title={value === null ? unavailable : undefined}>{metric.format(value)}</div>
+          {isHitRate && observedSample && <ObservedHitSample shots={observedSample.shots} />}
           <small>全队中位 <span className="app-number">{metric.format(middle)}</span></small>
         </section>
       })}
     </div>
     <section className="u7-person-card">
       <h3>命中质量</h3>
+      {observedSample && <ObservedHitSample shots={observedSample.shots} />}
       <p className="u7-secondary">{hitObservationHint}</p>
       {observed && <UngradedShots count={observed.ungraded} />}
       {observed && <PilotHitRanks pilot={observed} pilots={hitPilots} />}

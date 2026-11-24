@@ -39,7 +39,7 @@ export function PersonDrawer(_props: PersonDrawerProps) {
 function PilotDrawer({ pilot, analysis }: { pilot: Entity; analysis: Analysis }) {
   const { summary } = useBattleContext()
   const { drawerTab, setDrawerTab, focusOnly, setFocusOnly, select, oursSide, range, seek } = useView()
-  const { rows, interactions } = useCombatRows()
+  const { rows, interactions, hits } = useCombatRows()
   const [expanded, setExpanded] = useState(false)
   const [eventPage, setEventPage] = useState(1)
   const id = useId()
@@ -87,7 +87,7 @@ function PilotDrawer({ pilot, analysis }: { pilot: Entity; analysis: Analysis })
       </div>
     </header>
     <div role="tabpanel" id={`${id}-panel-${drawerTab}`} aria-labelledby={`${id}-tab-${drawerTab}`} className="u7-person-body">
-      {drawerTab === 'stats' && <PersonStats analysis={analysis} pilot={pilot} rows={rows} interactions={interactions} bounds={bounds} order={order} select={select} />}
+      {drawerTab === 'stats' && <PersonStats analysis={analysis} pilot={pilot} rows={rows} interactions={interactions} hits={hits} bounds={bounds} order={order} select={select} />}
       {drawerTab === 'fit' && <FitTab />}
       {drawerTab === 'events' && <div className="u7-person-stack">
         <PointLog points={pointSpans(analysis.ewarSpans, pilot.key, bounds)} entities={analysis.entities} />

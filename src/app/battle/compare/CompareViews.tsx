@@ -1,5 +1,7 @@
 import { useId, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import type { EntityKey } from '@/core/contract'
+import { fmtNum } from '../../lib/format'
+import { ObservedHitSample } from '../hits/WeaponClasses'
 import { sideColor } from '../../lib/sides'
 import { Portrait } from '../../ui/Portrait'
 import { Tag } from '../../ui/Tag'
@@ -46,9 +48,12 @@ export function PilotName({ row, onClick }: { row: CompareRow; onClick?: () => v
 
 export function MetricValue({ row, metric }: { row: CompareRow; metric: Metric }) {
   const value = metricValue(row, metric)
-  return value === null
+  const rendered = value === null
     ? <MissingValue reason={missingReason(row, metric)} />
     : <span className="app-number">{metric.format(value)}</span>
+  return metric.key === 'hitRate' && row.observedHits
+    ? <>{rendered}<ObservedHitSample shots={row.observedHits.shots} /></>
+    : rendered
 }
 
 function MissingValue({ reason }: { reason: string }) {
@@ -93,8 +98,8 @@ export function SideBySide({ rows, columns, order }: {
               <MetricBar column={column} value={metricValue(row, column.metric)} color={sideColor(row.entity.side, order)} />
               <MetricValue row={row} metric={column.metric} />
             </div>
-            {column.metric.key === 'hitRate' && row.entity.hasLog &&
-              <HitQualityBar stats={row.stats} color={sideColor(row.entity.side, order)} />}
+            {column.metric.key === 'hitRate' && (row.entity.hasLog || row.observedHits) &&
+              <HitQualityBar stats={row.observedHits ?? row.stats} color={sideColor(row.entity.side, order)} />}
           </div>)}
         </div>
       </section>)}
@@ -157,7 +162,9 @@ function DistributionStrip({ rows, column, pinned, order, onSelect }: Omit<Distr
           const highlighted = pinned.has(key)
           const persistentLabel = highlighted && visiblePins <= labelOffsets.length
           const lane = persistentLabel ? nextLane++ : 0
-          const hint = `${name} · ${metric.format(value)}`
+          const sample = metric.key === 'hitRate' && row.observedHits
+            ? ` · ${observedLabel} · ${fmtNum(row.observedHits.shots)} 发` : ''
+          const hint = `${name} · ${metric.format(value)}${sample}`
           return <button key={key} type="button" className="u7-distribution-point"
             data-highlighted={highlighted} data-persistent-label={persistentLabel} data-anchor={left < 35 ? 'start' : left > 65 ? 'end' : 'middle'}
             style={{ left: `${left}%`, '--point-side': sideColor(side, order), '--label-top': `${labelOffsets[lane] ?? -24}px` } as CSSProperties}

@@ -20,10 +20,19 @@ describe('observed pilots', () => {
 
   it('keep — with a reason for metrics that need the pilot\'s own log', () => {
     const r = row('observed', false)
-    for (const key of ['activeRatio', 'repReactionMedian', 'firstShotDelay', 'hitRate', 'kinetic']) {
+    for (const key of ['activeRatio', 'repReactionMedian', 'firstShotDelay', 'kinetic']) {
       expect(get(r, key), key).toBeNull()
       expect(missingReason(r, metrics.find((m) => m.key === key)!), key).toContain('自己的战斗日志')
     }
+  })
+
+  it('uses the observed hit sample and explains when it is empty', () => {
+    const r = row('observed', false)
+    const metric = metrics.find(({ key }) => key === 'hitRate')!
+    expect(metricValue(r, metric)).toBeNull()
+    expect(missingReason(r, metric)).toContain('没有带命中信息')
+    r.observedHits = { hits: 0, shots: 2, misses: 2, ungraded: 0, damage: 0, hitQuality: {} }
+    expect(metricValue(r, metric)).toBe(0)
   })
 
   it('own-log pilots are unchanged and old analyses without source still hide the numbers', () => {

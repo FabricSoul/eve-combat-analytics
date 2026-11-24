@@ -1,6 +1,7 @@
 import { fmtNum, fmtPct } from '../../lib/format'
 import { noHitQualityReason } from '../compare/hit-quality'
-import { classLabels, hitMetrics, shotTotal, type ShotCounts, type WeaponClass } from './analysis'
+import { observedLabel } from '../compare/metrics'
+import { classLabels, hitMetrics, hitObservationHint, shotTotal, type ShotCounts, type WeaponClass } from './analysis'
 
 export function HitRateValue({ counts }: { counts?: ShotCounts }) {
   const rate = counts ? hitMetrics.hitRate.value(counts) : null
@@ -11,6 +12,12 @@ export function HitRateValue({ counts }: { counts?: ShotCounts }) {
 
 export function UngradedShots({ count }: { count: number }) {
   return <span className="hit-ungraded">无命中质量 <span className="app-number">{fmtNum(count)}</span> 发</span>
+}
+
+export function ObservedHitSample({ shots }: { shots: number }) {
+  return <small className="u7-hit-sample" title={hitObservationHint}>
+    {observedLabel} · <span className="app-number">{fmtNum(shots)} 发</span>
+  </small>
 }
 
 export function WeaponClasses({ classes }: { classes: ReadonlyMap<WeaponClass, ShotCounts> }) {

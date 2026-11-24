@@ -6,7 +6,8 @@ import shipTypes from '@/core/data/ship-types.json'
 import { fmtNum, fmtPct, fmtSec } from '../../lib/format'
 import { useBattleContext } from '../../state/battle-store'
 import { useView } from '../../state/view-store'
-import { classifyWeapon, isUngradedWeapon } from '../hits/analysis'
+import { classifyWeapon, isUngradedWeapon, type ShotCounts } from '../hits/analysis'
+import { useHitAnalysis } from '../hits/use-hit-analysis'
 import { hitRate, noHitQualityReason } from './hit-quality'
 import damageTypes from './damage-types.json'
 import em from './em_small.png'
@@ -75,7 +76,7 @@ export const metrics = [
   { key: 'pointSeconds', label: '点控时长', group: '点控', format: seconds },
   { key: 'neutOut', label: '中和输出', group: '点控', format: amount },
   { key: 'neutIn', label: '被中和', group: '点控', format: amount },
-  { key: 'hitRate', label: '命中率', group: '命中', format: fmtPct, reason: noHitQualityReason, ownLog: true },
+  { key: 'hitRate', label: '命中率', group: '命中', format: fmtPct, reason: noHitQualityReason },
 ] satisfies readonly Metric[]
 
 export const defaultColumns = [
@@ -87,6 +88,7 @@ export interface CompareRow {
   entity: Entity
   stats: PilotStats
   damage?: DamageBreakdown
+  observedHits?: ShotCounts
 }
 
 function isDamageKind(key: Metric['key']): key is DamageKind {
@@ -103,12 +105,16 @@ export function metricValue(row: CompareRow, metric: Metric): number | null {
   if (isDamageKind(metric.key)) return row.damage?.[metric.key] ?? 0
   if (metric.battleReport && row.stats.killmailCount === 0) return null
   if (metric.key === 'primaryShare' && row.stats.damageOut === 0) return null
-  if (metric.key === 'hitRate') return hitRate(row.stats)
+  if (metric.key === 'hitRate') {
+    if (isObserved(row)) return row.observedHits ? hitRate(row.observedHits) : null
+    return hitRate(row.stats)
+  }
   return row.stats[metric.key]
 }
 
 export function missingReason(row: CompareRow, metric: Metric): string {
   if (metric.battleReport) return '这段时间没有他的击毁报告'
+  if (metric.key === 'hitRate' && isObserved(row)) return noHitQualityReason
   if (isObserved(row) && metric.ownLog) return '需要他自己的战斗日志，我方日志看不到'
   if (!row.entity.hasLog) return '没有上传他的战斗日志'
   if (metric.key === 'primaryShare') return '这段时间没有输出'
@@ -129,8 +135,9 @@ export function rowMedian(rows: readonly CompareRow[], metric: Metric) {
 export function useCombatRows() {
   const { analysis, summary } = useBattleContext()
   const { range } = useView()
+  const hits = useHitAnalysis()
   return useMemo(() => {
-    if (!analysis || !summary) return { rows: [], interactions: [] }
+    if (!analysis || !summary) return { rows: [], interactions: [], hits }
     const interactions = range
       ? analysis.interactions.filter(({ t }) => t >= range[0] && t <= range[1])
       : analysis.interactions
@@ -177,16 +184,18 @@ export function useCombatRows() {
     const rows = stats.flatMap((entry): CompareRow[] => {
       const entity = analysis.entities[entry.key]
       if (!entity) return []
+      const row = { entity, stats: entry, damage: damage.get(entry.key) }
+      if (isObserved(row)) return [{ ...row, observedHits: hits?.pilots.get(entry.key) }]
       const ungraded = ungradedByPilot.get(entry.key)
-      if (!ungraded) return [{ entity, stats: entry, damage: damage.get(entry.key) }]
+      if (!ungraded) return [row]
       const hitQuality = { ...entry.hitQuality }
       for (const grade of Object.keys(ungraded) as (keyof PilotStats['hitQuality'])[]) {
         hitQuality[grade] = Math.max(0, (hitQuality[grade] ?? 0) - (ungraded[grade] ?? 0))
       }
-      return [{ entity, stats: { ...entry, hitQuality }, damage: damage.get(entry.key) }]
+      return [{ ...row, stats: { ...entry, hitQuality } }]
     })
-    return { rows, interactions }
-  }, [analysis, summary, range])
+    return { rows, interactions, hits }
+  }, [analysis, summary, range, hits])
 }
 
 function damageKind({ weapon }: Interaction, ammo?: Map<string, Set<string | undefined>>): DamageKind {
