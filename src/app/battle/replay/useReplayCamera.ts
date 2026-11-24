@@ -13,7 +13,8 @@ interface Gesture {
 const difference = (a: Point, b: Point): Point => ({ x: a.x - b.x, y: a.y - b.y })
 const midpoint = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
-const onControl = (target: EventTarget | null) => target instanceof Element && Boolean(target.closest('.replay-header'))
+const onControl = (target: EventTarget | null) => target instanceof Element
+  && Boolean(target.closest('.replay-header, .replay-stage-zoom, .battle-replay-overlay, .replay-noise-popover'))
 
 function localPoint(element: HTMLElement, event: { clientX: number; clientY: number }): Point {
   const rect = element.getBoundingClientRect()

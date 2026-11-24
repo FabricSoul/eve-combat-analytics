@@ -124,6 +124,93 @@ export class BattleRoom extends ProductionRoom {
     return { context, page, frames, errors }
   }
 
+  async function checkReplayOverlays(page, width, height) {
+    const stage = page.getByRole('region', { name: '回放舞台' })
+    const replay = page.getByRole('region', { name: '回放', exact: true })
+    const trigger = page.getByRole('button', { name: '交互图例', exact: true })
+    const legend = page.getByRole('region', { name: '交互图例', exact: true })
+    const lastItem = legend.getByText('未命中', { exact: true })
+    const stageBox = await stage.boundingBox()
+    assert.ok(Math.abs(stageBox.height / height - 0.62) < 0.02, 'the default stage takes about 62% of the viewport')
+    assert.ok((await replay.boundingBox()).height >= (height >= 900 ? 460 : 360), 'the canvas is large enough for replay')
+    assert.ok(await page.locator('.eca-timeline-bar .eca-timeline-hint').isVisible(), 'the timeline hint shares the controls row')
+    await trigger.click()
+    await lastItem.waitFor()
+    async function checkLegend() {
+      const box = await legend.boundingBox()
+      const last = await lastItem.boundingBox()
+      assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= width && box.y + box.height <= height)
+      assert.ok(last.y >= box.y && last.y + last.height <= box.y + box.height, 'the final legend item fits in the window')
+      assert.equal(await lastItem.evaluate((node) => {
+        const rect = node.getBoundingClientRect()
+        return node.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+      }), true, 'the last legend item is visible and can be hit')
+      return box
+    }
+    const initial = await checkLegend()
+    await page.screenshot({ path: join(output, `replay-overlays-${width}x${height}-dark.png`) })
+    const bar = await legend.getByRole('group', { name: '交互图例 标题栏' }).boundingBox()
+    await page.mouse.move(bar.x + 18, bar.y + 15)
+    await page.mouse.down()
+    await page.mouse.move(bar.x + 340, bar.y + 314, { steps: 5 })
+    await page.mouse.up()
+    const moved = await checkLegend()
+    assert.ok(moved.x > initial.x && moved.y > initial.y && moved.y + moved.height > stageBox.y + stageBox.height,
+      'the legend can move past the stage into the module area')
+    await legend.getByRole('button', { name: '收起 交互图例' }).click()
+    assert.equal(await lastItem.isVisible(), false)
+    await page.reload()
+    await legend.getByRole('button', { name: '还原 交互图例' }).click()
+    assert.deepEqual(await checkLegend(), moved, 'open, collapsed and position state survive reload')
+    await page.screenshot({ path: join(output, `replay-overlays-dragged-${width}x${height}-dark.png`) })
+    const resize = await legend.locator('.battle-window-grip').boundingBox()
+    await page.mouse.move(resize.x + 8, resize.y + 8)
+    await page.mouse.down()
+    await page.mouse.move(resize.x + 8, resize.y - 200, { steps: 5 })
+    await page.mouse.up()
+    const legendBody = legend.locator('.battle-window-body')
+    assert.ok(await legendBody.evaluate((node) => node.scrollHeight > node.clientHeight), 'small legend windows scroll internally')
+    await lastItem.evaluate((node) => node.scrollIntoView({ block: 'nearest' }))
+    await checkLegend()
+    await legend.getByRole('button', { name: '关闭 交互图例' }).click()
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'false')
+
+    const fights = page.getByRole('region', { name: '此刻交火', exact: true })
+    await fights.getByRole('button', { name: '关闭 此刻交火' }).click()
+    assert.equal(await fights.count(), 0)
+    await page.getByRole('button', { name: '此刻交火', exact: true }).click()
+    await fights.waitFor()
+
+    // Put the anchor near the viewport bottom to exercise flipping and escape the stage clip.
+    const noise = page.locator('.replay-noise summary')
+    const panel = page.locator('.replay-noise-popover')
+    await noise.evaluate((node) => { node.style.transform = `translateY(${window.innerHeight - 60 - node.getBoundingClientRect().top}px)` })
+    await noise.evaluate((node) => node.click())
+    await panel.waitFor()
+    const anchor = await noise.boundingBox()
+    const filter = await panel.boundingBox()
+    assert.ok(filter.x >= 0 && filter.x + filter.width <= width && filter.y >= 0 && filter.y + filter.height <= anchor.y)
+    const lastFilter = panel.getByRole('checkbox', { name: '隐藏未命中' })
+    assert.equal(await lastFilter.evaluate((node) => {
+      const rect = node.getBoundingClientRect()
+      return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === node
+    }), true, 'the last filter is reachable outside the stage')
+    await page.keyboard.press('Escape')
+    await panel.waitFor({ state: 'hidden' })
+    await noise.evaluate((node) => { node.style.transform = '' })
+    // This is a fresh context. Restore the defaults before the remaining layout smoke steps.
+    await page.locator('.battle-module-controls > summary').click()
+    await page.getByRole('button', { name: '恢复默认布局' }).click()
+    if (height === 800) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.waitForFunction(() => document.querySelector('.battle-stage').getBoundingClientRect().height === 558)
+      assert.ok((await replay.boundingBox()).height >= 460, 'a 900px viewport gives the canvas at least 460px')
+      await page.setViewportSize({ width, height })
+      await page.waitForFunction((expected) =>
+        document.querySelector('.battle-stage').getBoundingClientRect().height === expected, stageBox.height)
+    }
+  }
+
   const a = await open(1280, 800, 'dark')
   const b = await open(1280, 800, 'light')
   const bRow = b.page.locator('.roster-row').filter({ has: b.page.getByRole('button', { name: new RegExp(pilot) }).and(b.page.locator('.roster-main')) })
@@ -201,7 +288,7 @@ export class BattleRoom extends ProductionRoom {
   await assertLegendInView(false)
   console.log('Replay legend: all four labels fit at 1280px with the drawer open and closed')
   const noiseTrigger = a.page.locator('.replay-noise summary')
-  const noisePanel = a.page.locator('.replay-noise .replay-popover')
+  const noisePanel = a.page.locator('.replay-noise-popover')
   await noiseTrigger.click()
   await noisePanel.waitFor()
   const [triggerBox, panelBox, stageBox] = await Promise.all([
@@ -382,7 +469,7 @@ export class BattleRoom extends ProductionRoom {
   // Pause in the board's active replay sequence at the same time in every capture.
   const screenshotTime = Date.parse('2025-06-22T15:43:02.420Z')
   for (const [width, height, theme, motion] of [
-    [1280, 800, 'dark'], [1280, 800, 'light'], [900, 800, 'dark'], [900, 800, 'light'],
+    [1280, 800, 'dark'], [1280, 800, 'light'], [1630, 940, 'dark'], [900, 800, 'dark'], [900, 800, 'light'],
     [390, 844, 'dark'], [390, 844, 'light'], [390, 844, 'dark', 'reduce'],
   ]) {
     const shot = await open(width, height, theme, motion, `?t=${screenshotTime}`)
@@ -394,9 +481,10 @@ export class BattleRoom extends ProductionRoom {
     assert.ok(await shot.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
     assert.deepEqual(shot.errors, [])
     if (width > 760) {
-      assert.equal(await shot.page.locator('[data-module-area]').count(), width === 1280 ? 3 : 2)
+      assert.equal(await shot.page.locator('[data-module-area]').count(), width >= 1100 ? 3 : 2)
       assert.equal(await shot.page.locator('.battle-layout').getAttribute('data-density'), 'compact')
     }
+    if (width >= 1280 && theme === 'dark') await checkReplayOverlays(shot.page, width, height)
     if (width === 1280 && theme === 'dark') {
       const page = shot.page
       const feed = page.locator('[data-module="feed"]')

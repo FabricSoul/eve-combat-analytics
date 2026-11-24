@@ -19,10 +19,10 @@ export interface WindowLayout {
   order: WindowId[]
 }
 
-export type WindowAction =
-  | { type: 'pop'; id: WindowId; viewport: Viewport }
-  | { type: 'position'; id: WindowId; rect: WindowRect }
-  | { type: 'dock' | 'minimize' | 'focus' | 'toggle' | 'show'; id: WindowId }
+export type WindowAction<Id extends string = WindowId> =
+  | { type: 'pop'; id: Id; viewport: Viewport }
+  | { type: 'position'; id: Id; rect: WindowRect }
+  | { type: 'dock' | 'minimize' | 'focus' | 'toggle' | 'show'; id: Id }
   | { type: 'reset' }
 
 export const windowTitles: Record<WindowId, string> = {
@@ -81,7 +81,7 @@ function initialRect(id: WindowId, viewport: Viewport): WindowRect {
   }
 }
 
-export function dockTarget(id: WindowId, point: Pick<WindowRect, 'x' | 'y'>, viewport: Viewport): DockEdge | null {
+export function dockTarget(id: string, point: Pick<WindowRect, 'x' | 'y'>, viewport: Viewport): DockEdge | null {
   const { x, y } = point
   if (x < 0 || x > viewport.width || y < 0 || y > viewport.height) return null
   const margin = 24

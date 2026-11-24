@@ -8,6 +8,7 @@ import { api } from '../api/client'
 import { BattlePage } from '../battle/BattlePage'
 import { readRecent } from '../home/recent'
 import { loadUiFixture } from '../test/ui-fixture'
+import { defaultModules, moduleLayoutReducer, saveModules } from './windows/modules'
 
 vi.mock('../battle/ReplayCanvas', () => ({ ReplayCanvas: () => null }))
 vi.mock('../battle/Timeline', async () => {
@@ -157,15 +158,10 @@ describe('battle shell review', () => {
   })
 
   it('lists modules in their actual columns and reports floating and collapsed states', async () => {
-    localStorage.setItem('eve-combat-analytics:module-layout', JSON.stringify({
-      version: 3,
-      areas: [['hits', 'feed', 'compare'], ['roster', 'kills'], ['lanes']],
-      modules: Object.fromEntries(['feed', 'compare', 'roster', 'kills', 'hits', 'lanes'].map((id) => [id, {
-        hidden: false, floating: id === 'compare', collapsed: id === 'hits',
-        rect: id === 'compare' ? { x: 20, y: 20, width: 380, height: 400 } : null,
-      }])),
-      order: ['feed', 'compare', 'roster', 'kills', 'hits', 'lanes'],
-      stageHeight: null,
+    const moved = moduleLayoutReducer(defaultModules(), { type: 'move', id: 'hits', area: 0, index: 0 })
+    const collapsed = moduleLayoutReducer(moved, { type: 'collapse', id: 'hits' })
+    saveModules(moduleLayoutReducer(collapsed, {
+      type: 'float', id: 'compare', rect: { x: 20, y: 20, width: 380, height: 400 },
     }))
     await render()
     const groups = [...host.querySelectorAll('.battle-module-menu fieldset')]

@@ -64,8 +64,8 @@ export function StageGrip({ height, viewportHeight, dispatch }: {
     if (pointer.current?.id === event.pointerId) pointer.current = null
   }
   return <div className="battle-stage-grip" role="separator" tabIndex={0} title="拖动调整高度，双击恢复"
-    aria-label="调整舞台高度" aria-orientation="horizontal" aria-valuemin={300}
-    aria-valuemax={Math.max(300, Math.floor(viewportHeight * 0.75))} aria-valuenow={height}
+    aria-label="调整舞台高度" aria-orientation="horizontal" aria-valuemin={clampStage(0, viewportHeight)}
+    aria-valuemax={clampStage(viewportHeight, viewportHeight)} aria-valuenow={height}
     onDoubleClick={() => dispatch({ type: 'stage', height: null })}
     onKeyDown={(event) => {
       if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown' && event.key !== 'Home') return

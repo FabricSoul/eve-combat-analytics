@@ -19,15 +19,18 @@ function CloseFights({ analysis, order }: { analysis: NonNullable<ReturnType<typ
     analysis, summary, mode: 'merged', t, oursSide, kinds: ['damage'], damageDealtOnly: true, focus: null, range: null,
   }).slice(0, 4) : [], [summary, analysis, t, oursSide])
   if (!summary) return null
-  return <details open className="replay-close-fights">
-    <summary title="展开或收起此刻交火">此刻交火 <span>{fmtHms(t)} · 前 10 秒</span></summary>
+  return <div className="replay-close-fights">
     {rows.length ? <table><thead><tr><th>出手</th><th>对象</th><th>伤害</th></tr></thead>
       <tbody>{rows.map((row) => <tr key={row.id} data-selected={selected !== null && (row.from === selected || row.to === selected) ? '' : undefined}>
         <td><Who entityKey={row.from} analysis={analysis} summary={summary} order={order} /></td>
         <td><Who entityKey={row.to} analysis={analysis} summary={summary} order={order} /></td>
         <td className="app-number">{fmtNum(row.total)}</td>
       </tr>)}</tbody></table> : <p>拖动时间轴查看交火</p>}
-  </details>
+  </div>
+}
+
+function FightTime() {
+  return <>{fmtHms(useCoarseTime())} · 前 10 秒</>
 }
 
 const noKillmails: readonly Killmail[] = []
@@ -50,6 +53,7 @@ export function ReplayCanvas({ stage }: ReplayCanvasProps) {
     return <div className="replay-status" role="status">当前日志中没有战斗交互 · 上传包含战斗记录的日志</div>
   }
 
-  return <ReplayStage stage={stage} closeFights={stage ? <CloseFights analysis={visibleAnalysis} order={order} /> : undefined} analysis={visibleAnalysis} headerActions={<ReplayNoiseControls />} killmails={summary?.meta.killmails ?? noKillmails}
+  return <ReplayStage stage={stage} closeFights={stage ? <CloseFights analysis={visibleAnalysis} order={order} /> : undefined}
+    fightTime={stage ? <FightTime /> : undefined} analysis={visibleAnalysis} headerActions={<ReplayNoiseControls />} killmails={summary?.meta.killmails ?? noKillmails}
     order={order} select={selectPilot} t={t} playing={playing} selected={selected} focusOnly={focusOnly} />
 }

@@ -32,4 +32,23 @@ describe('battle modules', () => {
     expect(loadModules({ getItem: () => value.replace('"kills"', '"feed"') })).toEqual(defaultModules())
     expect(moduleLayoutReducer(layout, { type: 'reset' })).toEqual(defaultModules())
   })
+
+  it('persists replay windows in the layout and discards heights saved under version 3', () => {
+    const defaults = defaultModules()
+    expect(defaults.replay).toEqual({
+      overlays: { legend: { open: false, collapsed: false, rect: null }, fights: { open: true, collapsed: false, rect: null } },
+      order: ['legend', 'fights'],
+    })
+    const moved = { x: 293, y: 486, width: 250, height: 430 }
+    const opened = moduleLayoutReducer(defaults, { type: 'replay', action: { type: 'toggle', id: 'legend' } })
+    const positioned = moduleLayoutReducer(opened, { type: 'replay', action: { type: 'position', id: 'legend', rect: moved } })
+    const collapsed = moduleLayoutReducer(positioned, { type: 'replay', action: { type: 'minimize', id: 'legend' } })
+    let saved = ''
+    saveModules(collapsed, { setItem: (_, value) => { saved = value } })
+    const reopened = loadModules({ getItem: () => saved })
+    expect(reopened.replay.overlays.legend).toEqual({ open: true, collapsed: true, rect: moved })
+    expect(reopened.replay.order).toEqual(['fights', 'legend'])
+    expect(loadModules({ getItem: () => JSON.stringify({ ...JSON.parse(saved), version: 3, stageHeight: 400 }) })).toEqual(defaults)
+    expect(moduleLayoutReducer(reopened, { type: 'reset' })).toEqual(defaults)
+  })
 })

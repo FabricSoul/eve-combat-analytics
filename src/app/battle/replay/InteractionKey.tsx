@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { hitQualityScale } from '../compare/hit-quality'
 import { makePainter, type ReplaySample } from './paint'
 
@@ -17,15 +17,14 @@ const qualities = hitQualityScale.map(({ key, label }): readonly [string, Replay
 
 const previews: readonly (readonly [string, ReplaySample])[] = [...samples, ...qualities]
 const width = 90
-const height = 34
+const height = 28
 
-export function InteractionKey() {
-  const [open, setOpen] = useState(false)
-  const menu = useRef<HTMLDetailsElement>(null)
+export function InteractionKey({ active }: { active: boolean }) {
+  const menu = useRef<HTMLDivElement>(null)
   const canvases = useRef(new Map<string, HTMLCanvasElement>())
 
   useEffect(() => {
-    if (!open || !menu.current) return
+    if (!active || !menu.current) return
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
     let disposed = false
     const scale = window.devicePixelRatio || 1
@@ -62,7 +61,7 @@ export function InteractionKey() {
       observer.disconnect()
       reduced.removeEventListener('change', refresh)
     }
-  }, [open])
+  }, [active])
 
   function entry([label]: readonly [string, ReplaySample]) {
     return <div key={label}>
@@ -75,13 +74,10 @@ export function InteractionKey() {
   }
 
   return (
-    <details name="replay-controls" ref={menu} className="replay-menu replay-key" onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>交互图例</summary>
-      <div className="replay-popover">
-        <div className="replay-key-samples">{samples.map(entry)}</div>
-        <div className="replay-key-quality">命中质量 · 由强到弱</div>
-        <div className="replay-key-samples">{qualities.map(entry)}</div>
-      </div>
-    </details>
+    <div ref={menu} className="replay-key">
+      <div className="replay-key-samples">{samples.map(entry)}</div>
+      <div className="replay-key-quality">命中质量 · 由强到弱</div>
+      <div className="replay-key-samples">{qualities.map(entry)}</div>
+    </div>
   )
 }

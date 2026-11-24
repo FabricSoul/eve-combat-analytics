@@ -204,8 +204,8 @@
 .replay-zoom button + button { border-inline-start: 1px solid var(--color-hair); }
 .replay-zoom button:disabled { opacity: .45; cursor: default; }
 
-.replay-menu { position: relative; pointer-events: auto; }
-.replay-menu summary {
+.replay-menu, .replay-control-trigger { position: relative; pointer-events: auto; }
+.replay-menu summary, .replay-control-trigger {
   width: max-content;
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--color-hair);
@@ -213,6 +213,7 @@
   background: var(--color-bg);
   cursor: pointer;
 }
+.replay-control-trigger:hover, .replay-control-trigger[aria-expanded="true"] { background: var(--color-raised); }
 
 .replay-popover {
   position: absolute;
@@ -228,10 +229,10 @@
   color: var(--color-text);
 }
 
-.replay-key .replay-popover { gap: var(--space-1); }
+.replay-key { padding: var(--space-2); font: var(--fs-s)/16px var(--font-ui); }
 .replay-key-samples {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-1) var(--space-2);
 }
 .replay-key-samples > div { display: grid; justify-items: center; }
@@ -242,21 +243,24 @@
   color: var(--color-text-2);
 }
 
-.replay-noise .replay-popover {
-  inset-inline: 0 auto;
+.replay-popover.replay-noise-popover {
+  position: fixed;
+  z-index: 3;
+  inset: auto;
   inline-size: max-content;
   min-inline-size: 0;
-  max-inline-size: calc(100cqw - var(--space-4));
   overflow: auto;
+  overscroll-behavior: contain;
   gap: var(--space-1);
   padding-block: var(--space-1);
-  background: color-mix(in srgb, var(--color-surface) 84%, transparent);
+  background: var(--color-surface);
+  font: var(--fs-s)/16px var(--font-ui);
 }
 .replay-noise-scope {
   margin: 0;
   color: var(--color-text-2);
 }
-.replay-noise label { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }
+.replay-noise-popover label { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }
 
 .replay-status { height: 100%; display: grid; place-items: center; color: var(--color-text-2); }
 

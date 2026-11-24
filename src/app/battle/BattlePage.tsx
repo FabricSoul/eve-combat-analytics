@@ -22,6 +22,8 @@ import { countPilots } from './pilot-count'
 import { KillsList } from './KillsList'
 import { PersonDrawer } from './PersonDrawer'
 import { ReplayCanvas } from './ReplayCanvas'
+import { ReplayOverlayWorkspace } from './replay/ReplayOverlays'
+import type { ReplayOverlayAction } from '../shell/windows/replay-layout'
 import { Roster } from './Roster'
 import { SidesPanel } from './SidesPanel'
 import { Timeline, PilotTimelineModule } from './Timeline'
@@ -64,9 +66,10 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   const workspace = layout !== 'phone'
   const moduleColumns = layout === 'desktop' ? 3 : 2
   const [moduleLayout, dispatchModule] = useReducer(moduleLayoutReducer, undefined, () => loadModules())
+  const [replayLayer, setReplayLayer] = useState<HTMLDivElement | null>(null)
   const viewport = useWindowViewport(desk, workspace && Boolean(summary))
   const viewportHeight = window.innerHeight
-  const stageHeight = clampStage(moduleLayout.stageHeight ?? viewportHeight * 0.60, viewportHeight)
+  const stageHeight = clampStage(moduleLayout.stageHeight ?? viewportHeight * 0.62, viewportHeight)
   const [search, setSearch] = useState<'feed' | 'roster' | null>(null)
   const [eventFilters, setEventFilters] = useState(true)
   const [rosterAlphabetical, setRosterAlphabetical] = useState(false)
@@ -78,10 +81,12 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   const hitCount = useMemo(() => analysis
     ? countPilots(Object.values(analysis.entities), includeHitUnknown) : '', [analysis, includeHitUnknown])
   const cancelDrag = useRef<(() => boolean) | null>(null)
+  const cancelReplayDrag = useRef<(() => boolean) | null>(null)
+  const dispatchReplay = useCallback((action: ReplayOverlayAction) => dispatchModule({ type: 'replay', action }), [])
 
   useEffect(() => {
-    if (workspace) saveModules(moduleLayout)
-  }, [workspace, moduleLayout])
+    saveModules(moduleLayout)
+  }, [moduleLayout])
 
   const opened = useRef<string | null>(null)
   const meta = summary?.meta
@@ -138,7 +143,7 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   useEffect(() => {
     function closeOrClear(event: KeyboardEvent) {
       if (event.key !== 'Escape' || event.defaultPrevented) return
-      if (cancelDrag.current?.()) {
+      if (cancelReplayDrag.current?.() || cancelDrag.current?.()) {
         event.preventDefault()
         return
       }
@@ -149,9 +154,10 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
       if (localMenu) return // These widgets close themselves and restore the focus.
       if (document.activeElement?.closest('[data-timeline-chart][data-range-draft]')) return
       const openMenu = [...document.querySelectorAll<HTMLDetailsElement>(
-        '.battle-module-controls[open], .battle-layout details[open]:not(.replay-close-fights)',
+        '.battle-module-controls[open], .battle-layout details[open]',
       )].filter((menu) => menu.getClientRects().length > 0).at(-1)
       const expanded = [...document.querySelectorAll<HTMLButtonElement>('[data-full-page-close]')].filter((button) => button.getClientRects().length > 0).at(-1)
+      const replayWindowClose = document.activeElement?.closest('.battle-replay-overlay')?.querySelector<HTMLButtonElement>('[data-window-close]')
       if (pilotMenu?.closeMenu()) { /* closed the shared row menu */ }
       else if (openMenu) {
         openMenu.open = false
@@ -163,6 +169,7 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
       else if (sidesOpen) closeSides()
       else if (drawerOpen) view.select(null)
       else if (expanded) expanded.click()
+      else if (replayWindowClose) replayWindowClose.click()
       else if (lastFloat && workspace) dispatchModule({ type: 'dock', id: lastFloat })
       else if (view.range) view.clearRange()
       else if (view.selected) view.select(null)
@@ -227,6 +234,11 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
     return url.href
   }
 
+  const replay = summary?.logs.length === 0 ? <EmptyBattle onUpload={openPicker} /> :
+    <ReplayOverlayWorkspace.Provider value={{ layer: replayLayer, layout: moduleLayout.replay, dispatch: dispatchReplay, cancelDrag: cancelReplayDrag }}>
+      <ReplayCanvas stage={workspace} />
+    </ReplayOverlayWorkspace.Provider>
+
   return (
     <AppShell battle topBar={{
       summary,
@@ -248,7 +260,7 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
           {workspace ? <>
             <section className="battle-stage" aria-label="回放舞台" style={{ height: stageHeight }} onPointerDownCapture={clearTextSelection}>
               <section className="battle-replay" aria-label="回放">
-                {summary.logs.length === 0 ? <EmptyBattle onUpload={openPicker} /> : <ReplayCanvas stage />}
+                {replay}
               </section>
               <section className="battle-timeline" aria-label="时间轴"><Timeline separateLanes /></section>
               <StageGrip height={stageHeight} viewportHeight={viewportHeight} dispatch={dispatchModule} />
@@ -266,10 +278,11 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
             </div>
           </> : <>
             <section className="battle-replay" aria-label="回放" onPointerDownCapture={clearTextSelection}>
-              {summary.logs.length === 0 ? <EmptyBattle onUpload={openPicker} /> : <ReplayCanvas />}
+              {replay}
             </section>
             <section className="battle-timeline" aria-label="时间轴" onPointerDownCapture={clearTextSelection}><Timeline compact /></section>
           </>}
+          <div ref={setReplayLayer} className="battle-replay-layer" />
           {layout === 'phone' && (
             <BottomSheet<PhoneTab> tabs={phoneTabs} value={phoneTab} onChange={setPhoneTab}>
               <PhonePanel />

@@ -130,7 +130,8 @@ body.battle-window-dragging * {
 .battle-stage {
   flex: none;
   display: grid;
-  grid-template-rows: minmax(92px, 1fr) auto;
+  grid-template-rows: minmax(min(360px, 45dvh), 1fr) auto;
+  min-height: min-content;
   margin: var(--space-2) var(--space-2) 0;
   position: relative;
   background: var(--color-surface);
@@ -153,6 +154,9 @@ body.battle-window-dragging * {
 }
 .battle-stage-grip::after { content: ''; width: 28px; height: 3px; border-radius: var(--radius-ctl); background: var(--color-text-3); }
 .battle-module-areas { display: grid; grid-template-columns: minmax(0, 1.45fr) repeat(2, minmax(0, 1fr)); gap: var(--space-2); padding: var(--space-2); }
+@media (width >= 1500px) {
+  .battle-module-areas[data-columns="3"] { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.1fr) minmax(0, 1fr); }
+}
 .battle-module-areas[data-columns="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .battle-module-slot { display: contents; }
 .battle-module-area { display: flex; flex-direction: column; gap: var(--space-2); min-height: 60px; min-width: 0; }
@@ -213,7 +217,7 @@ body.battle-window-dragging * {
 .battle-module-menu button { text-align: start; color: var(--color-accent); white-space: nowrap; }
 
 .battle-module,
-.battle-stage .replay-close-fights {
+.battle-replay-overlay {
   --row: var(--row-compact);
   --fs: var(--fs-compact-body);
   --fs-s: var(--fs-compact-table);
@@ -224,13 +228,16 @@ body.battle-window-dragging * {
 .battle-module .kills-ship, .battle-module .kills-ship .app-portrait { width: 18px; height: 18px; }
 .battle-module .kills-sub { display: inline; margin-inline-start: var(--space-1); }
 .battle-module .kills-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.battle-stage .replay-close-fights {
-  position: absolute; z-index: 2; inset: 42px var(--space-2) auto auto; width: min(246px, 40%);
-  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
-  border: 1px solid var(--color-hair); border-radius: var(--radius-ctl); font-size: var(--fs-compact-table);
+.battle-replay-layer { position: fixed; z-index: 10; inset: 0; pointer-events: none; }
+.battle-replay-layer > * { pointer-events: auto; }
+.battle-window[data-floating="true"].battle-replay-overlay { position: fixed; }
+.battle-replay-overlay .battle-window-body { overscroll-behavior: contain; }
+.battle-replay-overlay .battle-module-handle { color: var(--color-text-3); }
+.battle-replay-overlay .battle-window-heading { display: flex; align-items: baseline; justify-content: space-between; }
+.battle-replay-overlay .battle-window-subtitle { overflow: hidden; text-overflow: ellipsis; }
+.replay-close-fights {
+  font-size: var(--fs-compact-table);
 }
-.battle-stage .replay-close-fights summary { cursor: pointer; padding: var(--space-1) var(--space-2); }
-.replay-close-fights summary span { float: right; color: var(--color-text-3); }
 .replay-close-fights :is(th, td) { min-width: 0; overflow: hidden; padding-inline: var(--space-1); white-space: nowrap; }
 .replay-close-fights th { text-align: start; color: var(--color-text-3); }
 .replay-close-fights table { width: 100%; table-layout: fixed; }
@@ -270,7 +277,6 @@ body.battle-window-dragging * {
 .battle-layout .u7-distribution-point[data-selected] { outline: 2px solid var(--color-accent-line); opacity: 1; }
 .module-empty { padding: var(--space-2); color: var(--color-text-3); }
 .battle-layout[data-density="compact"]:has(> .battle-drawer) { --replay-legend-occlusion: var(--battle-drawer-width); }
-.battle-layout[data-density="compact"]:has(> .battle-drawer) .replay-close-fights { display: none; }
 
 .battle-module .battle-window-heading { flex: 0 1 auto; cursor: default; }
 .battle-module-title-spacer { flex: 1; min-width: 6px; }

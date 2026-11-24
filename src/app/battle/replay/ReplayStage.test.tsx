@@ -105,9 +105,10 @@ it('shows every graded hit and the miss in game order with the comparison labels
   const comparison = hitSegments({ hitQuality: counts, misses: 1 })
 
   await render(analysis())
-  const key = host.querySelector<HTMLDetailsElement>('.replay-key')!
-  await act(() => key.querySelector('summary')!.click())
-  expect(key.open).toBe(true)
+  const trigger = host.querySelector<HTMLButtonElement>('[data-replay-trigger="legend"]')!
+  await act(() => trigger.click())
+  expect(trigger.getAttribute('aria-expanded')).toBe('true')
+  const key = document.querySelector('.replay-key')!
   const entries = key.querySelector('.replay-key-quality')!.nextElementSibling!
   const labels = [...entries.querySelectorAll(':scope > div > span')].map((label) => label.textContent)
 
@@ -258,7 +259,7 @@ it('dismisses damage filters on outside pointerdown while keeping inside presses
   await act(() => filter.dispatchEvent(new Event('toggle')))
   expect(filter.open).toBe(true)
 
-  await act(() => filter.querySelector('input')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
+  await act(() => document.querySelector('.replay-noise-popover input')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
   expect(filter.open).toBe(true)
 
   await act(() => button(alpha.name).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
@@ -310,7 +311,7 @@ it('shows only damage dealt in the current fight before applying the row limit',
     </ViewProvider></BattleProvider>,
   ))
   await refresh()
-  const amounts = host.querySelectorAll('.replay-close-fights tbody td:last-child')
+  const amounts = document.querySelectorAll('.replay-close-fights tbody td:last-child')
   expect([...amounts].map((element) => element.textContent)).toEqual(['111', '872'])
   expect(host.querySelector('.feed-row[data-kind="miss"]')).not.toBeNull()
 })
@@ -339,10 +340,12 @@ it('shares URL-backed drone, smartbomb, small-hit and miss filters between the c
     await refresh()
     const filter = host.querySelector<HTMLDetailsElement>('.replay-noise')!
     await act(() => filter.querySelector('summary')!.click())
+    await act(() => filter.dispatchEvent(new Event('toggle')))
     expect(filter.open).toBe(true)
-    expect(filter.querySelector('.replay-popover')?.textContent).toContain('影响回放、此刻交火和事件')
+    const popover = document.querySelector('.replay-noise-popover')!
+    expect(popover.textContent).toContain('影响回放、此刻交火和事件')
     const toggle = async (label: string) => {
-      const input = [...host.querySelectorAll('label')].find((item) => item.textContent === label)?.querySelector('input')
+      const input = [...popover.querySelectorAll('label')].find((item) => item.textContent === label)?.querySelector('input')
       expect(input).toBeInstanceOf(HTMLInputElement)
       await act(() => input!.click())
       await refresh()

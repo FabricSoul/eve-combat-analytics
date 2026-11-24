@@ -85,7 +85,8 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
   }), [order, data.damage])
   const damage = useMemo(() => curves.filter(({ side, layer }) =>
     compact || (layer ? layers.has(layer) : !hidden.has(side))), [curves, compact, layers, hidden])
-  const layout = useMemo(() => timelineLayout(compact, layers, damage.length > 0), [compact, layers, damage.length])
+  const layout = useMemo(() => timelineLayout(compact, layers, damage.length > 0, separateLanes),
+    [compact, layers, damage.length, separateLanes])
   const left = compact ? 8 : 72
   const right = compact ? 8 : 12
   const tipId = useId()
@@ -146,9 +147,10 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
       }}>×</Button>
     </div>
 
-  return <div className="eca-timeline" data-compact={compact}>
+  return <div className="eca-timeline" data-compact={compact} data-workspace={separateLanes || undefined}>
     <div className="eca-timeline-bar">
       <Controls view={view} next={next} canPlay={data.eventTimes.length > 0} compact={compact} draft={draft} activity={activity} />
+      {separateLanes && hint}
       <div className="eca-timeline-options">
         {!compact && <div className="eca-timeline-layers" role="group" aria-label="时间轴图层">
           {curves.map(({ side, layer, label, color }) => <LayerChip key={side} label={`${label}伤害`}
@@ -162,7 +164,7 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
         <TimelineHelp />
       </div>
     </div>
-    {separateLanes ? <div className="eca-timeline-hint-slot">{hint}</div> : hint}
+    {!separateLanes && hint}
     <div className="eca-timeline-plot">
       <svg ref={chart} data-timeline-chart="" data-domain-start={start} data-domain-end={end} data-range-draft={draft ? '' : undefined}
         width="100%" height={layout.height} viewBox={`0 0 ${width} ${layout.height}`}

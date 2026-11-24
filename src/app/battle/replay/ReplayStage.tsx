@@ -8,7 +8,7 @@ import { useReplayCamera } from './useReplayCamera'
 import { Bracket } from '@/app/ui/Bracket'
 import { Portrait } from '@/app/ui/Portrait'
 import { usePilotMenu } from '../roster/PilotActions'
-import { InteractionKey } from './InteractionKey'
+import { ReplayOverlays } from './ReplayOverlays'
 import { useReplayKeyboard, type ReplayFocusTarget } from './keyboard'
 import { makePainter } from './paint'
 import type { ReplayFrame } from './paint'
@@ -24,6 +24,7 @@ interface ReplayStageProps extends Omit<ReplayFrame, 'reducedMotion' | 'pausedEl
   headerActions?: ReactNode
   stage?: boolean
   closeFights?: ReactNode
+  fightTime?: ReactNode
   killmails: readonly Killmail[]
   order: readonly number[]
   select: (key: EntityKey) => void
@@ -90,7 +91,7 @@ function ReplayLegend({ analysis, order }: Pick<ReplayStageProps, 'analysis' | '
   )
 }
 
-export function ReplayStage({ analysis, headerActions, stage, closeFights, killmails, order, select, t, playing, selected, focusOnly }: ReplayStageProps) {
+export function ReplayStage({ analysis, headerActions, stage, closeFights, fightTime, killmails, order, select, t, playing, selected, focusOnly }: ReplayStageProps) {
   const host = useRef<HTMLDivElement>(null)
   const { camera, zoom, reset, handlers } = useReplayCamera(host)
   const under = useRef<HTMLCanvasElement>(null)
@@ -339,13 +340,12 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, killm
       <div className="replay-header">
         <ReplayLegend analysis={analysis} order={order} />
         <div className="replay-header-actions">
-          <InteractionKey />
+          <ReplayOverlays stage={host} closeFights={closeFights} fightTime={fightTime} />
           {headerActions}
           {!stage && zoomControls}
         </div>
       </div>
       {stage && <div className="replay-stage-zoom">{zoomControls}</div>}
-      {closeFights}
       {detail && (
         <div ref={tooltip} className="replay-tooltip" role="tooltip">
           <Portrait charId={detail.entity.charId} size={32} />

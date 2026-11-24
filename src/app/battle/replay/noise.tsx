@@ -1,7 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { Analysis } from '@/core/contract'
 import { useView, type ReplayNoiseFilter } from '@/app/state/view-store'
 import { placeReplayPopover } from './placement'
+import { ReplayOverlayWorkspace } from './ReplayOverlays'
 
 type Classify = typeof import('@/core/data/item-types').damageNoise
 let classify: Classify | undefined
@@ -53,7 +55,8 @@ const options: readonly [ReplayNoiseFilter, string][] = [
 
 export function ReplayNoiseControls() {
   const { hiddenNoise, toggleNoiseFilter } = useView()
-
+  const workspace = useContext(ReplayOverlayWorkspace)
+  const panelId = useId()
   const [open, setOpen] = useState(false)
   const details = useRef<HTMLDetailsElement>(null)
   const trigger = useRef<HTMLElement>(null)
@@ -64,47 +67,57 @@ export function ReplayNoiseControls() {
     const button = trigger.current
     const panel = popover.current
     const stage = menu?.closest('.replay-stage')
-    const header = menu?.closest('.replay-header')
-    if (!open || !menu || !button || !panel || !stage || !header) return
+    if (!open || !menu || !button || !panel || !stage) return
 
     const place = () => {
-      const { left, right, top, height } = stage.getBoundingClientRect()
       const gutter = 8
       const bounds = {
-        x: left + gutter, y: top + gutter,
-        width: Math.max(0, Math.min(right - gutter, header.getBoundingClientRect().right) - left - gutter),
-        height: Math.max(0, height - 2 * gutter),
+        x: gutter, y: gutter,
+        width: Math.max(0, window.innerWidth - 2 * gutter),
+        height: Math.max(0, window.innerHeight - 2 * gutter),
       }
       panel.style.maxInlineSize = `${bounds.width}px`
       const naturalHeight = panel.scrollHeight + panel.offsetHeight - panel.clientHeight
       const { x, y, height: panelHeight } = placeReplayPopover(button.getBoundingClientRect(),
         { width: panel.getBoundingClientRect().width, height: naturalHeight }, bounds, 4)
-      const origin = menu.getBoundingClientRect()
-      panel.style.left = `${x - origin.left}px`
-      panel.style.top = `${y - origin.top}px`
+      panel.style.left = `${x}px`
+      panel.style.top = `${y}px`
       panel.style.maxBlockSize = `${panelHeight}px`
     }
     place()
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place)
     observer?.observe(stage)
-    observer?.observe(header)
     observer?.observe(button)
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
 
     const closeOutside = (event: PointerEvent) => {
-      if (!event.composedPath().includes(menu)) menu.open = false
+      const path = event.composedPath()
+      if (!path.includes(menu) && !path.includes(panel)) menu.open = false
     }
     document.addEventListener('pointerdown', closeOutside, true)
     return () => {
       observer?.disconnect()
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
       document.removeEventListener('pointerdown', closeOutside, true)
     }
-  }, [open])
+  }, [open, workspace?.layer])
 
   return (
-    <details ref={details} name="replay-controls" className="replay-menu replay-noise"
-      onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary ref={trigger}>伤害过滤{hiddenNoise.size > 0 && <span className="replay-number"> · {hiddenNoise.size}</span>}</summary>
-      <div ref={popover} className="replay-popover">
+    <details ref={details} className="replay-menu replay-noise" onToggle={(event) => setOpen(event.currentTarget.open)}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && event.currentTarget.open) {
+          event.preventDefault()
+          event.currentTarget.open = false
+          trigger.current?.focus({ preventScroll: true })
+        } else if (event.key === 'Tab' && !event.shiftKey && event.target === trigger.current && open) {
+          event.preventDefault()
+          popover.current?.querySelector('input')?.focus({ preventScroll: true })
+        }
+      }}>
+      <summary ref={trigger} aria-controls={open ? panelId : undefined}>伤害过滤{hiddenNoise.size > 0 && <span className="replay-number"> · {hiddenNoise.size}</span>}</summary>
+      {open && createPortal(<div ref={popover} id={panelId} className="replay-popover replay-noise-popover">
         <p className="replay-noise-scope">影响回放、此刻交火和事件</p>
         {options.map(([filter, label]) => (
           <label key={filter}>
@@ -112,7 +125,7 @@ export function ReplayNoiseControls() {
             {label}
           </label>
         ))}
-      </div>
+      </div>, workspace?.layer ?? document.body)}
     </details>
   )
 }

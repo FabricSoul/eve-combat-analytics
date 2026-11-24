@@ -157,9 +157,9 @@ export function pointed(analysis: Analysis | null, ours: number, start: number, 
 export type LaneId = 'primary' | 'damage' | 'repair' | 'point' | 'kills'
 export interface Lane { id: LaneId; top: number; height: number; label: string }
 
-export function timelineLayout(compact: boolean, layers: ReadonlySet<LayerId>, hasDamage: boolean) {
+export function timelineLayout(compact: boolean, layers: ReadonlySet<LayerId>, hasDamage: boolean, workspace = false) {
   const lanes: Lane[] = []
-  let y = compact ? 2 : 6
+  let y = compact || workspace ? 2 : 6
   function add(id: LaneId, height: number, label: string, gap = 0) {
     y += gap
     lanes.push({ id, top: y, height, label })
@@ -172,10 +172,10 @@ export function timelineLayout(compact: boolean, layers: ReadonlySet<LayerId>, h
   }
 
   const killIcons = layers.has('kills') && layers.has('killIcons')
-  if (layers.has('primary')) add('primary', 14, '主目标')
-  if (hasDamage) add('damage', 70, '伤害/秒')
-  if (layers.has('repOurs')) add('repair', 40, '我方维修', 6)
-  if (layers.has('point')) add('point', 28, '点住的人数', 6)
-  if (layers.has('kills')) add('kills', killIcons ? 56 : 14, '击毁', 4)
+  if (layers.has('primary')) add('primary', workspace ? 10 : 14, '主目标')
+  if (hasDamage) add('damage', workspace ? 20 : 70, '伤害/秒')
+  if (layers.has('repOurs')) add('repair', workspace ? 24 : 40, '我方维修', 6)
+  if (layers.has('point')) add('point', workspace ? 18 : 28, '点住的人数', 6)
+  if (layers.has('kills')) add('kills', killIcons ? 56 : workspace ? 9 : 14, '击毁', workspace ? 2 : 4)
   return { lanes, height: y + 16, killIcons }
 }
