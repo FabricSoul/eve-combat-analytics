@@ -185,11 +185,13 @@ html {
 }
 
 .battle-layout {
+  --battle-feed-width: 340px;
+  --battle-drawer-width: 420px;
   display: grid;
   grid-template:
     "panel replay feed" minmax(0, 1fr)
     "timeline timeline timeline" minmax(120px, max-content)
-    / 280px minmax(0, 1fr) 340px;
+    / 280px minmax(0, 1fr) var(--battle-feed-width);
   position: relative;
   height: 100%;
   min-width: 0;
@@ -220,10 +222,18 @@ html {
   grid-area: 1 / 2 / 2 / -1;
   inset: 0 0 0 auto;
   z-index: 1;
-  width: min(100%, 420px);
+  width: min(100%, var(--battle-drawer-width));
   overflow: auto;
   border-inline-start: 1px solid var(--color-hair);
   background: var(--color-surface);
+}
+
+/* The desktop drawer covers the feed first. On tablets the feed sits below the canvas. */
+.battle-layout:has(> .battle-drawer) {
+  --replay-legend-occlusion: max(0px, var(--battle-drawer-width) - var(--battle-feed-width));
+}
+.battle-layout[data-layout="tablet"]:has(> .battle-drawer) {
+  --replay-legend-occlusion: var(--battle-drawer-width);
 }
 
 .battle-sides { position: absolute; z-index: 3; inset: var(--space-6) max(var(--space-6), (100% - 960px) / 2) auto; }

@@ -166,6 +166,36 @@ export class BattleRoom extends ProductionRoom {
   await a.page.getByRole('button', { name: 'D 方伤害' }).waitFor()
   const fourSides = await (await fetch(`${origin}/api/battles/${brId}/analysis`)).json()
   assert.deepEqual(Object.keys(fourSides.timeline.damageBySide).sort(), ['0', '1', '2', '3'])
+  const legend = a.page.locator('.replay-legend')
+  const legendDrawer = a.page.getByRole('complementary', { name: '个人详情' })
+  await legend.getByText('D 方', { exact: true }).waitFor()
+  async function assertLegendInView(drawerOpen) {
+    const geometry = await legend.evaluate((node) => {
+      const canvas = node.closest('.replay-stage').getBoundingClientRect()
+      const drawer = node.closest('.battle-layout').querySelector('.battle-drawer')?.getBoundingClientRect()
+      const entries = [...node.children].map((entry) => {
+        const rect = entry.getBoundingClientRect()
+        return { text: entry.textContent.trim(), left: rect.left, right: rect.right, width: rect.width }
+      })
+      return { entries, canvasLeft: canvas.left, canvasRight: canvas.right, drawerLeft: drawer?.left }
+    })
+    assert.equal(geometry.entries.length, 4)
+    assert.equal(geometry.entries.at(-1).text, 'D 方')
+    assert.equal(geometry.drawerLeft !== undefined, drawerOpen)
+    const right = Math.min(geometry.canvasRight, geometry.drawerLeft ?? Infinity)
+    for (const entry of geometry.entries) {
+      assert.ok(entry.width > 0 && entry.left >= geometry.canvasLeft && entry.right <= right,
+        `${entry.text} fits in the exposed replay canvas with the drawer ${drawerOpen ? 'open' : 'closed'} (right ${entry.right} ≤ ${right})`)
+    }
+  }
+  await assertLegendInView(false)
+  await aRow.locator('.roster-main').click()
+  await legendDrawer.waitFor()
+  await assertLegendInView(true)
+  await legendDrawer.getByRole('button', { name: '关闭个人详情', exact: true }).click()
+  await legendDrawer.waitFor({ state: 'detached' })
+  await assertLegendInView(false)
+  console.log('Replay legend: all four labels fit at 1280px with the drawer open and closed')
   await a.page.getByRole('button', { name: '排边', exact: true }).click()
   const fourSidePanel = a.page.getByRole('dialog', { name: '排边' })
   const viewport = fourSidePanel.locator('.sides-viewport')

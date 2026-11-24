@@ -157,7 +157,9 @@
 .replay-legend {
   position: absolute;
   z-index: 2;
-  inset: var(--space-3) var(--space-6) auto;
+  --replay-legend-gutter: var(--space-6);
+  inset-block-start: var(--space-3);
+  inset-inline: var(--replay-legend-gutter) calc(var(--replay-legend-gutter) + var(--replay-legend-occlusion, 0px));
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
@@ -192,7 +194,7 @@
 .replay-gallery-preview[data-compact="true"] { height: 340px; }
 
 @container (max-width: 430px) {
-  .replay-legend { inset-inline: var(--space-3); }
+  .replay-legend { --replay-legend-gutter: var(--space-3); }
   .replay-legend-detail { display: none; }
 }
 
