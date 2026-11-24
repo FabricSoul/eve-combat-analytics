@@ -93,7 +93,7 @@ export function SidesPanel({ onClose }: SidesPanelProps) {
     }
   }, [canClose])
 
-  const mover = useSideMove(summary?.meta.brId ?? '')
+  const mover = useSideMove(summary?.meta.brId ?? '', summary?.sideOverrides)
   const data = useMemo(
     () => summary && analysis ? buildSideColumns(summary, analysis, view.oursSide) : null,
     [summary, analysis, view.oursSide],

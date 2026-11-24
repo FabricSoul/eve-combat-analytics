@@ -17,10 +17,21 @@ interface WindowFrameProps {
   dispatch: Dispatch<WindowAction>
   state: WindowState
   children: ReactNode
+  module?: {
+    id: string
+    tools?: ReactNode
+    dragging: boolean
+    onPointerDown: (event: PointerEvent<HTMLElement>) => void
+    onKeyDown: (event: KeyboardEvent<HTMLElement>) => void
+    onFloatMove: (event: PointerEvent<HTMLElement>) => void
+    onFloatEnd: (commit: boolean) => boolean
+    setFloatCancel: (cancel: (() => boolean) | null) => void
+  }
 }
 
 interface Gesture {
   pointer: number
+  element: HTMLElement
   x: number
   y: number
   start: WindowRect
@@ -33,7 +44,7 @@ const movement: Record<string, readonly [number, number]> = {
   ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
 }
 
-export function WindowFrame({ id, title, subtitle, kind: Surface, region, desk, viewport, zIndex, dispatch, state, children }: WindowFrameProps) {
+export function WindowFrame({ id, title, subtitle, kind: Surface, region, desk, viewport, zIndex, dispatch, state, children, module }: WindowFrameProps) {
   const body = useId()
   const gesture = useRef<Gesture | null>(null)
   const [preview, setPreview] = useState<{ rect: WindowRect; target: DockEdge | null } | null>(null)
@@ -42,7 +53,10 @@ export function WindowFrame({ id, title, subtitle, kind: Surface, region, desk, 
   const { floating, minimized } = state
 
   useEffect(() => () => {
-    if (gesture.current) document.body.classList.remove(windowDragClass)
+    if (gesture.current) {
+      document.body.classList.remove(windowDragClass)
+      module?.setFloatCancel(null)
+    }
   }, [])
 
   function raise() {
@@ -58,9 +72,10 @@ export function WindowFrame({ id, title, subtitle, kind: Surface, region, desk, 
     document.getSelection()?.removeAllRanges()
     document.body.classList.add(windowDragClass)
     gesture.current = {
-      pointer: event.pointerId, x: event.clientX, y: event.clientY, start: rect,
+      pointer: event.pointerId, element: event.currentTarget, x: event.clientX, y: event.clientY, start: rect,
       rect, mode, target: null,
     }
+    module?.setFloatCancel(cancel)
   }
 
   function move(event: PointerEvent<HTMLElement>) {
@@ -77,23 +92,41 @@ export function WindowFrame({ id, title, subtitle, kind: Surface, region, desk, 
       }, viewport)
     } else {
       active.rect = clampWindow({ ...startRect, x: startRect.x + dx, y: startRect.y + dy }, viewport, minimized)
-      active.target = dockTarget(id, { x: event.clientX - bounds.left, y: event.clientY - bounds.top }, viewport)
+      if (module) module.onFloatMove(event)
+      else active.target = dockTarget(id, { x: event.clientX - bounds.left, y: event.clientY - bounds.top }, viewport)
     }
     setPreview({ rect: active.rect, target: active.target })
+  }
+
+  function resetGesture() {
+    gesture.current = null
+    document.body.classList.remove(windowDragClass)
+    setPreview(null)
+    module?.setFloatCancel(null)
+  }
+
+  function cancel() {
+    const active = gesture.current
+    if (!active) return false
+    resetGesture()
+    if (active.element.hasPointerCapture(active.pointer)) active.element.releasePointerCapture(active.pointer)
+    if (active.mode === 'move') module?.onFloatEnd(false)
+    return true
   }
 
   function end(event: PointerEvent<HTMLElement>) {
     const active = gesture.current
     if (!active || active.pointer !== event.pointerId) return
-    gesture.current = null
-    document.body.classList.remove(windowDragClass)
-    setPreview(null)
-    if (event.type !== 'pointerup') return
+    const commit = event.type === 'pointerup'
+    resetGesture()
+    if (active.mode === 'move' && module?.onFloatEnd(commit)) return
+    if (!commit) return
     if (active.target) dispatch({ type: 'dock', id })
     else dispatch({ type: 'position', id, rect: active.rect })
   }
 
   function moveByKey(event: KeyboardEvent<HTMLElement>) {
+    if (module && event.altKey) return module.onKeyDown(event)
     const delta = movement[event.key]
     if (!floating || !stored || !delta || event.currentTarget !== event.target) return
     event.preventDefault()
@@ -105,25 +138,29 @@ export function WindowFrame({ id, title, subtitle, kind: Surface, region, desk, 
 
   const handlers = { onPointerMove: move, onPointerUp: end, onPointerCancel: end, onLostPointerCapture: end }
   const action = floating ? '停靠' : '弹出'
-  const size = minimized ? '还原' : '最小化'
+  const size = minimized ? '还原' : module ? '收起' : '最小化'
+  const top = module ? desk.current?.getBoundingClientRect().top ?? 48 : 0
   return (
     <>
-      <Surface className={`battle-window ${id === 'feed' ? 'battle-feed' : id === 'timeline' ? 'battle-timeline' : 'battle-panel'}`}
-        aria-label={region} data-window={id} data-floating={floating} data-minimized={minimized}
-        style={floating && rect ? { left: rect.x, top: rect.y, width: rect.width, height: minimized ? Math.min(windowHeight, viewport.height) : rect.height, zIndex } : undefined}
+      <Surface data-module={module?.id} data-dragging={module?.dragging || undefined} className={`battle-window ${module ? 'battle-module' : id === 'feed' ? 'battle-feed' : id === 'timeline' ? 'battle-timeline' : 'battle-panel'}`}
+        aria-label={region} data-window={module?.id ?? id} data-floating={floating} data-minimized={minimized}
+        style={floating && rect ? { left: rect.x, top: top + rect.y, width: rect.width, height: minimized ? Math.min(windowHeight, viewport.height) : rect.height, zIndex } : undefined}
         onPointerDown={raise} onFocusCapture={raise}>
-        <div className="battle-window-titlebar" tabIndex={floating ? 0 : undefined} role="group"
-          aria-label={`${title} 标题栏`} aria-keyshortcuts={floating ? 'ArrowLeft ArrowRight ArrowUp ArrowDown' : undefined}
-          onPointerDown={(event) => start(event, 'move')} onKeyDown={moveByKey} {...handlers}>
+        <div className="battle-window-titlebar" tabIndex={floating || module ? 0 : undefined} role="group"
+          aria-label={`${title} 标题栏`} aria-keyshortcuts={module ? 'Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown' : floating ? 'ArrowLeft ArrowRight ArrowUp ArrowDown' : undefined}
+          onPointerDown={(event) => !floating && module ? module.onPointerDown(event) : start(event, 'move')} onKeyDown={moveByKey} {...handlers}>
+          {module && <span className="battle-module-handle" aria-hidden="true" title="拖动移动模块">⠿</span>}
           <span className="battle-window-heading">{title}
             {subtitle && <span className="battle-window-subtitle">{subtitle}</span>}
           </span>
+          {module && <span className="battle-module-title-spacer" aria-hidden="true" />}
+          {!minimized && module?.tools}
           <button type="button" aria-label={`${action} ${title}`} title={action}
             onClick={() => floating ? dispatch({ type: 'dock', id }) : dispatch({ type: 'pop', id, viewport })}>{floating ? '×' : '⧉'}</button>
           <button type="button" aria-label={`${size} ${title}`} title={size} aria-controls={body} aria-expanded={!minimized}
             onClick={() => dispatch({ type: 'minimize', id })}>{minimized ? '+' : '–'}</button>
         </div>
-        <div id={body} className={`battle-window-body${id === 'feed' ? ' battle-feed-content' : ''}`} hidden={minimized}>
+        <div id={body} className={`battle-window-body${!module && id === 'feed' ? ' battle-feed-content' : ''}`} hidden={minimized}>
           {children}
         </div>
         {floating && !minimized && <div className="battle-window-grip" aria-hidden="true"

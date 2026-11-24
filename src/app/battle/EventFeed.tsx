@@ -14,6 +14,8 @@ import './feed/feed.css'
 export interface EventFeedProps {
   /** Force the compact variant; otherwise it follows the column width. */
   compact?: boolean
+  search?: boolean
+  showFilters?: boolean
 }
 
 const compactUpTo = 400
@@ -39,20 +41,25 @@ function useNarrow(forced: boolean | undefined) {
   return { root, compact: forced ?? narrow }
 }
 
-export function EventFeed({ compact: forcedCompact }: EventFeedProps) {
+export function EventFeed({ compact: forcedCompact, search, showFilters = true }: EventFeedProps) {
   const { summary, analysis } = useBattleContext()
   const view = useView()
   const visibleAnalysis = useNoiseFilteredAnalysis(analysis)
   const t = useCoarseTime()
   const { root, compact } = useNarrow(forcedCompact)
   const moduleTypeId = useModuleTypeId()
+  const [query, setQuery] = useState('')
   const [active, setActive] = useState<readonly FeedKind[]>(defaultFeedKinds)
   const mode = view.feedMode
   const focus = view.focusOnly ? view.selected : null
-  const rows = useMemo(
+  const allRows = useMemo(
     () => summary && visibleAnalysis ? buildFeed({ analysis: visibleAnalysis, summary, mode, t, oursSide: view.oursSide, kinds: active, focus, range: view.range }) : [],
     [summary, visibleAnalysis, mode, t, view.oursSide, active, focus, view.range],
   )
+  const needle = search ? query.trim().toLocaleLowerCase() : ''
+  const rows = needle ? allRows.filter(({ from, to, victim, weapon }) =>
+    [from && analysis?.entities[from]?.name, to && analysis?.entities[to]?.name, victim && analysis?.entities[victim]?.name, weapon]
+      .some((value) => value && value.toLocaleLowerCase().includes(needle))) : allRows
   const order = useMemo(() => analysis ? fullSideOrder(analysis, view.oursSide) : [], [analysis, view.oursSide])
 
   const toggleKind = (kind: FeedKind) =>
@@ -106,13 +113,14 @@ export function EventFeed({ compact: forcedCompact }: EventFeedProps) {
       lastSeparator = row.lastT
       const time = compact && mode === 'merged' ? null : <span className="feed-time">{fmtHms(row.lastT)}</span>
       const current = row.current ? { 'aria-current': 'true' as const } : {}
+      const selected = view.selected !== null && (view.selected === row.from || view.selected === row.to || view.selected === row.victim)
       if (mode === 'key') {
         const [glyph, label] = keyBadge[row.type === 'event' ? 'big' : row.type]
-        return [<div key={row.id} className="feed-row" data-type={row.type} {...current}>
+        return [<div key={row.id} className="feed-row" data-selected={selected || undefined} data-type={row.type} {...current}>
           {time}<span className="feed-kev" title={label}>{glyph}</span>{keyContent(row)}
         </div>]
       }
-      return [...separator, <div key={row.id} className="feed-row" data-kind={row.kind} {...current}>
+      return [...separator, <div key={row.id} className="feed-row" data-selected={selected || undefined} data-kind={row.kind} {...current}>
         {time}{who(row.from)}{weapon(row)}{who(row.to)}{amount(row)}
       </div>]
     })
@@ -133,15 +141,17 @@ export function EventFeed({ compact: forcedCompact }: EventFeedProps) {
           ))}
         </div>
       </div>
-      <div className="feed-chips">
+      {search && <input autoFocus type="search" className="battle-module-search" aria-label="搜索事件"
+        placeholder="飞行员或武器" value={query} onChange={(event) => setQuery(event.currentTarget.value)} />}
+      {showFilters && <div className="feed-chips">
         {mode === 'key' ? <span>击毁 · 主目标切换 · 前 1% 的大额伤害</span> : kinds.map(({ value, label }) => (
           <button key={value} type="button" aria-pressed={active.includes(value)} onClick={() => toggleKind(value)}>{label}</button>
         ))}
-      </div>
+      </div>}
       <div className="feed-head" role="presentation">
         {heads.map((head, index) => <span key={index} className={index === heads.length - 1 && mode !== 'key' ? 'feed-r' : undefined}>{head}</span>)}
       </div>
-      {rows.length === 0 ? <div className="feed-empty" role="status">这一刻前后没有事件</div> : renderRows()}
+      {rows.length === 0 ? <div className="feed-empty" role="status">{needle ? '没有匹配的事件 · 试试其他飞行员或武器。' : '这一刻前后没有事件 · 移动时间轴或调整筛选条件'}</div> : renderRows()}
     </div>
   )
 }

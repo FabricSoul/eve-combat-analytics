@@ -2,6 +2,8 @@ import { memo, useId, useMemo, useState } from 'react'
 import type { Analysis, BattleSummary, EntityKey } from '@/core/contract'
 import { fmtNum } from '@/app/lib/format'
 import { sideColor } from '@/app/lib/sides'
+import { useView } from '@/app/state/view-store'
+import { PilotMore, usePilotMenu } from '../roster/PilotActions'
 import { Portrait } from '@/app/ui/Portrait'
 import { Curve } from './Plot'
 import { plotScale } from './model'
@@ -48,6 +50,8 @@ const PilotTrace = memo(function PilotTrace({ geometry, bucketStart, color, seri
 })
 
 export function PilotLanes({ analysis, logs, oursSide, sideOrder, pinned, onRemove, cursorX, brush, width, left, right, start, end }: PilotLanesProps) {
+  const { selected, select } = useView()
+  const menu = usePilotMenu()
   const [metric, setMetric] = useState<PilotMetric>('damageOut')
   const geometry = useMemo(() => ({ width, left, right, start, end }), [width, left, right, start, end])
   const seriesFor = useMemo(() => {
@@ -72,12 +76,15 @@ export function PilotLanes({ analysis, logs, oursSide, sideOrder, pinned, onRemo
         if (!pilot) return null
         const color = metric === 'repairOut' ? 'var(--color-repair)' : sideColor(pilot.side, sideOrder)
         const peak = `峰值 ${fmtNum(Math.round(data.peak))}/秒`
-        return <div key={key} data-pilot-lane={key} className="eca-pilot-lane" style={{ width }}>
+        return <div key={key} data-pilot-lane={key} className="eca-pilot-lane" style={{ width }}
+          data-selected={selected === key || undefined} onContextMenu={(event) => menu?.open(key, event)}>
           <div className="eca-pilot-cell" style={{ width: left }}>
-            <Portrait charId={pilot.charId} size={16} />
-            <span className="eca-pilot-name" title={pilot.name}>{pilot.name}</span>
-            <button type="button" className="eca-pilot-remove" aria-label={`移除 ${pilot.name} 的时间轴对比`}
-              onClick={() => onRemove(key)}>×</button>
+            <button type="button" className="eca-pilot-select" aria-pressed={selected === key} title={pilot.name} onClick={() => select(key)}>
+              <Portrait charId={pilot.charId} size={16} />
+              <span className="eca-pilot-name">{pilot.name}</span>
+            </button>
+            {menu ? <PilotMore pilot={key} name={pilot.name} /> : <button type="button" className="eca-pilot-remove" aria-label={`移除 ${pilot.name} 的时间轴对比`}
+              onClick={() => onRemove(key)}>×</button>}
             {!pilot.hasLog && <span className="eca-pilot-observed">据我方日志</span>}
           </div>
           <svg className="eca-pilot-chart" width={width} height={height} viewBox={`0 0 ${width} ${height}`}

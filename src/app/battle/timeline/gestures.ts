@@ -172,6 +172,7 @@ export function useTimelineGestures(
   }
 
   function onKeyDown(event: KeyboardEvent<SVGSVGElement>) {
+    if (event.defaultPrevented) return
     if (event.key === 'Escape' && (view.range || drag.current?.mode === 'range')) {
       event.preventDefault()
       drag.current = null

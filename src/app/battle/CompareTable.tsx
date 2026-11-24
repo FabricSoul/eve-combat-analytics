@@ -2,6 +2,7 @@ import { useId, useMemo, useState, type CSSProperties } from 'react'
 import { fmtHms } from '../lib/format'
 import { sideColor, sideLabel, sideOrder } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
+import { PilotMore, usePilotMenu } from './roster/PilotActions'
 import { useView } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { Tabs } from '../ui/Tabs'
@@ -21,7 +22,8 @@ const initialSort = { key: 'damageOut', direction: 'descending' } as const
 
 export function CompareTable(_props: CompareTableProps) {
   const { analysis, summary } = useBattleContext()
-  const { oursSide, select, range, pinned, setPinned, togglePin } = useView()
+  const { oursSide, selected, select, range, pinned, setPinned, togglePin } = useView()
+  const pilotMenu = usePilotMenu()
   const { rows } = useCombatRows()
   const [mode, setMode] = useState<CompareMode>('table')
   const [sort, setSort] = useState<{ key: Metric['key']; direction: 'ascending' | 'descending' }>(initialSort)
@@ -104,7 +106,7 @@ export function CompareTable(_props: CompareTableProps) {
             </label>)}
           </fieldset>)}
         </div></details>
-        <Button variant="ghost" onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '整页'}</Button>
+        <Button variant="ghost" data-full-page-close={expanded || undefined} onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '整页'}</Button>
       </div>
     </header>
     <div className="u7-compare-note">
@@ -140,10 +142,12 @@ export function CompareTable(_props: CompareTableProps) {
                 {metric.key === sort.key && <span aria-hidden="true">{sort.direction === 'descending' ? ' ↓' : ' ↑'}</span>}
               </button>
             </th>)}</tr>
-          </thead><tbody>{sorted.map((row) => <tr key={row.entity.key} data-pinned={pinned.has(row.entity.key)}>
+          </thead><tbody>{sorted.map((row) => <tr key={row.entity.key} data-pilot-key={row.entity.key} data-pinned={pinned.has(row.entity.key)}
+            data-selected={selected === row.entity.key || undefined} onContextMenu={(event) => pilotMenu?.open(row.entity.key, event)}>
             <th scope="row"><label><input type="checkbox" aria-label={`并排对比 ${row.entity.name}`}
               checked={pinned.has(row.entity.key)} onChange={() => togglePin(row.entity.key)} /></label>
-              <PilotName row={row} onClick={() => select(row.entity.key)} /></th>
+              <PilotName row={row} onClick={() => select(row.entity.key)} />
+              <PilotMore pilot={row.entity.key} name={row.entity.name} /></th>
             {columns.map((column) => <td key={column.metric.key} data-compact={column.metric.key === activeCompact}>
               <MetricValue row={row} metric={column.metric} />
               <MetricBar value={metricValue(row, column.metric)} column={column} color={sideColor(row.entity.side, order)} />
@@ -151,11 +155,11 @@ export function CompareTable(_props: CompareTableProps) {
                 <HitQualityBar stats={row.observedHits ?? row.stats} color={sideColor(row.entity.side, order)} />}
             </td>)}
           </tr>)}</tbody></table>
-          {!sorted.length && <p className="u7-compare-message">没有符合筛选条件的飞行员。</p>}
+          {!sorted.length && <p className="u7-compare-message">没有符合筛选条件的飞行员 · 调整阵营或时间选段。</p>}
         </div>
       </>}
-      {mode === 'side-by-side' && <SideBySide rows={checked} columns={columns} order={order} />}
-      {mode === 'distribution' && <Distribution rows={shown} columns={columns} order={order} pinned={pinned} onSelect={select} />}
+      {mode === 'side-by-side' && <SideBySide rows={checked} columns={columns} order={order} onSelect={select} selected={selected} />}
+      {mode === 'distribution' && <Distribution rows={shown} columns={columns} order={order} pinned={pinned} onSelect={select} selected={selected} />}
     </div>
   </section>
 }

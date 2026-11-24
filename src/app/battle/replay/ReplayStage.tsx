@@ -7,6 +7,7 @@ import { maxZoom, minZoom, zoomStep } from './camera'
 import { useReplayCamera } from './useReplayCamera'
 import { Bracket } from '@/app/ui/Bracket'
 import { Portrait } from '@/app/ui/Portrait'
+import { usePilotMenu } from '../roster/PilotActions'
 import { InteractionKey } from './InteractionKey'
 import { useReplayKeyboard, type ReplayFocusTarget } from './keyboard'
 import { makePainter } from './paint'
@@ -21,6 +22,8 @@ import './replay.css'
 interface ReplayStageProps extends Omit<ReplayFrame, 'reducedMotion' | 'pausedElapsed'> {
   analysis: Analysis
   headerActions?: ReactNode
+  stage?: boolean
+  closeFights?: ReactNode
   killmails: readonly Killmail[]
   order: readonly number[]
   select: (key: EntityKey) => void
@@ -37,15 +40,16 @@ interface PilotMarkerProps {
 }
 
 const PilotMarker = memo(function PilotMarker({ node, selected, inspected, labelEligible, register, onInspect, onSelect }: PilotMarkerProps) {
+  const menu = usePilotMenu()
   const { entity: { key, name, charId, hasLog, side }, color, radius, ship, shipId, letter } = node
 
   return (
-    <div ref={(element) => { register(key, element) }} className="replay-marker" data-selected={selected} inert
+    <div ref={(element) => { register(key, element) }} className="replay-marker" data-pilot-key={key} data-selected={selected} inert
       data-unassigned={side === -1 || undefined}
       style={{ '--replay-side': color, '--replay-diameter': `${radius * 2}px` } as CSSProperties}>
       <button type="button" tabIndex={-1} className="replay-pilot" data-log={hasLog} aria-pressed={selected}
         aria-label={ship ? `${name} · ${ship}` : name}
-        onPointerEnter={() => onInspect(key)} onPointerLeave={() => onInspect(null)} onClick={() => onSelect(key)}>
+        onContextMenu={(event) => menu?.open(key, event)} onPointerEnter={() => onInspect(key)} onPointerLeave={() => onInspect(null)} onClick={() => onSelect(key)}>
         {shipId !== null && (
           <img key={shipId} data-src={typeRenderUrl(shipId, radius * 2)} alt="" draggable={false}
             onLoad={(event) => { event.currentTarget.dataset.loaded = '' }}
@@ -86,7 +90,7 @@ function ReplayLegend({ analysis, order }: Pick<ReplayStageProps, 'analysis' | '
   )
 }
 
-export function ReplayStage({ analysis, headerActions, killmails, order, select, t, playing, selected, focusOnly }: ReplayStageProps) {
+export function ReplayStage({ analysis, headerActions, stage, closeFights, killmails, order, select, t, playing, selected, focusOnly }: ReplayStageProps) {
   const host = useRef<HTMLDivElement>(null)
   const { camera, zoom, reset, handlers } = useReplayCamera(host)
   const under = useRef<HTMLCanvasElement>(null)
@@ -104,7 +108,7 @@ export function ReplayStage({ analysis, headerActions, killmails, order, select,
   const layout = useMemo(() => (
     width && height ? makeLayout(scene.pilots, order, width, height) : null
   ), [scene, order, width, height])
-  const lockedKey = focused ?? selected
+  const lockedKey = selected ?? focused
   const detailKey = inspected ?? focused ?? selected
   const detail = detailKey ? layout?.byKey.get(detailKey) : undefined
   const frame = useRef({ t, playing, selected, focusOnly, detailKey, lockedKey, camera })
@@ -304,6 +308,12 @@ export function ReplayStage({ analysis, headerActions, killmails, order, select,
 
   const locked = lockedKey ? layout?.byKey.get(lockedKey) : undefined
 
+  const zoomControls = <div className="replay-zoom" role="group" aria-label="回放缩放">
+    <button type="button" title="缩小" aria-label="缩小" disabled={camera.scale <= minZoom} onClick={() => zoom(1 / zoomStep)}>−</button>
+    {stage && <span className="replay-number">{Math.round(camera.scale * 100)}%</span>}
+    <button type="button" title="放大" aria-label="放大" disabled={camera.scale >= maxZoom} onClick={() => zoom(zoomStep)}>+</button>
+    <button type="button" onClick={reset}>适应全部</button>
+  </div>
   return (
     <div ref={host} className="replay-stage" data-zoomed={camera.scale > 1 || undefined} {...handlers}>
       <canvas ref={under} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer" aria-hidden="true" />
@@ -326,13 +336,11 @@ export function ReplayStage({ analysis, headerActions, killmails, order, select,
         <div className="replay-header-actions">
           <InteractionKey />
           {headerActions}
-          <div className="replay-zoom" role="group" aria-label="回放缩放">
-            <button type="button" aria-label="缩小" disabled={camera.scale <= minZoom} onClick={() => zoom(1 / zoomStep)}>−</button>
-            <button type="button" aria-label="放大" disabled={camera.scale >= maxZoom} onClick={() => zoom(zoomStep)}>+</button>
-            <button type="button" onClick={reset}>适应全部</button>
-          </div>
+          {!stage && zoomControls}
         </div>
       </div>
+      {stage && <div className="replay-stage-zoom">{zoomControls}</div>}
+      {closeFights}
       {detail && (
         <div ref={tooltip} className="replay-tooltip" role="tooltip">
           <Portrait charId={detail.entity.charId} size={32} />

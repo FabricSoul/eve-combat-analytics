@@ -1,11 +1,12 @@
 import { useId, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import type { EntityKey } from '@/core/contract'
 import { fmtNum } from '../../lib/format'
-import { ObservedHitSample } from '../hits/WeaponClasses'
 import { sideColor } from '../../lib/sides'
 import { Portrait } from '../../ui/Portrait'
 import { Tag } from '../../ui/Tag'
 import { TypeIcon } from '../../ui/TypeIcon'
+import { ObservedHitSample } from '../hits/WeaponClasses'
+import { PilotMore, usePilotMenu } from '../roster/PilotActions'
 import { HitQualityBar } from './HitQualityBar'
 import { hitQualityHint } from './hit-quality'
 import {
@@ -81,9 +82,11 @@ export function MetricBar({ value, column, color }: { value: number | null; colu
   </span>
 }
 
-export function SideBySide({ rows, columns, order }: {
+export function SideBySide({ rows, columns, order, onSelect, selected }: {
   rows: CompareRow[]; columns: Column[]; order: number[]
+  onSelect?: (key: EntityKey) => void; selected?: EntityKey | null
 }) {
+  const menu = usePilotMenu()
   if (!rows.length) return <p className="u7-compare-message">勾选飞行员进行并排对比。</p>
   return <div className="u7-compare-cards" role="region" aria-label="并排指标" tabIndex={0}>
     <div className="u7-compare-card-track" style={{ '--pilot-count': rows.length } as CSSProperties}>
@@ -92,8 +95,10 @@ export function SideBySide({ rows, columns, order }: {
           <small>全队中位 <span className="app-number">{column.metric.format(column.median)}</span></small>
         </h3>
         <div className="u7-compare-card-pilots">
-          {rows.map((row) => <div className="u7-compare-pair" key={row.entity.key}>
-            <PilotName row={row} />
+          {rows.map((row) => <div className="u7-compare-pair" key={row.entity.key} data-selected={selected === row.entity.key || undefined}
+            onContextMenu={(event) => menu?.open(row.entity.key, event)}>
+            <div className="u7-pilot-cell"><PilotName row={row} onClick={onSelect && (() => onSelect(row.entity.key))} />
+              <PilotMore pilot={row.entity.key} name={row.entity.name} /></div>
             <div className="u7-compare-pair-measure">
               <MetricBar column={column} value={metricValue(row, column.metric)} color={sideColor(row.entity.side, order)} />
               <MetricValue row={row} metric={column.metric} />
@@ -112,6 +117,7 @@ interface DistributionProps {
   columns: Column[]
   pinned: ReadonlySet<EntityKey>
   order: number[]
+  selected?: EntityKey | null
   onSelect(key: EntityKey): void
 }
 
@@ -121,7 +127,8 @@ export function Distribution({ columns, ...props }: DistributionProps) {
   </div>
 }
 
-function DistributionStrip({ rows, column, pinned, order, onSelect }: Omit<DistributionProps, 'columns'> & { column: Column }) {
+function DistributionStrip({ rows, column, pinned, order, onSelect, selected }: Omit<DistributionProps, 'columns'> & { column: Column }) {
+  const menu = usePilotMenu()
   const [active, setActive] = useState<EntityKey>()
   const { metric, low, high } = column
   const entries = rows.flatMap((row) => {
@@ -166,10 +173,10 @@ function DistributionStrip({ rows, column, pinned, order, onSelect }: Omit<Distr
             ? ` · ${observedLabel} · ${fmtNum(row.observedHits.shots)} 发` : ''
           const hint = `${name} · ${metric.format(value)}${sample}`
           return <button key={key} type="button" className="u7-distribution-point"
-            data-highlighted={highlighted} data-persistent-label={persistentLabel} data-anchor={left < 35 ? 'start' : left > 65 ? 'end' : 'middle'}
+            data-highlighted={highlighted} data-selected={selected === key || undefined} data-persistent-label={persistentLabel} data-anchor={left < 35 ? 'start' : left > 65 ? 'end' : 'middle'}
             style={{ left: `${left}%`, '--point-side': sideColor(side, order), '--label-top': `${labelOffsets[lane] ?? -24}px` } as CSSProperties}
             title={hint} aria-label={hint} tabIndex={key === tabStop ? 0 : -1}
-            onFocus={() => setActive(key)} onKeyDown={(event) => navigate(event, index)} onClick={() => onSelect(key)}>
+            onContextMenu={(event) => menu?.open(key, event)} onFocus={() => setActive(key)} onKeyDown={(event) => navigate(event, index)} onClick={() => onSelect(key)}>
             <TypeIcon typeId={shipId(row.entity)} size={16} />
             <span aria-hidden="true">{name}</span>
           </button>

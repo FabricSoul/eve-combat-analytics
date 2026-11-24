@@ -67,6 +67,13 @@ export const tokenGroups = [
     ],
   },
   {
+    title: '紧凑战斗布局', tokens: [
+      { name: '--row-compact', use: '模块中的名单与表格行高' },
+      { name: '--fs-compact-table', use: '模块中的表格和名单字号' },
+      { name: '--fs-compact-body', use: '战斗页面正文字号' },
+    ],
+  },
+  {
     title: '圆角', tokens: [
       { name: '--radius-ctl', use: '按钮、输入框、头像' },
       { name: '--radius-card', use: '抽屉、卡片、面板' },

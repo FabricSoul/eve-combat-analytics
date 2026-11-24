@@ -35,7 +35,7 @@ export function IdentityPicker({ from, label, summary, analysis, returnFocus, on
   const root = useRef<HTMLDivElement>(null)
   const [invoker] = useState(() => returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null))
   const [query, setQuery] = useState('')
-  const identity = useIdentity(summary.meta.brId)
+  const identity = useIdentity(summary.meta.brId, summary.identityMerges)
 
   const suggestions = useMemo(() => suggestMerges(analysis, from).slice(0, suggestionLimit)
     .flatMap(({ to }) => analysis.entities[to] ?? []), [analysis, from])

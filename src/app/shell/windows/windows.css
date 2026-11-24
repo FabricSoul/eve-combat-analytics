@@ -115,3 +115,144 @@ body.battle-window-dragging * {
 @media (width < 1150px) {
   .app-topbar:has(.app-window-controls) .app-topbar-meta { display: none; }
 }
+
+.battle-layout[data-density="compact"] {
+  display: block;
+  isolation: isolate;
+  font-size: var(--fs-compact-body);
+}
+.battle-module-scroll { height: 100%; overflow: auto; }
+.battle-stage {
+  display: grid;
+  grid-template-rows: minmax(92px, 1fr) auto;
+  margin: var(--space-2) var(--space-2) 0;
+  position: relative;
+  background: var(--color-surface);
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-card);
+}
+.battle-stage > :is(.battle-replay, .battle-timeline) { grid-area: auto; }
+.battle-stage .battle-replay { border-radius: var(--radius-card) var(--radius-card) 0 0; }
+.battle-stage-grip {
+  position: absolute;
+  z-index: 3;
+  inset: auto auto -7px 50%;
+  translate: -50% 0;
+  width: 52px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.battle-stage-grip::after { content: ''; width: 28px; height: 3px; border-radius: var(--radius-ctl); background: var(--color-text-3); }
+.battle-module-areas { display: grid; grid-template-columns: minmax(0, 1.45fr) repeat(2, minmax(0, 1fr)); gap: var(--space-2); padding: var(--space-2); }
+.battle-module-areas[data-columns="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.battle-module-area { display: flex; flex-direction: column; gap: var(--space-2); min-height: 60px; min-width: 0; }
+.battle-module { border: 1px solid var(--color-hair); border-radius: var(--radius-card); }
+.battle-module[data-floating="true"] { position: fixed; }
+.battle-module[data-floating="false"] > .battle-window-body { max-height: 280px; }
+.battle-module[data-floating="false"] > .battle-window-body:has(.u7-compare[data-expanded="true"], .hit-analysis[data-expanded="true"]) { overflow: visible; }
+.battle-module[data-minimized="true"] { align-self: stretch; }
+.battle-module [hidden] { display: none; }
+.battle-module .battle-window-titlebar { cursor: grab; touch-action: none; }
+.battle-module .battle-window-titlebar:hover { background: color-mix(in srgb, var(--color-raised) 50%, var(--color-surface)); }
+.battle-module .battle-window-titlebar button { font-size: var(--fs-compact-body); }
+.battle-module .battle-module-handle { color: var(--color-text-3); padding-inline-end: var(--space-1); }
+.battle-module[data-dragging] { opacity: .42; }
+.battle-module-drop { min-height: 32px; border: 1px dashed var(--color-accent-line); border-radius: var(--radius-card); background: var(--color-sel); }
+.battle-layout[data-density="compact"] .battle-drawer { z-index: 12; }
+.battle-layout[data-density="compact"] .battle-upload { z-index: 13; }
+.battle-layout[data-density="compact"] .battle-sides { z-index: 14; }
+
+.battle-module-controls { position: relative; }
+.battle-module-controls > summary { display: grid; place-items: center; width: 32px; height: 32px; cursor: pointer; list-style: none; border: 1px solid var(--color-hair); border-radius: var(--radius-ctl); }
+.battle-module-menu { position: absolute; z-index: 2; inset: calc(100% + var(--space-1)) 0 auto auto; display: grid; gap: var(--space-2); min-width: 168px; padding: var(--space-3); background: var(--color-surface); border: 1px solid var(--color-hair); border-radius: var(--radius-ctl); }
+.battle-module-menu label { display: flex; gap: var(--space-2); align-items: center; white-space: nowrap; }
+.battle-module-menu button { text-align: start; color: var(--color-accent); white-space: nowrap; }
+
+.battle-module,
+.battle-stage .replay-close-fights {
+  --row: var(--row-compact);
+  --fs: var(--fs-compact-body);
+  --fs-s: var(--fs-compact-table);
+}
+.battle-module :is(.roster, .feed-row, .kills-row, table),
+.replay-close-fights table { font-size: var(--fs-compact-table); }
+.battle-module :is(.kills-row, table tr), .replay-close-fights tr { height: var(--row-compact); }
+.battle-module .kills-ship, .battle-module .kills-ship .app-portrait { width: 18px; height: 18px; }
+.battle-module .kills-sub { display: inline; margin-inline-start: var(--space-1); }
+.battle-module .kills-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.battle-stage .replay-close-fights {
+  position: absolute; z-index: 2; inset: 42px var(--space-2) auto auto; width: min(246px, 40%);
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  border: 1px solid var(--color-hair); border-radius: var(--radius-ctl); font-size: var(--fs-compact-table);
+}
+.battle-stage .replay-close-fights summary { cursor: pointer; padding: var(--space-1) var(--space-2); }
+.replay-close-fights summary span { float: right; color: var(--color-text-3); }
+.replay-close-fights :is(th, td) { min-width: 0; overflow: hidden; padding-inline: var(--space-1); white-space: nowrap; }
+.replay-close-fights th { text-align: start; color: var(--color-text-3); }
+.replay-close-fights table { width: 100%; table-layout: fixed; }
+.replay-close-fights td:last-child, .replay-close-fights th:last-child { width: 54px; text-align: end; }
+.replay-close-fights p { padding: var(--space-2); color: var(--color-text-3); }
+.replay-stage-zoom { position: absolute; z-index: 2; inset: auto auto var(--space-2) var(--space-2); }
+.replay-stage-zoom .replay-zoom { align-items: center; }
+.replay-stage-zoom .replay-number { padding-inline: var(--space-1); }
+
+.battle-undo {
+  position: fixed; z-index: 100; inset: auto auto var(--space-4) 50%; translate: -50% 0;
+  display: flex; align-items: center; gap: var(--space-3); max-width: calc(100% - var(--space-4));
+  padding: var(--space-2) var(--space-3); background: var(--color-surface); border: 1px solid var(--color-accent-line);
+  border-radius: var(--radius-ctl); white-space: nowrap;
+}
+.battle-undo button { color: var(--color-accent); cursor: pointer; min-height: var(--row); }
+
+.feed-participant, .u7-pilot-cell, .eca-pilot-select { display: flex; align-items: center; min-width: 0; }
+.feed-participant .feed-who { flex: 1; min-width: 0; text-align: start; }
+:is(button.feed-who, .eca-pilot-select) { cursor: pointer; }
+.pilot-more { flex: none; color: var(--color-text-3); min-width: 15px; cursor: pointer; opacity: 0; }
+:is(.feed-participant, .kills-entry, .eca-pilot-cell, tr, li, .eca-pilot-lane):is(:hover, :focus-within) .pilot-more,
+.pilot-more[aria-expanded="true"] { opacity: 1; }
+.kills-entry { position: relative; }
+.kills-entry:has(.pilot-more) > .kills-row { padding-inline-end: var(--space-6); }
+.kills-entry > .pilot-more { position: absolute; inset: 0 var(--space-1) 0 auto; }
+.battle-layout :is(.feed-row, .u7-compare tr, .u7-compare-pair, .hit-analysis tr, .hit-insufficient li, .eca-pilot-lane, .replay-close-fights tr)[data-selected] {
+  background: var(--color-sel);
+  box-shadow: inset 2px 0 var(--color-accent-line);
+}
+.battle-layout .u7-distribution-point[data-selected] { outline: 2px solid var(--color-accent-line); opacity: 1; }
+.module-empty { padding: var(--space-2); color: var(--color-text-3); }
+.battle-layout[data-density="compact"]:has(> .battle-drawer) { --replay-legend-occlusion: var(--battle-drawer-width); }
+.battle-layout[data-density="compact"]:has(> .battle-drawer) .replay-close-fights { display: none; }
+
+.battle-module .battle-window-heading { flex: 0 1 auto; cursor: default; }
+.battle-module-title-spacer { flex: 1; min-width: 6px; }
+.battle-module .feed-title > span:first-child { display: none; }
+.battle-module .feed-title { justify-content: flex-end; }
+.battle-module-search { margin: var(--space-2) var(--space-3); padding: var(--space-1) var(--space-2); color: var(--color-text); border: 1px solid var(--color-hair); border-radius: var(--radius-ctl); }
+.battle-module .kills[data-expanded="true"] { position: fixed; z-index: 11; inset: 48px 0 0; overflow: auto; background: var(--color-surface); }
+.battle-module .kills[data-expanded="true"] .kills-head { display: flex; align-items: center; gap: var(--space-2); }
+.battle-module .kills[data-expanded="true"] [data-full-page-close] { margin-inline-start: auto; cursor: pointer; }
+.battle-module[data-floating="false"] > .battle-window-body:has(.kills[data-expanded="true"]) { overflow: visible; }
+
+.battle-module .roster-main { min-height: calc(var(--row-compact) - 1px); }
+.battle-module .kills-who { flex-direction: row; align-items: center; gap: var(--space-1); }
+.battle-module .kills-who > span { min-width: 0; }
+.battle-module .kills-who > .kills-name { flex: none; max-width: 70%; }
+.battle-module .kills-who > .kills-sub { margin: 0; }
+.battle-module .eca-pilot-cell { grid-template-columns: minmax(0, 1fr) auto; }
+.eca-pilot-select { gap: var(--space-1); max-width: 100%; }
+
+.battle-module .hit-analysis[data-expanded="false"] .hit-analysis-header,
+.battle-module .hit-analysis[data-expanded="false"] .hit-pilot-ranks > h3 { display: none; }
+.battle-module .hit-analysis[data-expanded="false"] .hit-analysis-body { display: flex; flex-direction: column; padding-top: var(--space-2); }
+.battle-module .hit-analysis[data-expanded="false"] :is(.hit-pilot-ranks, .hit-analysis-controls) { order: -1; }
+.battle-module .hit-analysis[data-expanded="false"] .hit-analysis-controls { order: -2; }
+.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll { margin-top: 0; }
+.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll table { min-width: 286px; }
+.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll :is(th, td) { padding: 0 var(--space-1); }
+.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll :is(th, td):nth-child(n+5),
+.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll th > small { display: none; }
+.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll td:nth-child(4) { min-width: 64px; width: 25%; }
+.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll th:nth-child(2) { min-width: 96px; }
+.hit-pilot-cell { display: flex; align-items: center; gap: var(--space-1); }

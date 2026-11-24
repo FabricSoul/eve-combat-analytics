@@ -38,7 +38,7 @@ describe('IdentityPicker', () => {
   it('unidentified rows get a 这是谁… menu; characters do not', () => {
     mount()
     act(() => row('Hidden').querySelector<HTMLButtonElement>('.roster-more')!.click())
-    expect([...document.querySelectorAll('[role="menuitem"]')].map((b) => b.textContent)).toEqual(['这是谁…'])
+    expect([...document.querySelectorAll('[role="menuitem"]')].map((b) => b.textContent)).toEqual(['这是谁…', '看他的回放'])
     act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
     act(() => row('Pilot1').querySelector<HTMLButtonElement>('.roster-more')!.click())
     expect([...document.querySelectorAll('[role="menuitem"]')].map((b) => b.textContent)).not.toContain('这是谁…')

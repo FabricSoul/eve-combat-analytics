@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { fmtHms, fmtNum } from '../lib/format'
 import { sideColor, sideLabel, sideOrder } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
+import { PilotMore, usePilotMenu } from './roster/PilotActions'
 import { useView } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { Portrait } from '../ui/Portrait'
@@ -16,7 +17,8 @@ import './hits/hits.css'
 
 export function HitAnalysis() {
   const { analysis, summary } = useBattleContext()
-  const { oursSide, range, select } = useView()
+  const { oursSide, range, selected, select } = useView()
+  const pilotMenu = usePilotMenu()
   const hits = useHitAnalysis()
   const [expanded, setExpanded] = useState(false)
   const [metric, setMetric] = useState<HitMetric>('hitRate')
@@ -54,7 +56,7 @@ export function HitAnalysis() {
   return <section className="hit-analysis" aria-label="命中分析" data-expanded={expanded}>
     <header className="hit-analysis-header">
       <h2>命中分析</h2>
-      <Button variant="ghost" onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '整页'}</Button>
+      <Button variant="ghost" data-full-page-close={expanded || undefined} onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '整页'}</Button>
     </header>
     <div className="hit-analysis-body">
       <p className="hit-secondary">{hitObservationHint}</p>
@@ -99,11 +101,16 @@ export function HitAnalysis() {
             </th><th scope="col">命中质量</th><th scope="col">出手最多的武器</th><th scope="col">武器类别 · 出手 / 命中率</th></tr></thead>
             <tbody>{rows.map(({ pilot, value, rank }) => {
               const { entity } = pilot
-              return <tr key={entity.key}>
+              return <tr key={entity.key} data-pilot-key={entity.key} data-selected={selected === entity.key || undefined} onContextMenu={(event) => pilotMenu?.open(entity.key, event)}>
                 <td className="app-number">{fmtNum(rank)} · {fmtNum(pilot.shots)} 发</td>
-                <th scope="row"><button className="hit-pilot-name" type="button" onClick={() => select(entity.key)}>
-                  <Portrait charId={entity.charId} size={20} />{entity.name}
-                </button><small>{sideLabel(entity.side, order)}{entity.side !== oursSide && ' · 据我方日志'}</small>
+                <th scope="row">
+                  <div className="hit-pilot-cell">
+                    <button className="hit-pilot-name" type="button" onClick={() => select(entity.key)}>
+                      <Portrait charId={entity.charId} size={20} />{entity.name}
+                    </button>
+                    <PilotMore pilot={entity.key} name={entity.name} />
+                  </div>
+                  <small>{sideLabel(entity.side, order)}{entity.side !== oursSide && ' · 据我方日志'}</small>
                   <UngradedShots count={pilot.ungraded} />
                 </th>
                 <td className="app-number">{definition.format(value)}</td>
@@ -113,17 +120,23 @@ export function HitAnalysis() {
               </tr>
             })}</tbody>
           </table>
-        </div> : <p className="hit-secondary">当前筛选下没有达到排名门槛的飞行员。</p>}
+        </div> : <p className="hit-secondary">当前筛选下没有达到排名门槛的飞行员 · 调整选段或上传更多战斗日志。</p>}
         <details className="hit-insufficient">
           <summary>样本不足 <span className="app-number">{fmtNum(ranks.insufficient.length)}</span> 人 · 少于 {MIN_RANKED_SHOTS} 发</summary>
-          <ul>{ranks.insufficient.map((pilot) => <li key={pilot.entity.key}>
-            <button type="button" onClick={() => select(pilot.entity.key)}>{pilot.entity.name}</button>
-            <small>{sideLabel(pilot.entity.side, order)}</small>
-            <span className="app-number">{fmtNum(pilot.shots)} 发</span>
-            {pilot.ungraded > 0 && <div className="hit-insufficient-coverage">
-              <UngradedShots count={pilot.ungraded} /><span>命中率 <HitRateValue counts={pilot} /></span>
-            </div>}
-          </li>)}</ul>
+          <ul>{ranks.insufficient.map((pilot) => {
+            const { entity, shots, ungraded } = pilot
+            return <li key={entity.key} data-selected={selected === entity.key || undefined} onContextMenu={(event) => pilotMenu?.open(entity.key, event)}>
+              <div className="hit-pilot-cell">
+                <button type="button" onClick={() => select(entity.key)}>{entity.name}</button>
+                <PilotMore pilot={entity.key} name={entity.name} />
+              </div>
+              <small>{sideLabel(entity.side, order)}</small>
+              <span className="app-number">{fmtNum(shots)} 发</span>
+              {ungraded > 0 && <div className="hit-insufficient-coverage">
+                <UngradedShots count={ungraded} /><span>命中率 <HitRateValue counts={pilot} /></span>
+              </div>}
+            </li>
+          })}</ul>
         </details>
       </section>
     </div>

@@ -88,11 +88,11 @@ describe('KillsList', () => {
     expect(host.querySelector('[aria-current]')).toBeNull()
   })
 
-  it('keeps the victim selected when the same row is clicked again', () => {
+  it('clears the shared pilot selection when the same row is clicked again', () => {
     mount()
     const row = () => host.querySelectorAll<HTMLButtonElement>('button.kills-row')[0]!
     act(() => row().click())
     act(() => row().click())
-    expect(host.querySelector('output')!.dataset.sel).toMatch(/^char:/)
+    expect(host.querySelector('output')!.dataset.sel).toBe('')
   })
 })

@@ -4,6 +4,8 @@ import type { BattleSummary, Entity, FitEntry, FitStats, Interaction, KillmailFi
 import { parseEft, type EftModule, type ParsedEft } from '@/fit/eft'
 import { fmtHms, fmtNum } from '../lib/format'
 import { useBattleContext } from '../state/battle-store'
+import { api } from '../api/client'
+import { useBattleUndo } from './undo'
 import { useView } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { TypeIcon } from '../ui/TypeIcon'
@@ -57,8 +59,14 @@ function PilotFit({ pilot, charId, summary, interactions }: {
   pilot: Entity; charId: number; summary: BattleSummary; interactions: readonly Interaction[]
 }) {
   const services = useContext(FitServices)
+  const offerUndo = useBattleUndo()
   const remote = summary.fits.find((entry) => entry.charId === charId)
   const [saved, setSaved] = useState<FitEntry>()
+  const [lastRemote, setLastRemote] = useState(remote)
+  if (remote !== lastRemote) {
+    setLastRemote(remote)
+    if (!remote || (saved && remote.setAt >= saved.setAt)) setSaved(undefined)
+  }
   const fit = remote && (!saved || remote.setAt >= saved.setAt) ? remote : saved
   const [draft, setDraft] = useState<string | null>(null)
   const [draftImport, setDraftImport] = useState<KillmailFit>()
@@ -131,7 +139,15 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     setBusy('save')
     setError(undefined)
     try {
-      const entry = await services.save(summary.meta.brId, charId, text)
+      const brId = summary.meta.brId
+      const entry = await services.save(brId, charId, text)
+      offerUndo('已保存配装', async () => {
+        if (fit) setSaved(await services.save(brId, charId, fit.eft))
+        else {
+          await api.deleteFit(brId, charId)
+          setSaved(undefined)
+        }
+      })
       setSaved(entry)
       setSavedImport(importDetails ? { result: importDetails, setAt: entry.setAt } : undefined)
       setDraft(null)

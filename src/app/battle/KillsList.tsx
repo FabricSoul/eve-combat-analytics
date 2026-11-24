@@ -3,19 +3,21 @@ import { fmtHms, fmtIsk, fmtNum } from '../lib/format'
 import { sideColor, sideOrder } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
 import { useCoarseTime, useView } from '../state/view-store'
+import { PilotMore, usePilotMenu } from './roster/PilotActions'
 import { Portrait } from '../ui/Portrait'
 import { TypeIcon } from '../ui/TypeIcon'
 import './upload/kills.css'
 
-export interface KillsListProps {}
+export interface KillsListProps { expanded?: boolean; onRestore?: () => void }
 
 /** Capsule and the Genolution capsule variant: pods are left out of the list (spec: kills without pods). */
 const podTypeIds = new Set([670, 33328])
 
-export function KillsList(_props: KillsListProps) {
+export function KillsList({ expanded, onRestore }: KillsListProps) {
   const { summary, analysis } = useBattleContext()
   const view = useView()
   const t = useCoarseTime()
+  const pilotMenu = usePilotMenu()
   if (!summary) return null
   const { names } = summary.meta
   const kills = summary.meta.killmails
@@ -39,23 +41,28 @@ export function KillsList(_props: KillsListProps) {
   function open(kill: Killmail) {
     view.seek(kill.t)
     const key = victimKey(kill)
-    if (key && view.selected !== key) view.select(key)
+    if (key) view.select(key)
   }
 
   return (
-    <div className="kills">
+    <div className="kills" data-expanded={expanded || undefined}>
       <div className="kills-head">
         击毁 · <span className="app-number">{fmtNum(kills.length)}</span> 艘（不含太空舱）· 点一行跳到那一刻
+        {expanded && <button type="button" data-full-page-close title="收起击毁整页" aria-label="收起击毁整页" onClick={onRestore}>×</button>}
       </div>
+      {!kills.length && <p className="module-empty">暂无舰船击毁记录 · 导入含击毁报告的战斗链接查看。</p>}
       {kills.map((kill) => {
         const key = victimKey(kill)
         const side = key ? analysis!.entities[key]!.side : -1
         const name = (kill.victim.charId != null && names[kill.victim.charId]?.name) || (key && analysis!.entities[key]!.name) || '—'
         const ship = (kill.victim.shipTypeId != null && names[kill.victim.shipTypeId]?.name) || '—'
-        const selected = kill.id === currentKillId
+        const current = kill.id === currentKillId
+        const selected = key !== null && key === view.selected
         return (
-          <button type="button" key={kill.id} className={selected ? 'kills-row kills-row--sel' : 'kills-row'}
-            aria-current={selected || undefined} onClick={() => open(kill)}>
+          <div key={kill.id} className="kills-entry" data-pilot-key={key ?? undefined} data-selected={selected || undefined}
+            onContextMenu={(event) => { if (key) pilotMenu?.open(key, event) }}>
+          <button type="button" className={current || selected ? 'kills-row kills-row--sel' : 'kills-row'}
+            aria-current={current || undefined} aria-pressed={key ? selected : undefined} onClick={() => open(kill)}>
             <span className="app-number kills-time">{fmtHms(kill.t).slice(0, 5)}</span>
             <span className="kills-ship">
               <Portrait charId={kill.victim.charId} size={28} />
@@ -67,6 +74,8 @@ export function KillsList(_props: KillsListProps) {
             </span>
             <span className="app-number kills-isk">{fmtIsk(kill.value)}</span>
           </button>
+          {key && <PilotMore pilot={key} name={name} />}
+          </div>
         )
       })}
     </div>

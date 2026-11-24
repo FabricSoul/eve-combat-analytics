@@ -43,7 +43,7 @@ async function render(compact = false, data = fixture, other?: ReactNode) {
 const chart = () => host.querySelector<SVGSVGElement>('svg[data-timeline-chart]')!
 const height = () => Number(chart().getAttribute('height'))
 const lanes = () => [...chart().querySelectorAll('[data-lane]')].map((lane) => lane.getAttribute('data-lane'))
-const button = (label: string) => [...host.querySelectorAll('button')]
+const button = (label: string) => [...host.querySelectorAll('button'), ...document.querySelectorAll<HTMLButtonElement>('.side-menu [role="menuitem"]')]
   .find((item) => (item.getAttribute('aria-label') ?? item.textContent?.trim()) === label)!
 const click = (label: string) => act(() => button(label).click())
 const xAt = (t: number) => 72 + (bounds.width - 72 - 12) * (t - start) / (end - start)

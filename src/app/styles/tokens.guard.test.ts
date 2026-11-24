@@ -156,6 +156,14 @@ describe('design tokens', () => {
     }).toEqual({ css: true, jsx: true, style: true, canvas: true, variable: true, canvasAttribute: true, svg: true })
   })
 
+  it('declares the approved compact battle tokens', () => {
+    const css = readFileSync(resolve(appDirectory, 'styles/tokens.css'), 'utf8')
+    for (const [name, value] of [['--row-compact', '24px'], ['--fs-compact-table', '11px'], ['--fs-compact-body', '12px']]) {
+      expect(css).toContain(`${name}: ${value}`)
+      expect(tokenGroups.flatMap(({ tokens }) => tokens.map((token) => token.name))).toContain(name)
+    }
+  })
+
   it('allows token references, transparent and inherited values, and non-color text', () => {
     expect(hasColorLiteral('.white { background: color-mix(in srgb, var(--white) 50%, transparent); fill: currentColor; }', 'sample.css')).toBe(false)
     expect(hasColorLiteral('<span className="red">white</span>', 'sample.tsx')).toBe(false)

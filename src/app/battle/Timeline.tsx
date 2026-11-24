@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { Analysis, BattleSummary } from '@/core/contract'
 import { fmtHms, fmtNum } from '../lib/format'
 import { sideColor, sideLetter } from '../lib/sides'
@@ -15,6 +15,7 @@ import './timeline/timeline.css'
 
 export interface TimelineProps {
   compact?: boolean
+  separateLanes?: boolean
 }
 
 function Dot({ color }: { color: string }) {
@@ -56,8 +57,9 @@ function Controls({ view, next, canPlay, compact }: {
   </div>
 }
 
-function TimelineRoom({ compact, summary, analysis }: {
+function TimelineRoom({ compact, separateLanes, summary, analysis }: {
   compact: boolean
+  separateLanes: boolean
   summary: BattleSummary
   analysis: Analysis | null
 }) {
@@ -179,13 +181,38 @@ function TimelineRoom({ compact, summary, analysis }: {
         </div> : <div>这一秒没有主目标</div>}
       </div>}
     </div>
-    {!compact && <PilotLanes analysis={analysis} logs={summary.logs} oursSide={oursSide} sideOrder={order}
+    {!compact && !separateLanes && <PilotLanes analysis={analysis} logs={summary.logs} oursSide={oursSide} sideOrder={order}
       pinned={view.pinned} onRemove={view.togglePin} width={width} left={left} right={right} start={start} end={end}
       cursorX={cursorX} brush={brush} />}
   </div>
 }
 
-export function Timeline({ compact = false }: TimelineProps) {
+export function Timeline({ compact = false, separateLanes = false }: TimelineProps) {
   const { summary, analysis } = useBattleContext()
-  return summary && <TimelineRoom key={summary.meta.brId} compact={compact} summary={summary} analysis={analysis} />
+  return summary && <TimelineRoom key={summary.meta.brId} compact={compact} separateLanes={separateLanes} summary={summary} analysis={analysis} />
+}
+
+export function PilotTimelineModule() {
+  const { summary, analysis } = useBattleContext()
+  const { oursSide, pinned, togglePin, range } = useView()
+  const { t } = usePlayback('coarse')
+  const ref = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(300)
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element) return
+    const measure = () => setWidth(Math.max(220, element.clientWidth))
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure)
+    observer?.observe(element)
+    return () => observer?.disconnect()
+  }, [])
+  const data = useMemo(() => summary ? timelineData(summary, analysis, oursSide) : null, [summary, analysis, oursSide])
+  const order = useMemo(() => summary ? timelineSides(summary, analysis, oursSide) : [], [summary, analysis, oursSide])
+  const [start, end] = data?.full ?? [0, 1]
+  const x = plotScale(width, 82, 10, start, end)
+  const brush = range ? { x: x(range[0]), width: x(range[1]) - x(range[0]) } : null
+  return <div ref={ref}>{summary && <PilotLanes analysis={analysis} logs={summary.logs} oursSide={oursSide}
+    sideOrder={order} pinned={pinned} onRemove={togglePin} width={width} left={82} right={10} start={start} end={end}
+    cursorX={t >= start && t <= end ? x(t) : null} brush={brush} />}</div>
 }

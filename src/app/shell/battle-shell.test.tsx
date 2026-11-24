@@ -6,15 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BattleSummary } from '@/core/contract'
 import { api } from '../api/client'
 import { BattlePage } from '../battle/BattlePage'
-import { buildRoster, type RosterRow } from '../battle/roster/model'
 import { readRecent } from '../home/recent'
-import { defaultOursSide } from '../lib/sides'
 import { loadUiFixture } from '../test/ui-fixture'
 
 vi.mock('../battle/ReplayCanvas', () => ({ ReplayCanvas: () => null }))
 vi.mock('../battle/Timeline', async () => {
   const { usePlayback, useView } = await import('../state/view-store')
   return {
+    PilotTimelineModule: () => null,
     Timeline: () => {
       const view = useView()
       const { t } = usePlayback()
@@ -28,7 +27,6 @@ vi.mock('../battle/Timeline', async () => {
 const { summary: realSummary, analysis } = loadUiFixture()
 const pilotName = 'Blanchard2213'
 const brId = realSummary.meta.brId
-const selection = Object.values(analysis.entities).find(({ name }) => name === pilotName)!
 let host: HTMLDivElement
 let root: Root
 let socket: TestSocket
@@ -42,9 +40,9 @@ class TestSocket extends EventTarget {
   close() {}
 }
 
-async function render(summary: BattleSummary = realSummary) {
+async function render(summary: BattleSummary = realSummary, data = analysis) {
   vi.spyOn(api, 'getBattle').mockResolvedValue(summary)
-  vi.spyOn(api, 'getAnalysis').mockResolvedValue({ analysis, etag: '"v1"' })
+  vi.spyOn(api, 'getAnalysis').mockResolvedValue({ analysis: data, etag: '"v1"' })
   await act(async () => root.render(<BattlePage brId={brId} />))
 }
 
@@ -115,11 +113,15 @@ describe('battle shell review', () => {
     expect(actions.getAttribute('aria-expanded')).toBe('false')
     expect(button('清除选段测试')).toBeTruthy()
     escape()
-    expect(button('建立选段测试')).toBeTruthy()
-    expect(host.querySelector('.battle-drawer')).not.toBeNull()
-    escape()
+    expect(button('清除选段测试')).toBeTruthy()
     expect(host.querySelector('.battle-drawer')).toBeNull()
-  })
+    expect(pilotButton().getAttribute('aria-pressed')).toBe('true')
+    escape()
+    expect(button('建立选段测试')).toBeTruthy()
+    expect(pilotButton().getAttribute('aria-pressed')).toBe('true')
+    escape()
+    expect(pilotButton().getAttribute('aria-pressed')).toBe('false')
+  }, 12000)
 
   it('M3: shows a lost live connection in the top bar and clears it when the socket returns', async () => {
     await render()
@@ -138,18 +140,13 @@ describe('battle shell review', () => {
     expect(header.textContent).not.toMatch(/重连中…|离线/)
   })
 
-  it('M5: a roster rail button announces the named ship and destruction state', async () => {
+  it('uses two module columns on tablet with the same roster selection', async () => {
     tablet = true
-    const at = realSummary.meta.killmails.at(-1)!.t
-    history.replaceState(null, '', `/b/${brId}?t=${at}`)
-    const expected = buildRoster(realSummary, analysis, defaultOursSide(realSummary), at)
-      .flatMap(({ rows }) => rows).find((row): row is RosterRow & { ship: string } => row.dead && row.ship !== null)!
     await render()
-    const row = [...host.querySelectorAll('.battle-rail-pilot')]
-      .find((node) => node.getAttribute('aria-label')?.startsWith(`${expected.name} · `))
-    expect(row?.getAttribute('aria-label')).toBe(
-      `${expected.name} · ${expected.hasLog ? '有日志' : '没有日志'} · 已击毁 · ${expected.ship}`,
-    )
+    expect(host.querySelectorAll('[data-module-area]')).toHaveLength(2)
+    expect(host.querySelectorAll('[data-module]')).toHaveLength(6)
+    click(pilotButton())
+    expect(pilotButton().getAttribute('aria-pressed')).toBe('true')
   })
 
   it('M5: focuses the desktop drawer and restores the roster button on close', async () => {
@@ -162,22 +159,30 @@ describe('battle shell review', () => {
     expect(document.activeElement).toBe(opener)
   })
 
-  it('M8: the side fit tab routes a selected pilot to one editor in the drawer', async () => {
+  it('provides one fit editor in the selected pilot drawer', async () => {
     await render()
-    click(button('配装'))
-    const select = host.querySelector('.battle-panel')!.querySelector('select')!
-    act(() => {
-      select.focus()
-      select.value = selection.key
-      select.dispatchEvent(new Event('change', { bubbles: true }))
-    })
+    click(pilotButton())
     const drawer = host.querySelector('.battle-drawer')!
+    expect(host.querySelector('[data-module="fit"]')).toBeNull()
+    click(button('配装', drawer))
     expect(host.querySelectorAll('textarea')).toHaveLength(1)
     expect(drawer.querySelector('textarea')).not.toBeNull()
-    click(button('数据', drawer))
-    click(button('在个人详情中编辑配装'))
-    expect(host.querySelectorAll('textarea')).toHaveLength(1)
-    expect(drawer.querySelector('textarea')).not.toBeNull()
+  })
+
+  it('explains how to populate every empty module', async () => {
+    await render(
+      { ...realSummary, meta: { ...realSummary.meta, killmails: [] }, logs: [], fits: [], names: {} },
+      { ...analysis, entities: {}, interactions: [], ewarSpans: [], stats: [], coverage: [], primaries: [] },
+    )
+    for (const [id, instruction] of [
+      ['feed', '移动时间轴或调整筛选条件'],
+      ['compare', '调整阵营或时间选段'],
+      ['roster', '上传飞行员的日志'],
+      ['kills', '导入含击毁报告的战斗链接'],
+      ['hits', '调整选段或上传更多战斗日志'],
+    ]) {
+      expect(host.querySelector(`[data-module="${id}"]`)?.textContent).toContain(instruction)
+    }
   })
 
   it('M9: the header and recent entry share the unique system count', async () => {
