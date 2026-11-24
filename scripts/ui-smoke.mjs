@@ -376,11 +376,43 @@ export class BattleRoom extends ProductionRoom {
         width: node.clientWidth, contentWidth: node.scrollWidth,
       }))
       if (header.contentWidth > header.width + 1) issues.push(`tablet battle actions overflow: ${JSON.stringify(header)}`)
+      const side = await page.getByRole('combobox', { name: '我方' }).evaluate((button) => {
+        const label = button.querySelector('.app-side-picker-compact-label')
+        const name = label?.querySelector('.app-side-picker-compact-name')
+        const dot = button.querySelector('.app-side-picker-dot')
+        return { width: button.clientWidth, label: label?.textContent, nameWidth: name?.clientWidth, dot: dot?.getBoundingClientRect().width }
+      })
+      if (side.width < 118 || side.dot !== 8 || !/^DeltaForce… 等 \d+ 人$/.test(side.label ?? '') || side.nameWidth < 48) {
+        issues.push(`tablet side picker has no readable compact affiliation: ${JSON.stringify(side)}`)
+      }
     }
     assert.deepEqual(issues, [], `replay and top bar at ${width}px`)
     assert.ok(defaults.x >= replayBox.x && defaults.y >= replayBox.y
       && defaults.x + defaults.width <= replayBox.x + replayBox.width
       && defaults.y + defaults.height <= replayBox.y + replayBox.height, 'the automatic fight window stays inside the replay')
+    if (width >= 1280) {
+      async function assertNoCoveredShips() {
+        const covered = await fights.evaluate(async (panel) => {
+          await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
+          const box = panel.getBoundingClientRect()
+          return [...document.querySelectorAll('.replay-marker[data-present] .replay-pilot')].filter((pilot) => {
+            const rect = pilot.getBoundingClientRect()
+            const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2
+            return box.left <= x && x <= box.right && box.top <= y && y <= box.bottom
+          }).map((pilot) => pilot.getAttribute('aria-label'))
+        })
+        assert.deepEqual(covered, [], `no pilot center sits under current fights at ${width}px`)
+      }
+      await assertNoCoveredShips()
+      await fights.getByRole('button', { name: '关闭 此刻交火' }).click()
+      await replay.getByRole('button', { name: '此刻交火', exact: true }).click()
+      await fights.waitFor()
+      await assertNoCoveredShips()
+      const grip = page.getByRole('separator', { name: '调整舞台高度' })
+      await grip.press('ArrowUp')
+      await assertNoCoveredShips()
+      await grip.dblclick()
+    }
     await page.screenshot({ path: join(output, `final-review-workspace-${width}-dark.png`) })
     if (small) await fights.getByRole('button', { name: '还原 此刻交火' }).click()
     const widths = await fights.locator('thead th').evaluateAll((nodes) =>
@@ -392,6 +424,34 @@ export class BattleRoom extends ProductionRoom {
     if (small) await fights.getByRole('button', { name: '收起 此刻交火' }).click()
 
     if (width === 1630) {
+      async function assertAboveFights(popup, label) {
+        const box = await popup.boundingBox()
+        const old = await fights.evaluate((window, { x, y }) => {
+          const previous = { left: window.style.left, top: window.style.top }
+          window.style.left = `${x}px`
+          window.style.top = `${y}px`
+          return previous
+        }, { x: box.x + 1, y: box.y + 1 })
+        try {
+          assert.equal(await popup.evaluate((node) => {
+            const rect = node.getBoundingClientRect()
+            return node.contains(document.elementFromPoint(rect.x + 8, rect.y + 8))
+          }), true, `${label} top-left stays interactive above current fights`)
+        } finally {
+          await fights.evaluate((window, previous) => Object.assign(window.style, previous), old)
+        }
+      }
+      await page.getByRole('button', { name: '时间轴用法' }).click()
+      const help = page.getByRole('dialog', { name: '时间轴用法' })
+      await assertAboveFights(help, 'timeline help')
+      await page.keyboard.press('Escape')
+      await help.waitFor({ state: 'hidden' })
+      await replay.locator('.replay-noise summary').click()
+      const damage = page.locator('.replay-noise-popover')
+      await damage.waitFor()
+      await assertAboveFights(damage, 'damage filters')
+      await page.keyboard.press('Escape')
+      await damage.waitFor({ state: 'hidden' })
       await replay.getByRole('button', { name: '交互图例', exact: true }).click()
       const legend = page.getByRole('region', { name: '交互图例', exact: true })
       const grip = page.getByRole('separator', { name: '调整舞台高度' })
@@ -411,8 +471,15 @@ export class BattleRoom extends ProductionRoom {
       await layout.click()
       const resetLayout = page.getByRole('button', { name: '恢复默认布局' })
       assert.equal(await resetLayout.getAttribute('data-variant'), 'ghost')
+      await assertAboveFights(page.getByRole('group', { name: '显示模块' }), 'layout menu')
       await page.screenshot({ path: join(output, 'final-review-layout-menu-1630-dark.png') })
       await layout.click()
+      await page.locator('[data-module="roster"] .roster-main').first().click({ button: 'right' })
+      const rowMenu = page.getByRole('menu')
+      await rowMenu.waitFor()
+      await assertAboveFights(rowMenu, 'pilot row menu')
+      await page.keyboard.press('Escape')
+      await rowMenu.waitFor({ state: 'hidden' })
     }
   }
 

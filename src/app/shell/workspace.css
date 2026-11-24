@@ -36,6 +36,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.app-side-picker-compact-label { display: none; }
 .app-side-picker-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
 .app-side-picker-chevron {
   flex: none;
@@ -49,7 +50,7 @@
 }
 .app-side-picker-options {
   position: absolute;
-  z-index: 8;
+  z-index: var(--layer-popover);
   inset: calc(100% + var(--space-1)) 0 auto auto;
   width: max-content;
   min-width: 100%;
@@ -83,11 +84,20 @@
   .app-shell--battle .app-topbar-actions { min-width: 0; }
   .app-shell--battle .app-topbar-side { min-width: 0; }
   .app-shell--battle .app-topbar-side > .app-topbar-label { flex: none; }
-  .app-shell--battle .app-side-picker { min-width: 56px; }
-  .app-shell--battle .app-side-picker-trigger.app-button { max-width: min(100%, 222px, 26vw); }
+  .app-shell--battle .app-side-picker { min-width: 120px; }
+  .app-shell--battle .app-side-picker-trigger.app-button {
+    min-width: 100%;
+    max-width: min(100%, 222px, 26vw);
+    gap: var(--space-1);
+    padding-inline: var(--space-2);
+    font-size: var(--fs-s);
+  }
+  .app-side-picker-trigger :is(.app-side-picker-label, .side-letter) { display: none; }
+  .app-side-picker-compact-label { display: flex; gap: var(--space-1); min-width: 0; white-space: nowrap; }
+  .app-side-picker-compact-name { overflow: hidden; text-overflow: ellipsis; }
 }
 
-@media (760px <= width < 880px) {
+@media (760px <= width < 980px) {
   .app-topbar-meta .app-topbar-isk { display: none; }
 }
 

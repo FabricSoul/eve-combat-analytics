@@ -19,6 +19,16 @@ it('chooses the corner that covers the fewest ships and prefers the upper right 
   expect(placeFightsWindow(stage, 36, 80, size, [node(650, 87), node(650, 255)]).x).toBe(12)
 })
 
+it('uses the clear space between fleets if all three fight window corners cover ships', () => {
+  const stage = { x: 0, y: 0, width: 900, height: 350 }
+  const size = { width: 320, height: 164 }
+  const pilots = [{ x: 650, y: 87 }, { x: 650, y: 255 }, { x: 140, y: 150 }]
+    .map((point) => ({ ...point, width: 18, height: 18 }))
+  const window = placeFightsWindow(stage, 36, 80, size, pilots)
+  expect(window.x).toBeGreaterThanOrEqual(158)
+  expect(window.x + window.width).toBeLessThanOrEqual(650)
+})
+
 it('keeps the pilot hull below the measured replay control inset', () => {
   const layout = makeLayout([pilot('char:1', 0)], [0, 1], 900, 350, 150)
   const ship = layout.byKey.get('char:1')!

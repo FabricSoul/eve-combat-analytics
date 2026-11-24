@@ -11,6 +11,7 @@ import '../../shell/windows/windows.css'
 
 export const ReplayOverlayWorkspace = createContext<{
   layer: HTMLElement | null
+  popoverLayer: HTMLElement | null
   layout: ReplayOverlayLayout
   dispatch: Dispatch<ReplayOverlayAction>
   cancelDrag: RefObject<(() => boolean) | null>
@@ -22,11 +23,12 @@ const fightsWidth = 336
 const fightsHeight = 164
 const compactFightsWidth = 1200
 
-export function ReplayOverlays({ stage, closeFights, fightTime, placementTime }: {
+export function ReplayOverlays({ stage, closeFights, fightTime, placementTime, onLayoutChange }: {
   stage: RefObject<HTMLDivElement | null>
   closeFights?: ReactNode
   fightTime?: ReactNode
   placementTime: number | null
+  onLayoutChange: RefObject<(() => void) | null>
 }) {
   const workspace = useContext(ReplayOverlayWorkspace)
   const [localLayout, localDispatch] = useReducer(replayOverlayReducer, undefined, defaultReplayOverlays)
@@ -70,6 +72,8 @@ export function ReplayOverlays({ stage, closeFights, fightTime, placementTime }:
         && previous.fights.x === fights.x && previous.fights.y === fights.y && previous.fights.width === fights.width ? previous : next)
     }
     const schedule = () => { frame ??= requestAnimationFrame(measure) }
+    onLayoutChange.current = schedule
+    if (fightsOpen && hasFights && !savedFights && host.querySelector('.replay-marker[data-present]')) measure()
     schedule()
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
     observer?.observe(host)
@@ -78,12 +82,13 @@ export function ReplayOverlays({ stage, closeFights, fightTime, placementTime }:
     window.addEventListener('resize', schedule)
     if (!anchoredToPage) window.addEventListener('scroll', schedule, true)
     return () => {
+      onLayoutChange.current = null
       if (frame !== undefined) cancelAnimationFrame(frame)
       observer?.disconnect()
       window.removeEventListener('resize', schedule)
       if (!anchoredToPage) window.removeEventListener('scroll', schedule, true)
     }
-  }, [anchoredToPage, hasFights, fightsOpen, fightsPreference, savedFights, placementTime])
+  }, [anchoredToPage, hasFights, fightsOpen, fightsPreference, savedFights, placementTime, onLayoutChange])
 
   useLayoutEffect(() => {
     const id = keyboardOpen.current

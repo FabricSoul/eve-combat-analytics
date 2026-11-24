@@ -36,9 +36,17 @@ export function placeFightsWindow(stage: Rect, topRight: number, belowPills: num
       best = rect
       fewest = covered
     }
-    if (covered === 0) break
+    if (covered === 0) return rect
   }
-  return best
+  const y = boundedY(belowPills)
+  const usable = { x: left, y, width: stage.width - 24, height: stage.y + stage.height - y - 8 }
+  const center = { x: best.x + width / 2, y: best.y + best.height / 2 }
+  const windowSize = { width, height: size.height }
+  const free = findPilotLabelSpace(center, windowSize, usable, pilots, Infinity)
+  if (free) return free
+  // Very dense fleets may leave room for the window only between ship centers.
+  const centers = pilots.map((pilot) => ({ x: pilot.x + pilot.width / 2, y: pilot.y + pilot.height / 2, width: 0, height: 0 }))
+  return findPilotLabelSpace(center, windowSize, usable, centers, Infinity) ?? best
 }
 
 export function placeAnnotation(candidates: readonly Rect[], bounds: Rect, occupied: readonly Rect[], required = false): Rect | null {

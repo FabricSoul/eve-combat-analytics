@@ -301,7 +301,7 @@
 
 .replay-popover.replay-noise-popover {
   position: fixed;
-  z-index: 3;
+  z-index: var(--layer-popover);
   inset: auto;
   inline-size: max-content;
   min-inline-size: 0;

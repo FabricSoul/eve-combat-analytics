@@ -114,6 +114,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
   const labelLeaders = useRef<SVGPathElement>(null)
   const previousLayout = useRef<ReplayLayout | null>(null)
   const invalidate = useRef<() => void>(() => {})
+  const overlayLayoutChanged = useRef<(() => void) | null>(null)
   const [playback] = useState(createProjectilePlayback)
   const [size, setSize] = useState({ width: 0, height: 0, dpr: 1, topInset: 0 })
   const { width, height, dpr, topInset } = size
@@ -273,7 +274,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       }
 
       const live = painter.liveEdges(scene.edges, t)
-      layout.placeVisible(present, live)
+      const pilotsChanged = layout.placeVisible(present, live)
       layout.placeUnassigned(present)
       const { related, positions, bounds, misses, modules, animating, burst } = painter.paint(
         layout, live, scene.pointSpans, present, { ...current, t, reducedMotion, pausedElapsed }, width, height, camera,
@@ -423,6 +424,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         labelLeaders.current?.setAttribute('d', leaders.join(' '))
 
       }
+      if (!playing && (firstFrame || pilotsChanged || cameraChanged)) overlayLayoutChanged.current?.()
       firstFrame = false
       if (playing ? getTime !== undefined : !reducedMotion && (animating || bursting)) schedule()
     }
@@ -488,7 +490,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       <div className="replay-header">
         <ReplayLegend analysis={analysis} order={order} />
         <div className="replay-header-actions">
-          <ReplayOverlays stage={host} closeFights={closeFights} fightTime={fightTime} placementTime={playing ? null : t} />
+          <ReplayOverlays stage={host} closeFights={closeFights} fightTime={fightTime} placementTime={playing ? null : t}
+            onLayoutChange={overlayLayoutChanged} />
           {headerActions}
           {!stage && zoomControls}
         </div>

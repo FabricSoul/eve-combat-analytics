@@ -204,7 +204,7 @@ body.battle-window-dragging * {
   padding: var(--space-2) var(--space-3); border: 1px solid var(--color-hair); border-radius: var(--radius-ctl);
   white-space: nowrap; background: var(--color-surface); color: var(--color-text);
 }
-.battle-module-menu { position: absolute; z-index: 2; inset: calc(100% + var(--space-1)) 0 auto auto; display: grid; gap: var(--space-2); min-width: 168px; padding: var(--space-3); background: var(--color-surface); border: 1px solid var(--color-hair); border-radius: var(--radius-ctl); }
+.battle-module-menu { position: absolute; z-index: var(--layer-popover); inset: calc(100% + var(--space-1)) 0 auto auto; display: grid; gap: var(--space-2); min-width: 168px; padding: var(--space-3); background: var(--color-surface); border: 1px solid var(--color-hair); border-radius: var(--radius-ctl); }
 .battle-module-menu-hint { margin: 0; color: var(--color-text-2); font-size: var(--fs-s); }
 .battle-module-menu fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
 .battle-module-menu legend { color: var(--color-text-3); font-size: var(--fs-s); }
@@ -224,10 +224,12 @@ body.battle-window-dragging * {
 .battle-module .kills-ship, .battle-module .kills-ship .app-portrait { width: 18px; height: 18px; }
 .battle-module .kills-sub { display: inline; margin-inline-start: var(--space-1); }
 .battle-module .kills-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.battle-replay-layer { position: fixed; z-index: 10; inset: 0; pointer-events: none; }
+.battle-replay-layer, .battle-replay-popover-layer { position: fixed; inset: 0; pointer-events: none; }
+.battle-replay-layer { z-index: 10; }
+.battle-replay-popover-layer { z-index: var(--layer-popover); }
 .battle-layout:has(:is(.u7-compare, .hit-analysis, .kills, .u7-person)[data-expanded="true"])
-  :is(.battle-replay-layer, .battle-stage-grip) { display: none; }
-.battle-replay-layer > * { pointer-events: auto; }
+  :is(.battle-replay-layer, .battle-replay-popover-layer, .battle-stage-grip) { display: none; }
+:is(.battle-replay-layer, .battle-replay-popover-layer) > * { pointer-events: auto; }
 .battle-window[data-floating="true"].battle-replay-overlay { position: fixed; }
 .battle-replay-overlay .battle-window-body { overscroll-behavior: contain; }
 .battle-replay-overlay .battle-module-handle { color: var(--color-text-3); }

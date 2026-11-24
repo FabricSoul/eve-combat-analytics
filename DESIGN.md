@@ -31,6 +31,7 @@ Use [the CSS token file](src/app/styles/tokens.css) as the source of truth. Tail
 | `--fs`, `--fs-s`, `--fs-l`, `--fs-title`, `--lh` | 13 px body, 12 px rows, 16 px headings, 24 px page titles, 20 px body line height |
 | `--row`, `--space-1/2/3/4/6/8` | 32 px rows and controls, 44 px phone touch targets, and 4 / 8 / 12 / 16 / 24 / 32 px spacing |
 | `--radius-ctl`, `--radius-card` | 6 px controls and 10 px panels |
+| `--layer-popover` | Menus and popovers above floating windows and drawers |
 | `--ease`, `--dur-hover`, `--dur-edge-in`, `--dur-edge-fade`, `--dur-move` | Shared easing, 140 ms hover, 200 ms edge entrance, 3 s fade and 300 ms selection or drawer motion |
 
 Use tabular, right-aligned figures in text color. Group thousands, round seconds to 0.5 and percentages to whole values. Keep game names as supplied and use Chinese for interface text. Use hairline borders and surface tones for depth. Use the four game icons for damage types. Respect reduced motion with static interactions and effects.

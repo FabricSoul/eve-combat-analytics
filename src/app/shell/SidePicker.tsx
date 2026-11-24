@@ -34,6 +34,10 @@ export function SidePicker({ choices, value, onChange }: SidePickerProps) {
   }, [id, open, active])
 
   if (!selected || !active) return null
+  const count = selected.label.match(/ (?:等|·) [\d,]+ 人$/)?.[0] ?? ''
+  const name = count ? selected.label.slice(0, -count.length) : selected.label
+  const characters = [...name]
+  const shortName = characters.length > 10 ? `${characters.slice(0, 10).join('')}…` : name
 
   function choose(side: number) {
     setOpen(false)
@@ -87,6 +91,9 @@ export function SidePicker({ choices, value, onChange }: SidePickerProps) {
           }}>
           <Swatch {...selected} />
           <span className="app-side-picker-label">{selected.label}</span>
+          <span className="app-side-picker-compact-label">
+            <span className="app-side-picker-compact-name">{shortName}</span>{count && <span>{count}</span>}
+          </span>
           <span aria-hidden="true" className="app-side-picker-chevron" />
         </Button>
         <ul className="app-side-picker-options" role="listbox" aria-label="我方" id={id} hidden={!open}>

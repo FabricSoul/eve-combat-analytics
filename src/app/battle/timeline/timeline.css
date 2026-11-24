@@ -41,7 +41,7 @@
 
 .eca-timeline-help-popover {
   position: absolute;
-  z-index: 2;
+  z-index: var(--layer-popover);
   inset-inline-end: 0;
   bottom: calc(100% + var(--space-2));
   width: min(320px, calc(100vw - 2 * var(--space-4)));
@@ -323,7 +323,7 @@
 
 .eca-timeline-range-editor {
   position: absolute;
-  z-index: 2;
+  z-index: var(--layer-popover);
   inset-inline-start: 0;
   bottom: calc(100% + var(--space-2));
   width: min(270px, calc(100vw - 2 * var(--space-4)));

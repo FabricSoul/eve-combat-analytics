@@ -80,6 +80,11 @@ export const tokenGroups = [
     ],
   },
   {
+    title: '层叠', tokens: [
+      { name: '--layer-popover', use: '让菜单和弹层显示在浮窗与抽屉上方' },
+    ],
+  },
+  {
     title: '动效', tokens: [
       { name: '--ease', use: '过渡缓动' },
       { name: '--dur-hover', use: '悬停、按下' },

@@ -68,6 +68,7 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   const moduleColumns = layout === 'desktop' ? 3 : 2
   const [moduleLayout, dispatchModule] = useReducer(moduleLayoutReducer, undefined, () => loadModules())
   const [replayLayer, setReplayLayer] = useState<HTMLDivElement | null>(null)
+  const [replayPopoverLayer, setReplayPopoverLayer] = useState<HTMLDivElement | null>(null)
   const hasWorkspace = workspace && Boolean(summary)
   const viewport = useWindowViewport(desk, hasWorkspace)
   const [timelineHeight, setTimelineHeight] = useState(timelineMinHeight)
@@ -248,7 +249,9 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   }
 
   const replay = summary?.logs.length === 0 ? <EmptyBattle onUpload={openPicker} /> :
-    <ReplayOverlayWorkspace.Provider value={{ layer: replayLayer, layout: moduleLayout.replay, dispatch: dispatchReplay, cancelDrag: cancelReplayDrag }}>
+    <ReplayOverlayWorkspace.Provider value={{
+      layer: replayLayer, popoverLayer: replayPopoverLayer, layout: moduleLayout.replay, dispatch: dispatchReplay, cancelDrag: cancelReplayDrag,
+    }}>
       <ReplayCanvas stage={workspace} />
     </ReplayOverlayWorkspace.Provider>
 
@@ -296,6 +299,7 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
             <section className="battle-timeline" aria-label="时间轴" onPointerDownCapture={clearTextSelection}><Timeline compact /></section>
           </>}
           <div ref={setReplayLayer} className="battle-replay-layer" />
+          <div ref={setReplayPopoverLayer} className="battle-replay-popover-layer" />
           {layout === 'phone' && (
             <BottomSheet<PhoneTab> tabs={phoneTabs} value={phoneTab} onChange={setPhoneTab}>
               <PhonePanel />

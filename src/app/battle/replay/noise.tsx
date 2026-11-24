@@ -102,7 +102,7 @@ export function ReplayNoiseControls() {
       window.removeEventListener('scroll', place, true)
       document.removeEventListener('pointerdown', closeOutside, true)
     }
-  }, [open, workspace?.layer])
+  }, [open, workspace?.popoverLayer])
 
   return (
     <details ref={details} className="replay-menu replay-noise" onToggle={(event) => setOpen(event.currentTarget.open)}
@@ -125,7 +125,7 @@ export function ReplayNoiseControls() {
             {label}
           </label>
         ))}
-      </div>, workspace?.layer ?? document.body)}
+      </div>, workspace?.popoverLayer ?? document.body)}
     </details>
   )
 }
