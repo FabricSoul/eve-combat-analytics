@@ -1,10 +1,11 @@
 import type { BattleState, Counterparty, Entity, EntityKey, IdentityMerge, LogEvent, UploadedLog } from '../contract'
-import { isEquipmentType } from '../log/counterparty'
+import { isDroneType, isEquipmentLabel, isKnownNonPilotName, spaceObjectTypeId, splitGluedHull } from '../log/counterparty'
 import { addShip, charKey } from './entities'
 import { assignedSide, type SideAssignments } from './sides'
 
 const SIGHTING_MS = 60_000
 const UNKNOWN_SIDE = -1
+export const EQUIPMENT_BUCKET_KEY = 'name:弹药与装备'
 
 interface Character {
   charId: number
@@ -109,12 +110,14 @@ export function indexIdentities(
   const namedSightings = new Map<string, Character | null>()
   const byName = new Map<string, Character | null>()
   const equipmentLabels = new Map<string, boolean>()
+  const brCharacters = new Set<number>()
+  const recoveredHulls = new Map<string, ReturnType<typeof splitGluedHull>>()
 
   function equipment(label: string | null): boolean {
     if (!label) return false
     let known = equipmentLabels.get(label)
     if (known === undefined) {
-      known = isEquipmentType(label)
+      known = isEquipmentLabel(label.trim())
       equipmentLabels.set(label, known)
     }
     return known
@@ -128,7 +131,9 @@ export function indexIdentities(
   for (const { t, victim, attackers } of meta.killmails) {
     for (const participant of [victim, ...attackers]) {
       const { charId, shipTypeId } = participant
-      if (charId === null || shipTypeId === null) continue
+      if (charId === null) continue
+      brCharacters.add(charId)
+      if (shipTypeId === null) continue
       const { side } = assignedSide(assignments, charId)
       record(shipTypeId, { charId, side, name: meta.names[charId]?.name ?? String(charId) }, t, null)
     }
@@ -138,18 +143,22 @@ export function indexIdentities(
     const cached = byName.get(name)
     if (cached !== undefined) return cached
     const entry = Object.hasOwn(names, name) ? names[name] : null
-    const character = entry ? {
-      charId: entry.charId,
-      side: assignedSide(assignments, entry.charId).side,
-      name: meta.names[entry.charId]?.name ?? name,
-    } : null
+    // Old indexes sometimes resolved a ship label to an unrelated character.
+    // An actual listener or BR participant remains valid when explicitly named.
+    const catalogName = isKnownNonPilotName(name)
+    const character = catalogName && listenersByName.has(name) ? listenersByName.get(name)!
+      : entry && (!catalogName || brCharacters.has(entry.charId)) ? {
+        charId: entry.charId,
+        side: assignedSide(assignments, entry.charId).side,
+        name: meta.names[entry.charId]?.name ?? name,
+      } : null
     byName.set(name, character)
     return character
   }
 
   function recordLabel(label: Counterparty, log: UploadedLog, t: number) {
     const { name, shipTypeId } = label
-    if (name === null || shipTypeId == null) return
+    if (name === null || shipTypeId == null || isDroneType(shipTypeId)) return
     let character = namedSightings.get(name)
     if (character === undefined) {
       const indexed = named(name)
@@ -174,14 +183,37 @@ export function indexIdentities(
     }
   }
 
+  function bucket(key: EntityKey, name: string, side: number): EntityKey {
+    if (!entities.has(key)) {
+      entities.set(key, { key, name, charId: null, side, sideSource: 'unknown', shipTypes: [], hasLog: false })
+    }
+    return key
+  }
+
+  function recoverHull(name: string) {
+    if (!recoveredHulls.has(name)) {
+      const split = named(name) ? undefined : splitGluedHull(name)
+      recoveredHulls.set(name, split && named(split.name) ? split : undefined)
+    }
+    return recoveredHulls.get(name)
+  }
+
   function resolve(label: Counterparty, side: number, t: number, observer: UploadedLog): EntityKey {
-    const { raw, shipTypeId } = label
-    // Older uploads stored item labels in the legacy hull field. Recheck them
-    // before looking up the name, so re-analysis does not assign their damage to a pilot.
-    const item = shipTypeId === null && equipment(label.shipType ?? label.name)
-    const name = item ? null : label.name
-    const shipType = item ? null : label.shipType
-    const shipOnly = name === null && shipTypeId != null
+    const { raw } = label
+    // Older uploads stored projectile and hull text in the fallback fields.
+    if (label.shipTypeId === null && equipment(label.shipType ?? label.name ?? raw)) {
+      return bucket(EQUIPMENT_BUCKET_KEY, '弹药与装备', UNKNOWN_SIDE)
+    }
+    const untyped = label.shipType === null && label.name !== null ? label.name : null
+    const bareHull = untyped === null ? null : spaceObjectTypeId(untyped)
+    const recovered = untyped !== null && bareHull === null ? recoverHull(untyped) : undefined
+    const shipTypeId = label.shipTypeId ?? bareHull ?? recovered?.shipTypeId ?? null
+    const drone = shipTypeId !== null && isDroneType(shipTypeId)
+    const name = bareHull === null ? recovered?.name ?? label.name : null
+    const shipType = label.shipType ?? recovered?.shipType ?? (bareHull !== null ? label.name : null)
+    // Keep a named drone owner's attribution and never add a drone as their hull.
+    if (drone && (name === null || !named(name))) return bucket(`ship:0:${side}`, '无人机与舰载机', side)
+    const shipOnly = name === null && shipTypeId !== null
     const unresolved = shipOnly ? `ship:${shipTypeId}:${side}` as const : `name:${name ?? raw}` as const
     const character = mergedCharacter(unresolved) ?? (name !== null
       ? named(name)
@@ -205,7 +237,7 @@ export function indexIdentities(
       }
       entities.set(key, entity)
     }
-    addShip(entity, shipType ?? shipName)
+    if (!drone) addShip(entity, shipType ?? shipName)
     return key
   }
 

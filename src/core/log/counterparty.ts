@@ -5,21 +5,41 @@ import shipTypes from '../data/ship-types.json'
 const typeIds = new Map<string, number>()
 const englishTypes = new Set<string>()
 const shipTypeIds = new Set(shipTypes.map(({ id }) => id))
+const droneTypeIds = new Set(shipTypes.filter(({ category }) => category === 18 || category === 87).map(({ id }) => id))
+const normalizedTypeIds = new Map<string, number>()
+
+const normalizeTypeName = (name: string) => name.trim().replace(/\*+$/, '').trim().toLowerCase()
 for (const { id, en, zh } of shipTypes) {
   if (en) {
     englishTypes.add(en)
     typeIds.set(en, id)
+    normalizedTypeIds.set(normalizeTypeName(en), id)
   }
-  if (zh) typeIds.set(zh, id)
+  if (zh) {
+    typeIds.set(zh, id)
+    normalizedTypeIds.set(normalizeTypeName(zh), id)
+  }
 }
 
 export function isEnglishShipType(name: string): boolean {
   return englishTypes.has(name)
 }
 
+export function spaceObjectTypeId(name: string): number | null {
+  return normalizedTypeIds.get(normalizeTypeName(name)) ?? null
+}
+
+export function isKnownNonPilotName(name: string): boolean {
+  return spaceObjectTypeId(name) !== null || isItemTypeName(name)
+}
+
+export function isDroneType(id: number): boolean {
+  return droneTypeIds.has(id)
+}
+
 /** Item labels can describe objects hit by smartbombs, but never their pilots or hulls. */
 export function isEquipmentType(name: string): boolean {
-  if (typeIds.has(name)) return false
+  if (spaceObjectTypeId(name) !== null) return false
   const id = itemTypeId(name)
   return id === null ? isItemTypeName(name) : !shipTypeIds.has(id)
 }
@@ -62,7 +82,7 @@ interface ShipToken {
   rank: number
 }
 
-function findShip(label: string): ShipToken | undefined {
+function findShip(label: string, allowGluedSuffix = false): ShipToken | undefined {
   let best: ShipToken | undefined
   for (let start = 0; start < label.length; start++) {
     let node = shipNames.children?.get(label.charAt(start))
@@ -76,7 +96,8 @@ function findShip(label: string): ShipToken | undefined {
         const bounded = han.test(type.name)
           ? marked || !unicodeWord.test(next)
           : !latinWord.test(previous) && (marked || !latinWord.test(next))
-        if (bounded) {
+        const glued = allowGluedSuffix && after === label.length && /[a-z0-9]/.test(previous) && /^[A-Z]/.test(type.name)
+        if (bounded || glued) {
           const left = label.slice(0, start).trimEnd()
           const right = label.slice(after).trimStart()
           const wrapped = left.endsWith('(') && right.startsWith(')')
@@ -97,6 +118,14 @@ function findShip(label: string): ShipToken | undefined {
     }
   }
   return best
+}
+
+/** Recover the terminal hull spelling in old labels whose color tags were stripped. */
+export function splitGluedHull(label: string): { name: string; shipType: string; shipTypeId: number } | undefined {
+  const hull = findShip(label, true)
+  if (!hull || hull.start === 0 || hull.end !== label.length) return
+  const name = label.slice(0, hull.start).trim()
+  return { name, shipType: hull.name, shipTypeId: hull.id }
 }
 
 function withoutCustomName(prefix: string): { prefix: string; hadCustomName: boolean } {
@@ -150,6 +179,11 @@ const legacyHull = /^(?<name>[^()[\]<>]+?)\s*(?:\[(?<corp>[A-Za-z0-9._'-]{1,5})\
 const corpFirst = /^\[([A-Za-z0-9._'-]{1,5})\]\s*([^()[\]<>]+)$/
 const legacyShipFirst = /^([^()[\]<>]+?)\s*(?:\[([^()[\]<>]+)\]|<([^()[\]<>]+)>)$/
 
+export function isEquipmentLabel(label: string): boolean {
+  const wrappedType = /\(([^()]+)\)$/.exec(label)?.[1]
+  return isEquipmentType(wrappedType ?? legacyShipFirst.exec(label)?.[1] ?? label)
+}
+
 export function counterparty(label: string, raw: string, drone?: string, npcName?: string): Counterparty {
   const result: Counterparty = {
     raw,
@@ -172,14 +206,15 @@ export function counterparty(label: string, raw: string, drone?: string, npcName
     .replace(/<i>[^]*?<\/i>/g, ' ').trim().replace(/(?:\s+-)+$/, '')
   // A target such as Rocket[NVACA](Caldari Navy Mjolnir Rocket) is the projectile,
   // not a character named after it. Check the whole type field before scanning prefixes.
-  const wrappedType = /\(([^()]+)\)$/.exec(clean)?.[1]
-  const bracketed = legacyShipFirst.exec(clean)
-  if (isEquipmentType(wrappedType ?? bracketed?.[1] ?? clean)) return result
+  if (isEquipmentLabel(clean)) return result
   const ship = findShip(clean)
   if (ship) {
+    const fields = fieldsAroundShip(clean.slice(0, ship.start).trim(), clean.slice(ship.end).trim(), ship.wrapped)
+    const actorType = fields.name ? spaceObjectTypeId(fields.name) : null
     return {
       ...result,
-      ...fieldsAroundShip(clean.slice(0, ship.start).trim(), clean.slice(ship.end).trim(), ship.wrapped),
+      ...fields,
+      name: isDroneType(ship.id) && actorType !== null && isDroneType(actorType) ? null : fields.name,
       shipType: ship.name,
       shipTypeId: ship.id,
     }
@@ -199,6 +234,7 @@ export function counterparty(label: string, raw: string, drone?: string, npcName
   const prefix = corpFirst.exec(clean)
   if (prefix?.[2]?.trim()) return { ...result, name: prefix[2].trim(), corpTicker: prefix[1] ?? null }
 
+  const bracketed = legacyShipFirst.exec(clean)
   const bracketName = (bracketed?.[2] ?? bracketed?.[3])?.trim()
   if (bracketed?.[1] && bracketName && !ticker.test(bracketName)) {
     return { ...result, name: bracketName, shipType: bracketed[1].trim().replace(/\*$/, '') }

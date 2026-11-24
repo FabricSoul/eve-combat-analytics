@@ -1,7 +1,9 @@
 import { DurableObject } from 'cloudflare:workers'
 import { analyze } from '../core/analysis/analyze'
+import { EQUIPMENT_BUCKET_KEY } from '../core/analysis/identities'
 import { MAX_BATTLE_SIDES } from '../core/analysis/sides'
 import { sideOf } from '../core/br/normalize'
+import { isKnownNonPilotName } from '../core/log/counterparty'
 import { GamelogFormatError } from '../core/contract'
 import type {
   Analysis, ApiError, BattleMeta, EntityKey, FitEntry, IdentityMerge, KillmailParticipant, LogEvent, NameIndex, ServerMessage,
@@ -71,7 +73,7 @@ async function readEdit(request: Request, kind: 'side' | 'identity'): Promise<un
 }
 
 function isMergeSource(from: unknown): from is EntityKey {
-  return typeof from === 'string' && (/^ship:[1-9]\d*:-?\d+$/.test(from) || (from.startsWith('name:') && !!from.slice(5).trim()))
+  return typeof from === 'string' && from !== EQUIPMENT_BUCKET_KEY && (/^ship:[1-9]\d*:-?\d+$/.test(from) || (from.startsWith('name:') && !!from.slice(5).trim()))
 }
 
 function isMergeTarget(to: unknown): to is IdentityMerge['to'] {
@@ -330,7 +332,7 @@ export class BattleRoom extends DurableObject<Env> {
       const name = other.name || other.raw
       if (!name || name.length > 37 || /[\[\]()<>*]/.test(name) || checked.has(name)) continue
       checked.add(name)
-      if (!this.store.hasName(name)) names.add(name)
+      if (!isKnownNonPilotName(name) && !this.store.hasName(name)) names.add(name)
     }
     return null
   }

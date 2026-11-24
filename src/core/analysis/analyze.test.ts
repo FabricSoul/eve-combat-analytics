@@ -58,7 +58,7 @@ describe('analyze', () => {
     expect(interactions[0]?.quality).toBe('Smashes')
     expect(entities).toEqual({
       'char:1': { key: 'char:1', name: 'Ace', charId: 1, side: 0, shipTypes: ['Cruiser'], hasLog: true, sideSource: 'br' },
-      'char:3': { key: 'char:3', name: 'Rook', charId: 3, side: 1, shipTypes: ['Cruiser', 'Frigate'], hasLog: true, sideSource: 'br' },
+      'char:3': { key: 'char:3', name: 'Rook Pilot', charId: 3, side: 1, shipTypes: ['Cruiser', 'Frigate'], hasLog: true, sideSource: 'br' },
       'char:7': { key: 'char:7', name: 'Scout', charId: 7, side: 0, shipTypes: ['Frigate'], hasLog: false, sideSource: 'br' },
       'name:Automated Sentry': {
         key: 'name:Automated Sentry', name: 'Automated Sentry', charId: null, side: -1,
@@ -74,8 +74,8 @@ describe('analyze', () => {
 
   it('matches equal reports only if the weapons are compatible and the source files differ', () => {
     const state = battle([
-      log(1, 'Ace', 0, [hit(0, 'Rook', 10), hit(0, 'Rook', 10), hit(2, 'Rook', 20, { weapon: 'Railgun' })]),
-      log(3, 'Rook', 1, [hit(2, 'Ace', 20, { dir: 'in', weapon: 'Cannon' })]),
+      log(1, 'Ace', 0, [hit(0, 'Rook Pilot', 10), hit(0, 'Rook Pilot', 10), hit(2, 'Rook Pilot', 20, { weapon: 'Railgun' })]),
+      log(3, 'Rook Pilot', 1, [hit(2, 'Ace', 20, { dir: 'in', weapon: 'Cannon' })]),
     ])
     expect(analyze(state).interactions.map(({ corroborated }) => corroborated)).toEqual([false, false, false, false])
   })
@@ -136,7 +136,7 @@ describe('analyze', () => {
   })
 
   it('uses signed first-hit delays and skips switches when the previous primary had no killmail', () => {
-    const fire = () => [hit(0, 'Rook', 100), hit(5, 'Bishop', 100), hit(25, 'Knight', 100), hit(45, 'Rook', 100)]
+    const fire = () => [hit(0, 'Rook Pilot', 100), hit(5, 'Bishop', 100), hit(25, 'Knight', 100), hit(45, 'Rook Pilot', 100)]
     const state = battle([log(1, 'Ace', 0, fire()), log(2, 'Wing', 0, fire())], [
       kill(1, 6, pilot(3, 200, 1000), []),
       kill(2, 27, pilot(6, 200, 1000), []),
@@ -150,8 +150,8 @@ describe('analyze', () => {
   it('counts the only engaged second when engagement has no duration and ignores hostile repair for reaction times', () => {
     const state = battle([
       log(1, 'Ace', 0, [
-        hit(0, 'Rook', 20),
-        event(0, 'Rook', { kind: 'repair', dir: 'out', amount: 15, repairType: 'armor', module: null }),
+        hit(0, 'Rook Pilot', 20),
+        event(0, 'Rook Pilot', { kind: 'repair', dir: 'out', amount: 15, repairType: 'armor', module: null }),
       ]),
     ])
     expect(analyze(state).stats[0]).toMatchObject({ activeRatio: 1, repReactionMedian: null, repairOut: 15 })

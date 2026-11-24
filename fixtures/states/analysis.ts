@@ -66,7 +66,7 @@ export function kill(id: number, sec: number, victim: KillmailParticipant, attac
 const names: NameIndex = {
   Ace: { charId: 1, side: 0 },
   Wing: { charId: 2, side: 0 },
-  Rook: { charId: 3, side: 1 },
+  'Rook Pilot': { charId: 3, side: 1 },
   Bishop: { charId: 4, side: 1 },
   Medic: { charId: 5, side: 0 },
   Knight: { charId: 6, side: 1 },
@@ -82,7 +82,7 @@ export function battle(logs: UploadedLog[], killmails: Killmail[] = []): BattleS
       teams: [['corp:100'], ['corp:200']],
       killmails,
       names: {
-        3: { name: 'Rook', category: 'character' },
+        3: { name: 'Rook Pilot', category: 'character' },
         5: { name: 'Medic', category: 'character' },
         7: { name: 'Scout', category: 'character' },
         1000: { name: 'Frigate', category: 'inventory_type' },
@@ -98,14 +98,14 @@ export function battle(logs: UploadedLog[], killmails: Killmail[] = []): BattleS
 
 export const exchange = () => battle([
   log(1, 'Ace', 0, [
-    hit(0.25, other('Rook', 'Cruiser'), 100, { weapon: null, quality: 'none' }),
-    hit(0.25, other('Rook', 'Frigate'), 100, { weapon: 'Railgun' }),
-    hit(0.25, 'Rook', 100, { weapon: 'Cannon' }),
-    event(1.25, 'Rook', { kind: 'miss', dir: 'out', weapon: 'Laser' }),
+    hit(0.25, other('Rook Pilot', 'Cruiser'), 100, { weapon: null, quality: 'none' }),
+    hit(0.25, other('Rook Pilot', 'Frigate'), 100, { weapon: 'Railgun' }),
+    hit(0.25, 'Rook Pilot', 100, { weapon: 'Cannon' }),
+    event(1.25, 'Rook Pilot', { kind: 'miss', dir: 'out', weapon: 'Laser' }),
     hit(2, other(null, 'Sentry Gun', 'Automated Sentry'), 45, { dir: 'in' }),
-    hit(6, 'Rook', 50),
+    hit(6, 'Rook Pilot', 50),
   ]),
-  log(3, 'Rook', 1, [
+  log(3, 'Rook Pilot', 1, [
     hit(1.25, 'Ace', 100, { dir: 'in', weapon: 'Railgun', quality: 'Smashes' }),
     hit(1.25, 'Ace', 100, { dir: 'in', weapon: null }),
     event(2.25, 'Ace', { kind: 'miss', dir: 'in', weapon: null }),
@@ -115,27 +115,27 @@ export const exchange = () => battle([
 
 export const pilotComparison = () => battle([
   log(1, 'Ace', 0, [
-    hit(0, 'Rook', 60),
-    hit(1, 'Rook', 40, { quality: 'Smashes' }),
-    event(2, 'Rook', { kind: 'miss', dir: 'out', weapon: 'Laser' }),
-    hit(3, 'Rook', 100, { dir: 'in' }),
+    hit(0, 'Rook Pilot', 60),
+    hit(1, 'Rook Pilot', 40, { quality: 'Smashes' }),
+    event(2, 'Rook Pilot', { kind: 'miss', dir: 'out', weapon: 'Laser' }),
+    hit(3, 'Rook Pilot', 100, { dir: 'in' }),
     event(4, 'Medic', { kind: 'repair', dir: 'out', amount: 25, repairType: 'armor', module: 'Repairer' }),
     event(5, 'Medic', { kind: 'repair', dir: 'in', amount: 30, repairType: 'shield', module: null }),
-    event(6, 'Rook', { kind: 'neut', dir: 'out', amount: 8, module: 'Neutralizer' }),
-    event(7, 'Rook', { kind: 'neut', dir: 'in', amount: 9, module: null }),
-    event(7, 'Rook', { kind: 'nos', dir: 'out', amount: 50, module: 'Nosferatu' }),
-    event(8, 'Rook', { kind: 'ewar', dir: 'out', ewar: 'warp_scramble' }),
-    event(9, 'Rook', { kind: 'ewar', dir: 'out', ewar: 'web' }),
+    event(6, 'Rook Pilot', { kind: 'neut', dir: 'out', amount: 8, module: 'Neutralizer' }),
+    event(7, 'Rook Pilot', { kind: 'neut', dir: 'in', amount: 9, module: null }),
+    event(7, 'Rook Pilot', { kind: 'nos', dir: 'out', amount: 50, module: 'Nosferatu' }),
+    event(8, 'Rook Pilot', { kind: 'ewar', dir: 'out', ewar: 'warp_scramble' }),
+    event(9, 'Rook Pilot', { kind: 'ewar', dir: 'out', ewar: 'web' }),
     event(11, 'Medic', { kind: 'repair', dir: 'out', amount: 25, repairType: 'armor', module: 'Repairer' }),
     hit(20, 'Bishop', 80),
-    event(22, 'Rook', { kind: 'ewar', dir: 'out', ewar: 'warp_scramble' }),
-    event(23, 'Rook', { kind: 'ewar', dir: 'out', ewar: 'warp_disrupt' }),
-    event(37, 'Rook', { kind: 'ewar', dir: 'out', ewar: 'warp_scramble' }),
-    hit(40, 'Rook', 10, { quality: 'none' }),
+    event(22, 'Rook Pilot', { kind: 'ewar', dir: 'out', ewar: 'warp_scramble' }),
+    event(23, 'Rook Pilot', { kind: 'ewar', dir: 'out', ewar: 'warp_disrupt' }),
+    event(37, 'Rook Pilot', { kind: 'ewar', dir: 'out', ewar: 'warp_scramble' }),
+    hit(40, 'Rook Pilot', 10, { quality: 'none' }),
     event(42, 'Medic', { kind: 'repair', dir: 'out', amount: 25, repairType: 'armor', module: 'Repairer' }),
   ]),
-  log(2, 'Wing', 0, [hit(1, 'Rook', 20), hit(20, 'Bishop', 20)]),
-  log(3, 'Rook', 1, [
+  log(2, 'Wing', 0, [hit(1, 'Rook Pilot', 20), hit(20, 'Bishop', 20)]),
+  log(3, 'Rook Pilot', 1, [
     hit(2, 'Medic', 100),
     hit(3, 'Ace', 100),
     hit(12, 'Medic', 100),
@@ -148,8 +148,8 @@ export const pilotComparison = () => battle([
 ])
 
 export function primaryThreshold(damage: number, secondShooter: boolean): BattleState {
-  const ace = [hit(0, 'Rook', damage - 20), hit(0, 'Bishop', 35), hit(0, 'Knight', 65 - damage)]
-  const wing = [hit(0, 'Rook', 20)]
+  const ace = [hit(0, 'Rook Pilot', damage - 20), hit(0, 'Bishop', 35), hit(0, 'Knight', 65 - damage)]
+  const wing = [hit(0, 'Rook Pilot', 20)]
   return battle([
     log(1, 'Ace', 0, secondShooter ? ace : [...ace, ...wing]),
     log(2, 'Wing', 0, secondShooter ? wing : []),
@@ -157,8 +157,8 @@ export function primaryThreshold(damage: number, secondShooter: boolean): Battle
 }
 
 export const primaryGaps = () => battle([
-  log(1, 'Ace', 0, [0, 11, 25, 40].map((sec) => hit(sec, 'Rook', 100))),
-  log(2, 'Wing', 0, [0, 11, 25, 40].map((sec) => hit(sec, 'Rook', 50))),
+  log(1, 'Ace', 0, [0, 11, 25, 40].map((sec) => hit(sec, 'Rook Pilot', 100))),
+  log(2, 'Wing', 0, [0, 11, 25, 40].map((sec) => hit(sec, 'Rook Pilot', 50))),
 ], [
   kill(1, 35, pilot(3, 200, 1000), []),
   kill(2, 50.001, pilot(3, 200, 1001), []),

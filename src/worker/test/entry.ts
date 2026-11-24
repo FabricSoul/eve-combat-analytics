@@ -76,6 +76,10 @@ export function parseGamelog(text: string): ParsedLog {
         ...Array.from({ length: 2001 }, (_, i) => event(start + i, i + 4, `Candidate ${i}`)),
       ]
       : text === 'budgeted names' ? Array.from({ length: 550 }, (_, i) => event(start + i, i + 1, `Budget Target ${i}`))
+      : text === 'type labels' ? [
+        event(start, 1, 'Target'), event(start, 2, 'Cenotaph'), event(start, 3, 'Acolyte II'),
+        event(start, 4, 'Caldari Navy Mjolnir Rocket'), event(start, 5, null, 'Leshak'),
+      ]
       : text === 'slow names' ? [event(start, 1, 'Timed Target')]
       : text === 'replacement' ? [event(start, 1, 'Target'), event(end, 2, null, 'Second NPC')]
       : loggingEvents,

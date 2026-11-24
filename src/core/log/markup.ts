@@ -1,3 +1,5 @@
+import { isEnglishShipType } from './counterparty'
+
 const clientTags = 'a|b|br|color|font|fontsize|loc|localized|size|span|s|strong|em|u|url'
 const escapedTag = new RegExp(`&lt;(\\/?(?:${clientTags}|i)(?=\\s|=|\\/|&gt;)(?:(?!&(?:gt|lt);)[^<>])*)&gt;`, 'gi')
 const literalTag = new RegExp(`<\\/?(?:${clientTags})(?=[\\s=/>])[^<>]*>`, 'gi')
@@ -40,12 +42,13 @@ function stripItalics(text: string): string {
 const localizedSpan = /<localized\b((?:[^"'<>]|"[^"]*"|'[^']*')*)>(?:((?:(?!<\/?localized\b)[\s\S])*?)<\/localized\s*>|([^<]*))/gi
 const hintAttribute = /(?:^|\s)hint\s*=\s*(?:"([^"]+)"|'([^']+)')/i
 const localizedToken = /\u0000(\d+)\u0001/g
+const overviewHullSpan = /<color\s*=\s*["']?0xffFF3300["']?\s*>([^<>]+)<\/color\s*>/gi
 const wholeToken = /^\u0000(\d+)\u0001$/
 
 export function combatText(raw: string): CombatMarkup {
   const tags = raw.includes('&lt;') ? decodeEscapedTags(raw) : raw
   const names: LocalizedName[] = []
-  const text = tags.includes('\u0000') || !/<localized\b/i.test(tags) ? tags : tags.replace(
+  let text = tags.includes('\u0000') || !/<localized\b/i.test(tags) ? tags : tags.replace(
     localizedSpan,
     (match: string, attributes: string, closed: string | undefined, open: string | undefined) => {
       const hint = hintAttribute.exec(attributes)
@@ -62,6 +65,15 @@ export function combatText(raw: string): CombatMarkup {
       return token + (closed === undefined ? open?.slice(star + 1) ?? '' : '')
     },
   )
+  if (!tags.includes('\u0000') && /0xffff3300/i.test(text)) {
+    text = text.replace(overviewHullSpan, (match, display: string) => {
+      const english = clean(display.replace(entity, decodeEntity))
+      if (!isEnglishShipType(english)) return match
+      const token = '\u0000' + names.length + '\u0001'
+      names.push({ display, english })
+      return token
+    })
+  }
   return { text: clean(stripTags(text).replace(entity, decodeEntity)), names }
 }
 

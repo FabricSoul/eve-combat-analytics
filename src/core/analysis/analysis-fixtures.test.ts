@@ -108,7 +108,7 @@ it('keeps equipment out of entity ship types and does not resolve the rocket to 
   expect(equipment).toEqual([])
   expect(analysis.entities['char:245637611']).toBeUndefined()
   expect(analysis.interactions).toEqual(expect.arrayContaining([
-    expect.objectContaining({ to: 'name:Rocket[NVACA](Caldari Navy Mjolnir Rocket)', weapon: 'Dread Guristas Large Graviton Smartbomb' }),
+    expect.objectContaining({ to: 'name:弹药与装备', weapon: 'Dread Guristas Large Graviton Smartbomb' }),
   ]))
 }, 60_000)
 
@@ -118,7 +118,34 @@ it('rechecks equipment hulls in stored parsed logs before assigning a character'
   state.names = { ...state.names, Rocket: { charId: 245637611, side: 1 } }
   const analysis = analyze(state)
   expect(analysis.entities['char:245637611']).toBeUndefined()
-  expect(analysis.entities[`name:${raw}`]).toMatchObject({ charId: null, shipTypes: [] })
+  expect(analysis.entities['name:弹药与装备']).toMatchObject({ charId: null, shipTypes: [] })
+})
+
+it('folds real J125990 drones by side and excludes matching ESI character aliases and glued names', () => {
+  const state = realBattleStateWithBr()
+  const result = analyze(state)
+  const buckets = Object.values(result.entities).filter(({ key }) => key.startsWith('ship:0:'))
+  expect(buckets.length).toBeGreaterThan(0)
+  const knownDroneIds = new Set(shipTypes.filter(({ category }) => category === 18 || category === 87).map(({ id }) => id))
+  const junk = Object.values(result.entities).filter(({ name, shipTypes }) =>
+    [name, ...shipTypes].some((label) => knownDroneIds.has(itemTypeId(label) ?? -1))
+    || /Itinen(?:Bhaalgorn|Zirnitra)|Verstaphen 23Arazu/.test(name))
+  expect(junk).toEqual([])
+  expect(Object.values(result.entities).filter(({ charId, name }) =>
+    charId !== null && ['Cenotaph', 'Leshak', 'Nestor', 'Bhaalgorn'].includes(name))).toEqual([])
+}, 60_000)
+
+it('retains drone damage and uses its inferred side instead of treating the drone as a pilot', () => {
+  const drone = other('Acolyte II', 'Acolyte II', 'Acolyte II[TICK](Acolyte II)', 2205)
+  const state = battle([log(1, 'Ace', 0, [
+    hit(0, drone, 300), hit(0, drone, 400, { dir: 'in' }),
+  ])])
+  state.names = { ...state.names, 'Acolyte II': { charId: 7, side: 1 } }
+  const analysis = analyze(state)
+  expect(analysis.entities['char:7']).toBeUndefined()
+  expect(analysis.entities['ship:0:1']).toMatchObject({ charId: null, side: 1, shipTypes: [] })
+  expect(analysis.timeline.damageBySide).toEqual({ 0: [300], 1: [400] })
+  expect(analysis.stats.find(({ key }) => key === 'char:1')).toMatchObject({ damageOut: 300, damageIn: 400 })
 })
 
 it.skipIf(!process.env.PERF)('analyzes 90,000 events in under 500 ms (PERF=1)', { retry: 3 }, () => {

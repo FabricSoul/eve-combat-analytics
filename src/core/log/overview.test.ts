@@ -149,6 +149,42 @@ it('rejects known equipment as a hull in legacy overview syntax without hiding r
   ])
 })
 
+it('separates the real color-marked hulls glued to pilot names in J125990', () => {
+  const { text } = realLogTexts().find(({ file }) => file === '20250622_151020_2121908518.txt')!
+  const parsed = parseGamelog(text)
+  for (const [name, shipType, shipTypeId] of [
+    ['Raisen Urli Itinen', 'Bhaalgorn', 17920], ['Verstaphen 23', 'Arazu', 11969],
+    ['Venjanen Houra Itinen', 'Zirnitra', 52907],
+  ] as const) {
+    const line = text.split(/\r\n|\n|\r/).findIndex((raw) =>
+      raw.includes(`${name}<color="0xffFF3300">${shipType}</color>`)) + 1
+    expect(line).toBeGreaterThan(0)
+    expect(parsed.events.find((event) => event.line === line)?.other)
+      .toMatchObject({ raw: expect.stringContaining(name + shipType), name, shipType, shipTypeId })
+  }
+}, 60_000)
+
+it('keeps real drone and charge targets separate from pilot names', () => {
+  const cases = [
+    { file: '20250622_123828_2115160605.txt', label: 'hint="Acolyte II"', shipType: 'Acolyte II' },
+    { file: '20250622_123828_2115160605.txt', label: 'hint="Warden II"', shipType: 'Warden II' },
+    { file: '20250622_123828_2115160605.txt', label: '高级鱼雷*[NVACA]', shipType: null },
+    { file: '20250622_123828_2115160605.txt', label: '节日弹药*[NVACA]', shipType: null },
+    { file: '20250622_122835_2117427381.txt', label: 'Hornet EC-300[NVACA](Hornet EC-300)', shipType: 'Hornet EC-300' },
+    { file: '20250622_132108_2122585545.txt', label: 'hint="Republic Fleet Bouncer"', shipType: 'Republic Fleet Bouncer' },
+    { file: '20250622_132108_2122585545.txt', label: '圣甲虫分裂者级逃生舱*[H-CAT]', shipType: null },
+  ]
+  const logs = realLogTexts()
+  for (const { file, label, shipType } of cases) {
+    const { text } = logs.find((log) => log.file === file)!
+    const line = text.split(/\r\n|\n|\r/).findIndex((raw) =>
+      raw.includes(label) && /(?:Smartbomb|立体炸弹)/.test(raw)) + 1
+    expect(line).toBeGreaterThan(0)
+    expect(parseGamelog(text).events.find((event) => event.line === line)?.other)
+      .toMatchObject({ name: null, shipType })
+  }
+}, 60_000)
+
 function escapeRegex(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

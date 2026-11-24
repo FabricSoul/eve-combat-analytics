@@ -8,7 +8,7 @@ it('re-keys an unresolved ship and label to a character before totaling interact
   const ship = other(null, 'Cruiser', 'Cruiser', 1001)
   const state = battle([log(1, 'Ace', 0, [
     hit(0, ship, 10), hit(1, 'Unresolved label', 20),
-    hit(2, other('Rook', 'Frigate', 'Rook (Frigate)', 1000), 40),
+    hit(2, other('Rook Pilot', 'Frigate', 'Rook Pilot (Frigate)', 1000), 40),
   ])])
   const before = analyze(state)
   expect(before.entities['ship:1001:1']).toBeDefined()
@@ -31,7 +31,7 @@ it('ranks overlapping same-side hull matches and excludes simultaneous conflicti
   const state = battle([log(1, 'Ace', 0, [
     // No typed named sightings so the anonymous actor remains unresolved.
     hit(0, ship, 10, { dir: 'in' }), hit(15, ship, 10, { dir: 'in' }),
-    hit(1, other('Rook', 'Cruiser'), 10), hit(14, other('Rook', 'Cruiser'), 10),
+    hit(1, other('Rook Pilot', 'Cruiser'), 10), hit(14, other('Rook Pilot', 'Cruiser'), 10),
     hit(3, other('Knight', 'Cruiser'), 10), hit(9, other('Knight', 'Cruiser'), 10),
     hit(0, other('Bishop', 'Cruiser'), 10, { dir: 'in' }), hit(15, other('Bishop', 'Cruiser'), 10),
     hit(1, other('Wing', 'Cruiser'), 10), hit(12, other('Wing', 'Cruiser'), 10),

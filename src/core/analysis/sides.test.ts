@@ -28,7 +28,7 @@ it('uses BR affiliation over uploaded and indexed ESI sides and reports unknowns
 
 it('uses killmail affiliation for manual groups before uploaded affiliation and gives manual characters priority', () => {
   const state = battle([
-    { ...log(1, 'Ace', 0, reps(30, 'Rook')), corpId: 300 },
+    { ...log(1, 'Ace', 0, reps(30, 'Rook Pilot')), corpId: 300 },
   ], [kill(1, 0, { ...pilot(1, 100, 1000), allyId: 500 }, [pilot(2, 100, 1001)])])
   state.sideOverrides = [manual('corp:100', 1, 1), manual('char:1', 0, 2), manual('corp:300', 0, 3)]
   let result = analyze(state)
@@ -47,7 +47,7 @@ it('uses killmail affiliation for manual groups before uploaded affiliation and 
 
 it('applies manual groups from uploads and name entries and treats a latest removal as absent', () => {
   const state = battle([
-    { ...log(1, 'Ace', 0, [hit(0, 'Wing', 5), hit(1, 'Medic', 7), hit(2, 'Rook', 9)]), corpId: 100, allyId: 500 },
+    { ...log(1, 'Ace', 0, [hit(0, 'Wing', 5), hit(1, 'Medic', 7), hit(2, 'Rook Pilot', 9)]), corpId: 100, allyId: 500 },
   ])
   state.names = {
     ...state.names,
@@ -70,10 +70,10 @@ it('applies manual groups from uploads and name entries and treats a latest remo
 
 it('includes a side created by a manual override in assignments, coverage, and damage buckets', () => {
   const state = battle([
-    log(1, 'Ace', 0, [hit(0, 'Rook', 5), hit(1, 'Rook', 7)]),
+    log(1, 'Ace', 0, [hit(0, 'Rook Pilot', 5), hit(1, 'Rook Pilot', 7)]),
     log(2, 'Wing', 0, reps(20, 'Ace', 2)),
     log(5, 'Medic', 0, [
-      ...Array.from({ length: 50 }, (_, i) => hit(2 + i, 'Rook', 3)),
+      ...Array.from({ length: 50 }, (_, i) => hit(2 + i, 'Rook Pilot', 3)),
       hit(52, other(null, 'Cruiser', 'Cruiser', 1001), 3),
     ]),
   ])
@@ -121,7 +121,7 @@ it.each([
   [17, 3, true],
 ])('classifies %i friendly-side and %i opposing-side repairs with the expected thresholds', (friendly, opposing, eligible) => {
   const state = battle([
-    log(1, 'Ace', 0, [...reps(friendly, 'Rook'), ...reps(opposing, 'Medic', friendly)]),
+    log(1, 'Ace', 0, [...reps(friendly, 'Rook Pilot'), ...reps(opposing, 'Medic', friendly)]),
   ], [kill(1, 0, pilot(1, 100, 1000), [])])
   const result = analyze(state)
   expect(result.entities['char:1']).toMatchObject({ side: eligible ? 1 : 0, sideSource: eligible ? 'log' : 'br' })
@@ -141,9 +141,9 @@ it.each([[49, false], [50, true]])('requires 50 own damage reports (%i)', (count
 
 it('re-evaluates once after excluding a target whose side was inferred from log evidence', () => {
   const state = battle([
-    log(1, 'Ace', 0, reps(20, 'Rook')),
-    log(2, 'Wing', 0, [...reps(20, 'Rook'), ...reps(4, 'Ace', 20)]),
-    log(5, 'Medic', 0, [...reps(20, 'Rook'), ...reps(4, 'Wing', 20)]),
+    log(1, 'Ace', 0, reps(20, 'Rook Pilot')),
+    log(2, 'Wing', 0, [...reps(20, 'Rook Pilot'), ...reps(4, 'Ace', 20)]),
+    log(5, 'Medic', 0, [...reps(20, 'Rook Pilot'), ...reps(4, 'Wing', 20)]),
   ])
   const result = analyze(state)
   expect(result.sideOverrides.map(({ subject }) => subject)).toEqual(['char:1', 'char:2'])
@@ -152,8 +152,8 @@ it('re-evaluates once after excluding a target whose side was inferred from log 
 })
 
 it('uses decisive repair evidence when the damage evidence is split', () => {
-  const damage = Array.from({ length: 50 }, (_, i) => hit(i, i < 30 ? 'Medic' : 'Rook', 8))
-  const result = analyze(battle([log(1, 'Ace', 0, [...reps(20, 'Rook'), ...damage])]))
+  const damage = Array.from({ length: 50 }, (_, i) => hit(i, i < 30 ? 'Medic' : 'Rook Pilot', 8))
+  const result = analyze(battle([log(1, 'Ace', 0, [...reps(20, 'Rook Pilot'), ...damage])]))
   expect(result.sideOverrides).toMatchObject([
     { subject: 'char:1', side: 1, reason: 'repaired side 1: 20 events, damaged side 0: 30 events' },
   ])

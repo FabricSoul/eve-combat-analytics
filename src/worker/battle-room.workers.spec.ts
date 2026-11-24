@@ -835,3 +835,26 @@ it('validates, persists, publishes and removes identity merges across eviction',
     after.close()
   }
 })
+
+it('filters known ships, drones, and charges out of ESI counterparty name batches', async () => {
+  const id = await prepare(0x1d4)
+  const response = await upload(id, 'type labels')
+  expect(response.status).toBe(200)
+  await response.json()
+  // Test ESI accepts only the actual pilot in this batch. A type label
+  // sent alongside Target makes the lookup fail and Target disappear.
+  expect((await state(id)).names).toEqual({ Target: { charId: 101, side: 3, corpId: 12345, allyId: null } })
+})
+
+it('does not let a shared equipment bucket be merged into a pilot', async () => {
+  const id = await prepare(0x1d5)
+  const response = await upload(id, 'type labels')
+  expect(response.status).toBe(200)
+  await response.json()
+  const result = await worker.default.fetch(`${battle(id)}/identities`, {
+    method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ from: 'name:弹药与装备', to: 'char:101' }),
+  })
+  expect(result.status).toBe(400)
+  expect(await result.json()).toMatchObject({ error: 'bad_request' })
+})

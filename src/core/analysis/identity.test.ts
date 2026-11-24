@@ -5,7 +5,7 @@ import { analyze } from './analyze'
 const cruiser = other(null, 'Cruiser', 'Cruiser', 1001)
 const cruiserZh = other(null, '巡洋舰', '巡洋舰', 1001)
 const frigate = other(null, 'Frigate', 'Frigate', 1000)
-const rookCruiser = other('Rook', 'Cruiser', 'Rook (Cruiser)', 1001)
+const rookCruiser = other('Rook Pilot', 'Cruiser', 'Rook Pilot (Cruiser)', 1001)
 const armor = { kind: 'repair', repairType: 'armor', dir: 'out', amount: 20, module: null } as const
 const scramble = { kind: 'ewar_seen', ewar: 'warp_scramble', source: cruiser } as const
 
@@ -39,7 +39,7 @@ it('uses other logs to identify a listener’s ship even without a name-index en
   const state = battle([
     log(1, 'Ace', 0, [event(0, cruiser, armor), event(0, cruiser, { ...armor, dir: 'in' })]),
     log(2, 'Wing', 0, []),
-    log(3, 'Rook', 1, [
+    log(3, 'Rook Pilot', 1, [
       hit(0, other('Wing', 'Cruiser', 'Wing (Cruiser)', 1001), 100),
       hit(0, other('Ace', 'Cruiser', 'Ace (Cruiser)', 1001), 100),
     ]),
@@ -70,7 +70,7 @@ it('groups localized ship-only labels by type and inferred side, with an unknown
       event(0, cruiser, armor), event(0, cruiserZh, { ...armor, dir: 'in' }),
       event(0, cruiserZh, { kind: 'neut', dir: 'in', amount: 10, module: null }),
       hit(0, other('Unknown Pilot', 'Cruiser', 'Unknown Pilot (Cruiser)', 1001), 3),
-      hit(0, other(null, null, 'Rook'), 4),
+      hit(0, other(null, null, 'Rook Pilot'), 4),
     ]),
   ])
   const { entities, interactions } = analyze(state)
@@ -81,7 +81,7 @@ it('groups localized ship-only labels by type and inferred side, with an unknown
     ['ship:1001:0', 'char:1'],
     ['ship:1001:-1', 'char:1'],
     ['char:1', 'name:Unknown Pilot'],
-    ['char:1', 'name:Rook'],
+    ['char:1', 'name:Rook Pilot'],
   ])
   expect(entities['ship:1001:1']).toMatchObject({ charId: null, side: 1, shipTypes: ['Cruiser', '巡洋舰'] })
   expect(entities['ship:1001:0']).toMatchObject({ charId: null, side: 0, shipTypes: ['Cruiser', '巡洋舰'] })
@@ -95,7 +95,7 @@ it('uses unknown-side damage buckets when there is no single opposite side', () 
 
 it('deduplicates third-party ewar across three witness logs and attributes the span to the actor', () => {
   const state = battle([
-    log(1, 'Ace', 0, [event(1, 'Rook', { kind: 'ewar', dir: 'out', ewar: 'warp_scramble' })]),
+    log(1, 'Ace', 0, [event(1, 'Rook Pilot', { kind: 'ewar', dir: 'out', ewar: 'warp_scramble' })]),
     log(2, 'Wing', 0, [event(0, frigate, scramble), event(20, frigate, scramble)]),
     log(4, 'Bishop', 1, [event(1, frigate, scramble), event(21, frigate, scramble)]),
     log(5, 'Medic', 0, [event(1, frigate, scramble), event(21, frigate, scramble)]),
@@ -113,7 +113,7 @@ it('deduplicates third-party ewar across three witness logs and attributes the s
 })
 
 it('matches repeated observed ewar one-to-one per witness', () => {
-  const report = (t: number) => event(t, 'Rook', { ...scramble, source: other('Ace') })
+  const report = (t: number) => event(t, 'Rook Pilot', { ...scramble, source: other('Ace') })
   const state = battle([
     log(2, 'Wing', 0, [report(0), report(0.25)]),
     log(4, 'Bishop', 1, [report(0.5), report(0.75)]),
@@ -126,11 +126,11 @@ it('matches repeated observed ewar one-to-one per witness', () => {
 it('uses the killmail alliance ahead of a corp on an earlier team to fill an unknown side', () => {
   const victim = { ...pilot(3, 100, 1001), allyId: 300 }
   const state = battle([
-    log(1, 'Ace', 0, [hit(0, 'Rook', 100)]),
-    log(2, 'Wing', 0, [hit(0, 'Rook', 100)]),
+    log(1, 'Ace', 0, [hit(0, 'Rook Pilot', 100)]),
+    log(2, 'Wing', 0, [hit(0, 'Rook Pilot', 100)]),
   ], [kill(1, 5, victim, [])])
   state.meta.teams[1]!.push('ally:300')
-  state.names = { ...state.names, Rook: { charId: 3, side: -1 } }
+  state.names = { ...state.names, 'Rook Pilot': { charId: 3, side: -1 } }
   const result = analyze(state)
   expect(result.entities['char:3']?.side).toBe(1)
   expect(result.coverage[1]?.known).toBe(1)
@@ -140,10 +140,10 @@ it('uses the killmail alliance ahead of a corp on an earlier team to fill an unk
 it('keeps different ewar and repair types separate even with the same endpoints and timestamp', () => {
   const state = battle([
     log(1, 'Ace', 0, [
-      event(0, 'Rook', { kind: 'ewar', dir: 'out', ewar: 'warp_scramble' }),
-      event(0, 'Rook', armor),
+      event(0, 'Rook Pilot', { kind: 'ewar', dir: 'out', ewar: 'warp_scramble' }),
+      event(0, 'Rook Pilot', armor),
     ]),
-    log(3, 'Rook', 1, [
+    log(3, 'Rook Pilot', 1, [
       event(0, 'Ace', { kind: 'ewar', dir: 'in', ewar: 'jam' }),
       event(0, 'Ace', { ...armor, dir: 'in', repairType: 'shield' }),
     ]),
@@ -153,7 +153,7 @@ it('keeps different ewar and repair types separate even with the same endpoints 
 })
 
 it('clips qualifying primary windows to the first and last hit, so an instant switch has no delay', () => {
-  const fire = () => Array.from({ length: 40 }, (_, t) => hit(t, t < 20 ? 'Rook' : 'Bishop', 100))
+  const fire = () => Array.from({ length: 40 }, (_, t) => hit(t, t < 20 ? 'Rook Pilot' : 'Bishop', 100))
   const result = analyze(battle([log(1, 'Ace', 0, fire()), log(2, 'Wing', 0, fire())]))
   expect(result.primaries.map(({ target, start, end, damage }) => ({ target, start, end, damage }))).toEqual([
     { target: 'char:3', start: at(0), end: at(19), damage: 4000 },
@@ -164,7 +164,7 @@ it('clips qualifying primary windows to the first and last hit, so an instant sw
 })
 
 it('counts both endpoint seconds of an engagement', () => {
-  const state = battle([log(1, 'Ace', 0, [hit(0.9, 'Rook', 10), hit(1.1, 'Rook', 20)])])
+  const state = battle([log(1, 'Ace', 0, [hit(0.9, 'Rook Pilot', 10), hit(1.1, 'Rook Pilot', 20)])])
   expect(analyze(state).stats[0]?.activeRatio).toBe(1)
 })
 
@@ -172,19 +172,19 @@ it('counts both endpoint seconds of an engagement', () => {
 it('measures the first follower hit against the side’s first hit and omits the leader', () => {
   const state = battle([
     log(1, 'Ace', 0, [
-      hit(0, 'Rook', 100), hit(20, 'Bishop', 100), hit(21, 'Bishop', 100), hit(43, 'Knight', 100), hit(60, 'Rook', 100),
+      hit(0, 'Rook Pilot', 100), hit(20, 'Bishop', 100), hit(21, 'Bishop', 100), hit(43, 'Knight', 100), hit(60, 'Rook Pilot', 100),
     ]),
     log(2, 'Wing', 0, [
-      hit(0, 'Rook', 100), hit(24, 'Bishop', 100), hit(40, 'Knight', 100), hit(68, 'Rook', 100),
+      hit(0, 'Rook Pilot', 100), hit(24, 'Bishop', 100), hit(40, 'Knight', 100), hit(68, 'Rook Pilot', 100),
     ]),
   ])
   expect(analyze(state).stats.filter(({ source }) => source === 'own').map(({ switchDelayMedian }) => switchDelayMedian)).toEqual([3, 6])
 })
 
 it('counts each fingerprint once for a relogged listener and preserves peer corroboration', () => {
-  const first = log(1, 'Ace', 0, [hit(0, 'Rook', 10), hit(0, 'Rook', 10), hit(0, 'Rook', 20)])
-  const second = { ...log(1, 'Ace', 0, [hit(0, 'Rook', 10), hit(0, 'Rook', 21)]), id: 'ace-relog' }
-  const peer = log(3, 'Rook', 1, [hit(0, 'Ace', 10, { dir: 'in' })])
+  const first = log(1, 'Ace', 0, [hit(0, 'Rook Pilot', 10), hit(0, 'Rook Pilot', 10), hit(0, 'Rook Pilot', 20)])
+  const second = { ...log(1, 'Ace', 0, [hit(0, 'Rook Pilot', 10), hit(0, 'Rook Pilot', 21)]), id: 'ace-relog' }
+  const peer = log(3, 'Rook Pilot', 1, [hit(0, 'Ace', 10, { dir: 'in' })])
   const state = battle([first, second, peer])
   const result = analyze(state)
   expect(result.interactions.map(({ amount, sources }) => [amount, sources.length])).toEqual([
@@ -195,10 +195,20 @@ it('counts each fingerprint once for a relogged listener and preserves peer corr
 })
 
 it('does not corroborate an ewar activation with another file from the same witness', () => {
-  const report = (t: number) => event(t, 'Rook', { ...scramble, source: other('Ace') })
+  const report = (t: number) => event(t, 'Rook Pilot', { ...scramble, source: other('Ace') })
   const state = battle([
     log(2, 'Wing', 0, [report(0)]),
     { ...log(2, 'Wing', 0, [report(0.75)]), id: 'wing-relog' },
   ])
   expect(analyze(state).interactions.map(({ corroborated }) => corroborated)).toEqual([false, false])
+})
+
+it('recovers a stored glued hull only when the pilot prefix is already known', () => {
+  const actor = 'Raisen Urli Itinen'
+  const glued = actor + 'Bhaalgorn'
+  const state = battle([log(1, 'Ace', 0, [hit(0, glued, 10), hit(1, 'Other PilotArazu', 20)])])
+  state.names = { [actor]: { charId: 7, side: 1 } }
+  const analysis = analyze(state)
+  expect(analysis.entities['char:7']).toMatchObject({ name: 'Scout', side: 1, shipTypes: ['Bhaalgorn'] })
+  expect(analysis.interactions.map(({ to }) => to)).toEqual(['char:7', 'name:Other PilotArazu'])
 })
