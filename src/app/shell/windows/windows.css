@@ -220,8 +220,7 @@ body.battle-window-dragging * {
 }
 .battle-module :is(.roster, .feed-row, .kills-row, table),
 .replay-close-fights table { font-size: var(--fs-compact-table); }
-.battle-module :is(.kills-row, table tr), .replay-close-fights tr { height: var(--row-compact); }
-.battle-module .kills-ship, .battle-module .kills-ship .app-portrait { width: 18px; height: 18px; }
+.battle-module table tr, .replay-close-fights tr { height: var(--row-compact); }
 .battle-module .kills-sub { display: inline; margin-inline-start: var(--space-1); }
 .battle-module .kills-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .battle-replay-layer, .battle-replay-popover-layer { position: fixed; inset: 0; pointer-events: none; }

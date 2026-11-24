@@ -5,7 +5,7 @@
   gap: var(--space-2);
   align-items: center;
   width: 100%;
-  height: 44px;
+  height: 32px;
   padding: 0 var(--space-3);
   border-bottom: 1px solid var(--color-hair);
   font-size: var(--fs-s);
@@ -16,8 +16,7 @@
 .kills-row--sel { background: var(--color-sel); box-shadow: inset 2px 0 0 var(--color-accent-line); }
 .kills-time { color: var(--color-text-3); }
 .kills-ship { position: relative; display: inline-flex; width: 28px; height: 28px; }
-.kills-ship .app-portrait { border-radius: var(--space-1); }
-.kills-type { position: absolute; right: -4px; bottom: -4px; border: 1px solid var(--color-surface); }
+.kills-type { position: absolute; right: -4px; bottom: 0; border: 1px solid var(--color-surface); }
 .kills-who { display: flex; flex-direction: column; min-width: 0; }
 .kills-name, .kills-sub { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .kills-sub { color: var(--color-text-3); font-size: 11px; }

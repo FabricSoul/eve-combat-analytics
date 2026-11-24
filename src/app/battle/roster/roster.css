@@ -32,7 +32,6 @@
 .roster-row[data-dead] img { opacity: .35; }
 .roster-row[data-dead] .roster-name > span:last-child { text-decoration: line-through; text-decoration-color: var(--color-text-3); }
 .roster-ship { display: inline-flex; align-items: center; gap: 4px; color: var(--color-text-3); font-size: 11px; white-space: nowrap; }
-.roster-tag-button { flex: none; margin-inline-end: var(--space-1); cursor: pointer; }
 .roster-jump {
   align-self: flex-start; margin: var(--space-1) var(--space-3); padding: 0 var(--space-2); border: 1px solid var(--color-hair);
   border-radius: var(--radius-ctl); color: var(--color-text-2); font-size: var(--fs-s); cursor: pointer;
@@ -168,8 +167,6 @@
   .sides-col-body { overflow: visible; }
 }
 
-/* Tag for a side corrected from log evidence: accent-line border, text color (board c1-spec). */
-.roster-row .app-tag[data-kind="log"] { border-color: color-mix(in srgb, var(--color-accent-line) 60%, transparent); color: var(--color-text); }
 /* One row on its own, as drawn on the c1-spec board; the gallery uses it for the state list. */
 .roster-bare { overflow: hidden; border: 1px solid var(--color-hair); border-radius: var(--radius-ctl); background: var(--color-surface); }
 .roster-bare .roster-head { display: none; }

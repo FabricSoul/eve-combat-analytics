@@ -27,12 +27,18 @@ export function HitAnalysis() {
   const [reverse, setReverse] = useState(false)
   const [hidden, setHidden] = useState<ReadonlySet<number>>(() => new Set())
   const order = useMemo(() => analysis ? sideOrder(analysis, oursSide) : [], [analysis, oursSide])
-  if (!hits || !analysis) return <p className="hit-secondary" role="status">正在加载命中数据…</p>
+  const uploadHint = '还没有命中记录 · 上传带炮台、导弹或无人机的日志后会出现排名。'
+  const noLogs = summary?.logs.length === 0
+  if (!hits || !analysis) return <p className="hit-secondary" role="status">{noLogs ? uploadHint : '正在加载命中数据…'}</p>
 
   const include = includeUnidentified.has('hits')
   const sides = [...order, ...new Set(Object.values(analysis.entities).map(({ side }) => side).filter((side) => !order.includes(side)))]
   const teams = sides.filter((side) => !hidden.has(side) && (side >= 0 || hits.sides.has(side)))
     .map((side) => ({ side, counts: hits.sides.get(side) }))
+  const empty = noLogs ? uploadHint
+    : hits.sides.size === 0 ? (range ? '这段时间没有命中记录 · 扩大或清除选段。' : uploadHint)
+    : !teams.some(({ counts }) => counts) ? '当前阵营没有命中记录 · 调整阵营筛选。'
+    : null
   const ranking = hits.ranking(metric)
   const rows = ranking.ranked.filter(({ pilot }) => !hidden.has(pilot.entity.side))
   if (reverse) rows.reverse()
@@ -85,7 +91,8 @@ export function HitAnalysis() {
         {range ? <RangeChip range={range} clearRange={clearRange} /> : bounds
           && <span>全场 <span className="app-number">{fmtHms(bounds[0])}–{fmtHms(bounds[1])}</span></span>}
       </div>
-      <div className="hit-team-grid" aria-label="阵营命中对比">
+      {empty && <p className="hit-secondary" role="status">{empty}</p>}
+      {!empty && <div className="hit-team-grid" aria-label="阵营命中对比">
         {teams.map(({ side, counts }) => <section className="hit-card" key={side}>
           <h3><span className="hit-side-dot" style={{ background: sideColor(side, order) }} aria-hidden="true" />
             {sideLabel(side, order)} {side !== oursSide && <small>据我方日志</small>}
@@ -98,9 +105,9 @@ export function HitAnalysis() {
           {counts && <HitQualityBar stats={counts} color={sideColor(side, order)} />}
           <WeaponClasses classes={counts?.classes ?? new Map()} />
         </section>)}
-      </div>
-      {bounds && <HitTrend order={order} bounds={bounds} teams={teams.map(({ side, counts }) => ({ side, minutes: counts?.minutes }))} />}
-      <section className="hit-pilot-ranks">
+      </div>}
+      {!empty && bounds && <HitTrend order={order} bounds={bounds} teams={teams.map(({ side, counts }) => ({ side, minutes: counts?.minutes }))} />}
+      {!empty && <section className="hit-pilot-ranks">
         <h3>飞行员排名 <small>{pilotCountLabel(rows.length + insufficient.length, include ? unidentified.length : 0)}</small></h3>
         {rows.length > 0 ? <div className="hit-table-scroll" role="region" aria-label="飞行员命中排名" tabIndex={0}>
           <table>
@@ -170,7 +177,7 @@ export function HitAnalysis() {
             </li>
           })}</ul>
         </section>}
-      </section>
+      </section>}
     </div>
   </section>
 }

@@ -38,6 +38,44 @@ try {
     return { context, page, frames, errors }
   }
 
+  async function auditTagAndKillStyles() {
+    const { page, context } = await open(1630, 940, 'dark')
+    try {
+      const killRows = page.locator('[data-module="kills"] .kills-row')
+      await killRows.first().waitFor()
+      const kills = await killRows.evaluateAll((rows) => rows.slice(0, 3).map((row) => {
+        const portrait = row.querySelector('.app-portrait')
+        const overlay = row.querySelector('.kills-type')
+        const box = (element) => element.getBoundingClientRect()
+        return {
+          row: box(row).height, portrait: [box(portrait).width, box(portrait).height],
+          overlay: [box(overlay).width, box(overlay).height],
+          radius: getComputedStyle(portrait).borderRadius,
+          expectedRadius: getComputedStyle(portrait).getPropertyValue('--radius-ctl').trim(),
+        }
+      }))
+      await page.goto(origin + '/_gallery#roster', { waitUntil: 'domcontentloaded' })
+      const tag = (kind) => page.locator(`#roster .roster-bare .app-tag[data-kind="${kind}"]`).first()
+      const colors = (node) => {
+        const style = getComputedStyle(node)
+        return { border: style.borderTopColor, text: style.color }
+      }
+      const manual = await tag('manual').evaluate(colors)
+      const log = await tag('log').evaluate(colors)
+      assert.deepEqual(
+        { log, kills: kills.map(({ expectedRadius, ...sizes }) => sizes) },
+        { log: manual, kills: kills.map(({ expectedRadius }) =>
+          ({ row: 32, portrait: [28, 28], overlay: [16, 16], radius: expectedRadius })) },
+        'log and manual tags use the same neutral colors, and kill rows fit their specified portrait and overlay',
+      )
+      console.log('Roster tags: log and manual colors match. Kill list: 32px rows, 28px portraits, 16px overlays.')
+    } finally {
+      await context.close()
+    }
+  }
+
+  await auditTagAndKillStyles()
+
   async function checkReplayCadence(page) {
     const start = page.url()
     const controls = page.getByRole('group', { name: '回放控制' })

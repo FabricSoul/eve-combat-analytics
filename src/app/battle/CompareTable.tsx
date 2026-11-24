@@ -22,6 +22,12 @@ type CompareMode = (typeof views)[number]['value']
 const groups = [...new Set(metrics.map(({ group }) => group))]
 const initialSort = { key: 'damageOut', direction: 'descending' } as const
 
+function hasRangeData({ stats }: CompareRow) {
+  return stats.damageOut > 0 || stats.damageIn > 0 || stats.repairOut > 0 || stats.repairIn > 0
+    || stats.neutOut > 0 || stats.neutIn > 0 || stats.pointSeconds > 0 || stats.misses > 0
+    || stats.killmailCount > 0 || Object.values(stats.hitQuality).some((count) => count > 0)
+}
+
 export function CompareTable(_props: CompareTableProps) {
   const { analysis, summary } = useBattleContext()
   const { oursSide, selected, select, range, clearRange, pinned, setPinned, togglePin, includeUnidentified, toggleUnidentified } = useView()
@@ -40,10 +46,12 @@ export function CompareTable(_props: CompareTableProps) {
     const shown: CompareRow[] = []
     const unidentified: CompareRow[] = []
     for (const row of rows) {
-      if (!hiddenSides.has(row.entity.side)) (row.entity.charId !== null ? shown : unidentified).push(row)
+      if (!hiddenSides.has(row.entity.side) && (!range || hasRangeData(row))) {
+        (row.entity.charId !== null ? shown : unidentified).push(row)
+      }
     }
     return { shown, unidentified }
-  }, [rows, hiddenSides])
+  }, [rows, hiddenSides, range])
   const include = mode === 'table' && includeUnidentified.has('compare')
   const columns = useMemo(() => metrics.filter(({ key }) => visible.has(key))
     .map((metric) => makeColumn(metric, shown, include ? unidentified : undefined)), [shown, unidentified, visible, include])
@@ -62,7 +70,17 @@ export function CompareTable(_props: CompareTableProps) {
     return { sorted: sortRows(shown, true), extra: include ? sortRows(unidentified, false) : [] }
   }, [shown, unidentified, include, pinned, sort])
 
-  if (!analysis) return <p className="u7-compare-message" role="status">正在加载对比数据…</p>
+  const uploadHint = '上传日志后这里会列出每个飞行员的数据。'
+  const noLogs = summary?.logs.length === 0
+  if (!analysis) return <p className="u7-compare-message" role="status">{noLogs ? uploadHint : '正在加载对比数据…'}</p>
+  const unidentifiedHint = mode === 'table' ? '点「含未识别」查看' : '切到「大表」后点「含未识别」查看'
+  const empty = noLogs ? uploadHint
+    : sorted.length || extra.length ? null
+    : range && !rows.some(hasRangeData) ? '这段时间没有飞行员数据 · 扩大或清除选段。'
+    : unidentified.length ? `当前只有未识别的数据 · ${unidentifiedHint}。`
+    : hiddenSides.size ? '当前阵营没有飞行员数据 · 调整阵营筛选。'
+    : range ? '这段时间没有飞行员数据 · 扩大或清除选段。'
+    : uploadHint
   const sides = rows.some(({ entity }) => entity.side < 0) ? [...order, -1] : order
   const checked = sorted.filter(({ entity }) => pinned.has(entity.key))
   const showHitQuality = visible.has('hitRate')
@@ -124,16 +142,16 @@ export function CompareTable(_props: CompareTableProps) {
         <Button variant="ghost" data-full-page-close={expanded || undefined} onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '整页'}</Button>
       </div>
     </header>
-    <div className="u7-compare-note">
-      <span>{pilotCountLabel(shown.length, extra.length)}</span>
-      {mode === 'table' && unidentified.length > 0 && <Button variant="ghost" aria-pressed={include}
+    {(!empty || range || pinned.size > 0 || (mode === 'table' && unidentified.length > 0 && !noLogs)) && <div className="u7-compare-note">
+      {!noLogs && <span>{pilotCountLabel(shown.length, extra.length)}</span>}
+      {!noLogs && mode === 'table' && unidentified.length > 0 && <Button variant="ghost" aria-pressed={include}
         onClick={() => toggleUnidentified('compare')}>含未识别 {fmtNum(unidentified.length)}</Button>}
-      <span>{mode === 'table' ? '勾选的人置顶 · 竖线是中位数' : mode === 'side-by-side' ? '每项一组条形 · 竖线是中位数' : '每项一条轴 · 虚线是中位数'}</span>
+      {!empty && <span>{mode === 'table' ? '勾选的人置顶 · 竖线是中位数' : mode === 'side-by-side' ? '每项一组条形 · 竖线是中位数' : '每项一条轴 · 虚线是中位数'}</span>}
       {pinned.size > 0 && <Button variant="ghost" onClick={() => setPinned(new Set())}>清除勾选</Button>}
       {range ? <RangeChip range={range} clearRange={clearRange} /> : bounds
         && <span>全场 <span className="app-number">{formatTime(bounds[0])}–{formatTime(bounds[1])}</span></span>}
-    </div>
-    {mode !== 'table' && <details className="u7-compare-pick">
+    </div>}
+    {!empty && mode !== 'table' && <details className="u7-compare-pick">
       <summary>选择飞行员 <span className="app-number">{pinned.size}</span></summary>
       <div>{shown.map((row) => <label key={row.entity.key}>
         <input type="checkbox" checked={pinned.has(row.entity.key)} onChange={() => togglePin(row.entity.key)} />
@@ -141,7 +159,8 @@ export function CompareTable(_props: CompareTableProps) {
       </label>)}</div>
     </details>}
     <div role="tabpanel" id={`${id}-panel-${mode}`} aria-labelledby={`${id}-tab-${mode}`} className="u7-compare-body">
-      {mode === 'table' && <>
+      {empty && <p className="u7-compare-message" role="status">{empty}</p>}
+      {!empty && mode === 'table' && <>
         <label className="u7-compact-metric">指标 <select className="app-select" value={activeCompact} onChange={(event) => {
           const metric = columns.find(({ metric }) => metric.key === event.currentTarget.value)?.metric
           if (metric) setCompactMetric(metric.key)
@@ -185,11 +204,10 @@ export function CompareTable(_props: CompareTableProps) {
                 : null}
             </td>}
           </tr>)}</tbody>)}</table>
-          {!sorted.length && !extra.length && <p className="u7-compare-message">没有符合筛选条件的飞行员 · 调整阵营或时间选段。</p>}
         </div>
       </>}
-      {mode === 'side-by-side' && <SideBySide rows={checked} columns={columns} order={order} onSelect={select} selected={selected} />}
-      {mode === 'distribution' && <Distribution rows={shown} columns={columns} order={order} pinned={pinned} onSelect={select} selected={selected} />}
+      {!empty && mode === 'side-by-side' && <SideBySide rows={checked} columns={columns} order={order} onSelect={select} selected={selected} />}
+      {!empty && mode === 'distribution' && <Distribution rows={shown} columns={columns} order={order} pinned={pinned} onSelect={select} selected={selected} />}
     </div>
   </section>
 }

@@ -56,7 +56,6 @@ function RosterContent({ search, alphabetical, onSearchClose }: RosterProps) {
   const matches = ({ name, ship }: { name: string; ship: string | null }) => !needle || `${name} ${ship ?? ''}`.toLocaleLowerCase().includes(needle)
 
   function renderRow(row: (typeof groups)[number]['rows'][number]) {
-    const mergeTag = row.tag?.kind === 'merge'
     return (
       <div key={row.key} className="roster-row" data-pilot-key={row.key} data-selected={view.selected === row.key ? '' : undefined}
         data-flash={flashed === row.key ? '' : undefined}
@@ -70,14 +69,9 @@ function RosterContent({ search, alphabetical, onSearchClose }: RosterProps) {
               title={row.observed ? '没有日志 · 数据据我方日志' : undefined} />
             <span>{row.name}</span>
           </span>
-          {row.tag && !mergeTag ? <Tag title={row.tag.title} data-kind={row.tag.kind}>{tagLabel[row.tag.kind]}</Tag> : <span />}
+          {row.tag ? <Tag title={row.tag.title} data-kind={row.tag.kind}>{tagLabel[row.tag.kind]}</Tag> : <span />}
           <span className="roster-ship"><TypeIcon typeId={row.shipTypeId} size={16} />{row.ship}</span>
         </button>
-        {row.tag && mergeTag && (
-          <button type="button" className="app-tag roster-tag-button" data-kind="merge" title={`${row.tag.title} · 合并操作…`}
-            aria-label={`${row.name} 的合并操作`} aria-haspopup="menu"
-            onClick={(event) => { event.stopPropagation(); menu?.open(row.key, event, true) }}>{tagLabel.merge}</button>
-        )}
         <PilotMore pilot={row.key} name={row.name} className="roster-more" />
       </div>
     )

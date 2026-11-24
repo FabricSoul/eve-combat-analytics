@@ -162,3 +162,38 @@ it('shows unidentified hit observations only in their own group and preserves pi
     act(() => root.unmount())
   }
 })
+
+it.each([
+  ['no uploads', '上传带炮台、导弹或无人机的日志后会出现排名'],
+  ['side filter', '调整阵营筛选'],
+  ['empty range', '扩大或清除选段'],
+] as const)('explains how to populate hit analysis with %s', (cause, guidance) => {
+  const fixture = loadUiFixture()
+  const battle = cause === 'no uploads' ? { ...fixture, summary: { ...fixture.summary, logs: [] } } : fixture
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  function Harness() {
+    const { setRange } = useView()
+    return <><button id="empty-range" onClick={() => {
+      const end = fixture.summary.meta.killmails.at(-1)!.t
+      setRange([end + 60_000, end + 120_000])
+    }}>Range</button><HitAnalysis /></>
+  }
+  try {
+    act(() => root.render(<BattleProvider static={battle}><ViewProvider defaultSide={1} syncUrl={false}><Harness /></ViewProvider></BattleProvider>))
+    if (cause === 'side filter') {
+      act(() => host.querySelectorAll<HTMLInputElement>('.hit-analysis-controls details input')
+        .forEach((input) => input.click()))
+    } else if (cause === 'empty range') {
+      act(() => host.querySelector<HTMLButtonElement>('#empty-range')!.click())
+    }
+    expect(host.querySelector('.hit-analysis [role="status"]')?.textContent ?? '').toContain(guidance)
+    expect(host.querySelector('.hit-analysis table')).toBeNull()
+    if (cause === 'empty range') {
+      act(() => host.querySelector<HTMLButtonElement>('.battle-range-chip')!.click())
+      expect(host.querySelector('.hit-analysis tbody tr')).not.toBeNull()
+    }
+  } finally {
+    act(() => root.unmount())
+  }
+})

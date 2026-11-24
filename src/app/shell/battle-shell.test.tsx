@@ -267,10 +267,10 @@ describe('battle shell review', () => {
     )
     for (const [id, instruction] of [
       ['feed', '移动时间轴或调整筛选条件'],
-      ['compare', '调整阵营或时间选段'],
+      ['compare', '上传日志后这里会列出每个飞行员的数据'],
       ['roster', '上传飞行员的日志'],
       ['kills', '导入含击毁报告的战斗链接'],
-      ['hits', '调整选段或上传更多战斗日志'],
+      ['hits', '上传带炮台、导弹或无人机的日志后会出现排名'],
     ]) {
       expect(host.querySelector(`[data-module="${id}"]`)?.textContent).toContain(instruction)
     }

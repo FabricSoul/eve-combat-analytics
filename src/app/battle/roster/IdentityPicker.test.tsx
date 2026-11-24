@@ -181,15 +181,16 @@ describe('IdentityPicker', () => {
     vi.useRealTimers()
   })
 
-  it('a merged character\'s 合并 tag is a button that opens 取消合并; the time shows on hover', async () => {
+  it('labels a merged character with its merge time and keeps undo in the pilot menu', async () => {
     const merged = { ...tinySummary, identityMerges: [{ from: 'name:Hidden' as const, to: 'char:2' as const, setAt: Date.UTC(2025, 5, 22, 15, 42) }] }
     mount(merged, tinyAnalysis)
-    const tag = row('Pilot2').querySelector<HTMLButtonElement>('button.app-tag')!
+    const pilot = row('Pilot2')
+    const tag = pilot.querySelector('.app-tag')!
+    expect(tag.tagName).toBe('SPAN')
     expect(tag.textContent).toBe('合并')
-    expect(tag.getAttribute('title')).toContain('合并 · 2025-06-22 15:42 UTC 设')
-    expect(tag.getAttribute('title')).toContain('合并操作…')
-    expect(tag.getAttribute('title')).not.toContain('点击取消合并')
-    act(() => tag.click())
+    expect(tag.getAttribute('title')).toBe('合并 · 2025-06-22 15:42 UTC 设')
+    expect(pilot.querySelectorAll('button')).toHaveLength(2)
+    act(() => pilot.querySelector<HTMLButtonElement>('.roster-more')!.click())
     const undo = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent?.startsWith('取消合并'))!
     await act(async () => undo.click())
     expect(api.putIdentity).toHaveBeenCalledWith('tiny', 'name:Hidden', null)

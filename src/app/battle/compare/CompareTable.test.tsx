@@ -234,3 +234,30 @@ it('labels the hit quality distribution in its own column and follows hit-rate v
   act(() => toggle.click())
   expect(quality()).toBeUndefined()
 })
+
+it.each([
+  ['no uploads', '上传日志后这里会列出每个飞行员的数据'],
+  ['side filter', '调整阵营筛选'],
+  ['empty range', '扩大或清除选段'],
+] as const)('explains how to populate comparison with %s', (cause, guidance) => {
+  function Harness() {
+    const { setRange } = useView()
+    return <><button id="empty-range" onClick={() => {
+      const end = fixture.summary.meta.killmails.at(-1)!.t
+      setRange([end + 60_000, end + 120_000])
+    }}>Range</button><CompareTable /></>
+  }
+  render(<Harness />, cause === 'no uploads' ? { ...fixture, summary: { ...fixture.summary, logs: [] } } : fixture)
+  if (cause === 'side filter') {
+    act(() => host.querySelectorAll<HTMLInputElement>('.u7-compare-controls details:first-child input')
+      .forEach((input) => input.click()))
+  } else if (cause === 'empty range') {
+    act(() => host.querySelector<HTMLButtonElement>('#empty-range')!.click())
+  }
+  expect(host.querySelector('.u7-compare [role="status"]')?.textContent ?? '').toContain(guidance)
+  expect(host.querySelector('.u7-compare table')).toBeNull()
+  if (cause === 'empty range') {
+    act(() => host.querySelector<HTMLButtonElement>('.battle-range-chip')!.click())
+    expect(host.querySelector('.u7-compare tbody tr')).not.toBeNull()
+  }
+})
