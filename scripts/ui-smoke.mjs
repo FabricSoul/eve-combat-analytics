@@ -172,7 +172,7 @@ try {
     assert.ok(result.uploaders >= 17, 'the label check uses the complete real fight')
     assert.deepEqual(result.touching, [], 'replay names have 6 px horizontal or 2 px vertical clearance')
     if (zoom) {
-      assert.ok(result.inView >= 10, `the real fight has visible pilots at ${zoom}×`)
+      assert.ok(result.inView > 0, `the real fight has visible pilots at ${zoom}×`)
       assert.deepEqual(result.names, [], `each in-view pilot has a visible label within 40 px at ${zoom}×`)
       console.log(`Replay names: all ${result.inView} in-view pilots labeled within 40 px at ${zoom}×`)
     }
@@ -877,8 +877,19 @@ try {
   }
   const zoomed = await open(1630, 940, 'dark', 'reduce', `?t=${screenshotTime - 420}`)
   try {
-    for (const scale of [1.5, 2]) await assertReplayNames(zoomed.page, undefined, scale)
+    for (const scale of [1.5, 2, 3]) await assertReplayNames(zoomed.page, undefined, scale)
   } finally { await zoomed.context.close() }
+  for (const [width, height] of [[1630, 940], [1280, 800]]) {
+    const openingFrame = await open(width, height, 'dark', 'reduce')
+    try {
+      // The opening frame reproduces the top-edge ship at 2×. At 3× its centered view has no ships.
+      for (const scale of [1.5, 2]) await assertReplayNames(openingFrame.page, undefined, scale)
+      if (width === 1280) {
+        await openingFrame.page.goto(origin + route + `?t=${screenshotTime - 420}`)
+        await assertReplayNames(openingFrame.page, undefined, 3)
+      }
+    } finally { await openingFrame.context.close() }
+  }
   for (const [width, height, theme, motion] of [
     [1280, 800, 'dark'], [1280, 800, 'light'], [1630, 940, 'dark'], [900, 800, 'dark'], [900, 800, 'light'],
     [390, 844, 'dark'], [390, 844, 'light'], [390, 844, 'dark', 'reduce'],

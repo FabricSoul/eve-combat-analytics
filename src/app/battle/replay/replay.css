@@ -232,6 +232,12 @@
   font: var(--fs-s)/16px var(--font-ui);
 }
 
+/* Reserve a 16 px name line and its 2 px clearance at the top of the zoomed stage. */
+.replay-stage[data-all-names] .replay-legend {
+  position: relative;
+  inset-block-start: 6px;
+}
+
 .replay-legend > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .replay-legend i { width: 7px; height: 7px; border-radius: 50%; }
 .replay-number { color: var(--color-text); font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }

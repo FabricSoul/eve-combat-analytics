@@ -77,6 +77,8 @@ const PilotMarker = memo(function PilotMarker({ node, selected, register, onInsp
   )
 })
 
+const allNamesZoom = 1.5
+
 function ReplayLegend({ analysis, order }: Pick<ReplayStageProps, 'analysis' | 'order'>) {
   if (order.length === 0) return null
   const coverage = analysis.coverage.find(({ side }) => side === order[0])
@@ -252,6 +254,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       const { playing, selected } = current
       const t = playing && getTime ? getTime() : current.t
       const cameraChanged = paintedCamera !== camera
+      if ((paintedCamera.scale >= allNamesZoom) !== (camera.scale >= allNamesZoom)) overlayRects = null
       paintedCamera = camera
       bracket.current?.toggleAttribute('data-camera-change', cameraChanged)
       overlayRects ??= obstacles.measure()
@@ -341,7 +344,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
           if (inView) {
             const priority = key === selected || key === detailKey ? 3 : node.entity.hasLog ? 2 : opponents.has(key) ? 1 : 0
             const center = projectPoint(camera, node)
-            labels.push({ element: label, node, center, priority, required: priority >= 2 || camera.scale >= 1.5 })
+            labels.push({ element: label, node, center, priority, required: priority >= 2 || camera.scale >= allNamesZoom })
             nextLabelKey += `|${node.ordinal}:${node.x}:${node.y}:${node.radius}:${priority}:${key === selected}`
           } else label.removeAttribute('data-positioned')
         }
@@ -372,7 +375,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         if (tooltipRect) occupied.push(tooltipRect)
         // Keep compact overview labels out of the other fleet. The empty space
         // between fleets can hold labels from either side.
-        const showAll = camera.scale >= 1.5
+        const showAll = camera.scale >= allNamesZoom
         const labelFrame = showAll ? { ...bounds, y: 0, height: bounds.y + bounds.height } : bounds
         const split = camera.scale === 1 ? layout.split : null
         const span = split === 'x' ? 'width' : 'height'
@@ -471,7 +474,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     <button type="button" onClick={reset}>适应全部</button>
   </div>
   return (
-    <div ref={host} className="replay-stage" data-zoomed={camera.scale > 1 || undefined} {...handlers}
+    <div ref={host} className="replay-stage" data-zoomed={camera.scale > 1 || undefined}
+      data-all-names={camera.scale >= allNamesZoom || undefined} {...handlers}
       onPointerMove={movePointer} onPointerLeave={() => { pointer.current = null; updateEffectTooltip(width) }}>
       <canvas ref={under} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer" aria-hidden="true" />
       <div ref={toolbar} role="toolbar" aria-label="回放飞行员" tabIndex={-1}
