@@ -21,6 +21,9 @@ import type { AffiliationRefresh, MetaNameResolution, SideAssignment, StoredAffi
 const NAME_LIMIT = 2000
 const ESI_NAME_BATCH = 500
 const SOCKET_LIMIT = 1024 * 1024
+const FIT_EFT_LIMIT = 64 * 1024
+const FIT_JSON_LIMIT = 7 * FIT_EFT_LIMIT + 64 // EFT with JSON escaping, plus 64 KiB for metadata.
+const fitLimitMessage = 'EFT fits must be at most 64 KiB'
 const BATTLE_TIME_AFFILIATION_VERSION = 2
 const encoder = new TextEncoder()
 
@@ -63,6 +66,30 @@ function isSideSubject(subject: unknown): subject is SideSubject {
   if (typeof subject !== 'string') return false
   const match = /^(?:ally|corp|char):([1-9]\d{0,15})$/.exec(subject)
   return match?.[0] === subject && Number.isSafeInteger(Number(match[1]))
+}
+
+async function readFit(request: Request): Promise<Pick<FitEntry, 'eft' | 'mutated'>> {
+  const mediaType = request.headers.get('Content-Type')?.split(';', 1)[0]?.trim().toLowerCase()
+  if (mediaType !== 'application/json') return { eft: await readText(request, FIT_EFT_LIMIT, fitLimitMessage) }
+
+  const text = await readText(request, FIT_JSON_LIMIT, 'JSON fit is too large')
+  let data: unknown
+  try {
+    data = JSON.parse(text)
+  } catch {
+    throw new ApiFailure('bad_request', 'Expected a JSON fit')
+  }
+  if (!data || typeof data !== 'object' || !('eft' in data) || typeof data.eft !== 'string') {
+    throw new ApiFailure('bad_request', 'Expected EFT text in the JSON fit')
+  }
+  if (encoder.encode(data.eft).byteLength > FIT_EFT_LIMIT) throw new ApiFailure('too_large', fitLimitMessage)
+  if (!('mutated' in data)) return { eft: data.eft }
+  const { mutated } = data
+  if (!Array.isArray(mutated) || mutated.some((name) => typeof name !== 'string' || !name.trim() || /[\r\n]/.test(name))
+    || encoder.encode(JSON.stringify(mutated)).byteLength > FIT_EFT_LIMIT) {
+    throw new ApiFailure('bad_request', 'Expected a list of substituted module names')
+  }
+  return { eft: data.eft, ...(mutated.length ? { mutated: [...new Set<string>(mutated)] } : {}) }
 }
 
 async function readEdit(request: Request, kind: 'side' | 'identity'): Promise<unknown> {
@@ -177,8 +204,8 @@ export class BattleRoom extends DurableObject<Env> {
           throw new ApiFailure('bad_request', 'Invalid character ID')
         }
         if (request.method === 'DELETE') return await this.inOrder(() => this.deleteFit(charId))
-        const eft = await readText(request, 64 * 1024, 'EFT fits must be at most 64 KiB')
-        return await this.inOrder(() => this.setFit(charId, eft))
+        const fit = await readFit(request)
+        return await this.inOrder(() => this.setFit(charId, fit))
       }
       if (request.method === 'PUT' && route === 'sides') {
         const data = await readEdit(request, 'side')
@@ -434,14 +461,14 @@ export class BattleRoom extends DurableObject<Env> {
     }))
   }
 
-  private async setFit(charId: number, eft: string): Promise<Response> {
-    const header = eft.split(/\r\n|\n|\r/, 1)[0]?.trim() ?? ''
+  private async setFit(charId: number, text: Pick<FitEntry, 'eft' | 'mutated'>): Promise<Response> {
+    const header = text.eft.split(/\r\n|\n|\r/, 1)[0]?.trim() ?? ''
     const fields = /^\[([^,\[\]]+),(.+)\]$/.exec(header)
     if (!fields?.[1]?.trim() || !fields[2]?.trim()) {
       throw new ApiFailure('bad_eft', 'The first line of an EFT fit must be [Ship, Name]')
     }
     await this.store.migrateIfNeeded((await this.battle()).meta)
-    const fit: FitEntry = { charId, eft, setAt: this.services.now() }
+    const fit: FitEntry = { charId, ...text, setAt: this.services.now() }
     await this.scheduleAnalysis()
     this.store.setFit(fit)
     this.broadcast({ type: 'fit_set', fit })

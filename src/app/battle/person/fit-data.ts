@@ -41,7 +41,7 @@ export function loadFitCatalog(): Promise<FitCatalog> {
 
 export const FitServices = createContext({
   load: (id: number, hash: string) => api.getKillmailFit(id, hash),
-  save: (brId: string, charId: number, eft: string) => api.putFit(brId, charId, eft),
+  save: (...args: Parameters<typeof api.putFit>) => api.putFit(...args),
   compute: computeFitStats,
 })
 

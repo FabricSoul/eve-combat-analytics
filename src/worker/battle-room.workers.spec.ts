@@ -256,6 +256,62 @@ it('stores fit text verbatim and broadcasts the fit', async () => {
   }
 })
 
+it('persists killmail substitutions for reload and a second live viewer, then clears them with the fit', async () => {
+  const id = await prepare(990)
+  const stub = env.BATTLE.getByName(id)
+  const oldFit = { charId: 101, eft: '[Leshak, Old fit]', setAt: now }
+  await runInDurableObject(stub, (_, { storage }) => {
+    storage.sql.exec('INSERT INTO fits (charId, eft, setAt) VALUES (?, ?, ?)', oldFit.charId, oldFit.eft, oldFit.setAt)
+  })
+  const editor = await connect(id)
+  const viewer = await connect(id)
+  try {
+    expect(await editor.next()).toMatchObject({ type: 'snapshot', state: { fits: [oldFit] } })
+    expect(await viewer.next()).toMatchObject({ type: 'snapshot', state: { fits: [oldFit] } })
+    const eft = '[Leshak, Killmail 128067587]\nEntropic Radiation Sink II'
+    const mutated = ['Entropic Radiation Sink II']
+    const fit = { charId: 100, eft, setAt: now, mutated }
+    const saveImport = () => worker.default.fetch(`${battle(id)}/fits/100`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ eft, mutated }),
+    })
+    const response = await saveImport()
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(fit)
+    expect(await editor.next()).toEqual({ type: 'fit_set', fit })
+    expect(await viewer.next()).toEqual({ type: 'fit_set', fit })
+    await evictDurableObject(stub)
+    expect((await state(id)).fits).toEqual([fit, oldFit])
+
+    const edited = { charId: 100, eft: `${eft}\nDamage Control II`, setAt: now }
+    expect(await (await setFit(id, edited.eft)).json()).toEqual(edited)
+    expect(await viewer.next()).toEqual({ type: 'fit_set', fit: edited })
+    expect((await state(id)).fits).toEqual([edited, oldFit])
+
+    expect(await (await saveImport()).json()).toEqual(fit)
+    expect(await viewer.next()).toEqual({ type: 'fit_set', fit })
+    const removed = await worker.default.fetch(`${battle(id)}/fits/100`, { method: 'DELETE' })
+    expect(removed.status).toBe(200)
+    expect(await viewer.next()).toEqual({ type: 'fit_removed', charId: 100 })
+    expect((await state(id)).fits).toEqual([oldFit])
+  } finally {
+    editor.close()
+    viewer.close()
+  }
+})
+
+it('rejects malformed substitution metadata on JSON fit saves', async () => {
+  const id = await prepare(991)
+  const eft = '[Leshak, Fleet]'
+  for (const mutated of [null, 'module', [3], [' '], ['line\nbreak']]) {
+    const response = await worker.default.fetch(`${battle(id)}/fits/100`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ eft, mutated }),
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: 'bad_request' })
+  }
+  expect((await state(id)).fits).toEqual([])
+})
+
 it('I1 uses battle-time affiliation for uploads and counterparties on killmails', async () => {
   const id = await prepare(910)
   const pilot = meta.killmails.flatMap((km) => [km.victim, ...km.attackers])

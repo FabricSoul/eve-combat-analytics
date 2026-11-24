@@ -118,8 +118,10 @@ export const api = {
     return request(path, { method: 'POST', headers: textHeaders, body: text })
   },
 
-  putFit(brId: string, charId: number, eft: string): Promise<FitEntry> {
-    return request(`${battleApiPath(brId)}/fits/${charId}`, { method: 'PUT', headers: textHeaders, body: eft })
+  putFit(brId: string, charId: number, eft: string, mutated?: FitEntry['mutated']): Promise<FitEntry> {
+    return request(`${battleApiPath(brId)}/fits/${charId}`, mutated?.length
+      ? json('PUT', { eft, mutated })
+      : { method: 'PUT', headers: textHeaders, body: eft })
   },
 
   deleteFit(brId: string, charId: number): Promise<{ removed: number }> {

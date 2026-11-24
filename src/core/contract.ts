@@ -230,6 +230,8 @@ export interface FitEntry {
   /** EFT text as pasted. */
   eft: string
   setAt: number
+  /** Base module names substituted for abyssal modules when importing this EFT from a killmail. */
+  mutated?: string[]
 }
 
 /** Counterparty display name → resolved character. Filled by the backend via ESI. */

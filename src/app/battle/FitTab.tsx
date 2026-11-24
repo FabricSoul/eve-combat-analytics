@@ -21,6 +21,7 @@ const repairNames: Record<RepairType, string> = {
 const num = (value: number | null) => fmtNum(value === null ? null : Math.round(value))
 const emptyInteractions: Interaction[] = []
 const warning = '深渊模块缺少变异数据时按基础属性计算，理论值会偏离实际。'
+type FitText = Pick<FitEntry, 'eft' | 'mutated'>
 
 export function FitTab(_props: FitTabProps) {
   const { summary, analysis } = useBattleContext()
@@ -68,21 +69,20 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     if (!remote || (saved && remote.setAt >= saved.setAt)) setSaved(undefined)
   }
   const fit = remote && (!saved || remote.setAt >= saved.setAt) ? remote : saved
-  const [draft, setDraft] = useState<string | null>(null)
-  const [draftImport, setDraftImport] = useState<KillmailFit>()
+  const [draft, setDraft] = useState<(FitText & { source?: KillmailFit }) | null>(null)
   const [savedImport, setSavedImport] = useState<{ result: KillmailFit; setAt: number }>()
   const [killId, setKillId] = useState<number>()
   const [busy, setBusy] = useState<'import' | 'save' | null>(null)
   const [error, setError] = useState<string>()
   const [retry, setRetry] = useState(0)
   const editor = draft !== null || !fit
-  const text = draft ?? (editor ? '' : fit?.eft) ?? ''
+  const text = draft?.eft ?? fit?.eft ?? ''
   const tooLarge = new TextEncoder().encode(text).length > eftLimit
   const losses = useMemo(() => summary.meta.killmails.filter(({ victim, hash }) => victim.charId === charId && Boolean(hash))
     .sort((a, b) => b.t - a.t || b.id - a.id), [summary.meta.killmails, charId])
   const loss = losses.find(({ id }) => id === killId) ?? losses[0]
   const headerId = /^\[[^\r\n]+,\s*Killmail (\d+)\]/m.exec(text)?.[1]
-  const currentImport = editor ? draftImport : savedImport?.setAt === fit?.setAt ? savedImport?.result : undefined
+  const currentImport = editor ? draft?.source : savedImport?.setAt === fit?.setAt ? savedImport?.result : undefined
   const importDetails = currentImport?.eft === text ? currentImport : undefined
   const sourceId = importDetails?.killmailId ?? (headerId === undefined ? undefined : Number(headerId))
   const sourceLoss = losses.find(({ id }) => id === sourceId)
@@ -125,8 +125,7 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     setError(undefined)
     try {
       const result = await services.load(loss.id, loss.hash)
-      setDraft(result.eft)
-      setDraftImport(result)
+      setDraft({ eft: result.eft, mutated: result.mutated ?? [], source: result })
     } catch {
       setError('无法从击毁报告带入配装，请重试。')
     } finally {
@@ -141,14 +140,17 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     const finish = beginUndo()
     try {
       const brId = summary.meta.brId
-      const entry = await services.save(brId, charId, text)
+      const putFit = ({ eft, mutated }: FitText) => mutated?.length
+        ? services.save(brId, charId, eft, mutated)
+        : services.save(brId, charId, eft)
+      const entry = await putFit({ eft: text, mutated: draft?.mutated })
       finish({
         label: '已保存配装',
         visible: visibleAfter(summary.analysisVersion, (state) =>
           state.fits.some((item) => item.charId === charId && item.eft === entry.eft && item.setAt === entry.setAt)),
         revert: async (undoVersion) => {
           if (fit) {
-            const restored = await services.save(brId, charId, fit.eft)
+            const restored = await putFit(fit)
             setSaved(restored)
             return visibleAfter(undoVersion, (state) =>
               state.fits.some((item) => item.charId === charId && item.eft === restored.eft && item.setAt === restored.setAt))
@@ -161,7 +163,6 @@ function PilotFit({ pilot, charId, summary, interactions }: {
       setSaved(entry)
       setSavedImport(importDetails ? { result: importDetails, setAt: entry.setAt } : undefined)
       setDraft(null)
-      setDraftImport(undefined)
     } catch {
       finish()
       setError('无法保存配装，请检查 EFT 文本后重试。')
@@ -171,7 +172,8 @@ function PilotFit({ pilot, charId, summary, interactions }: {
   }
 
   const skippedLines = theoryEft === text ? activeCalc?.stats?.skippedLines ?? [] : []
-  const mutated = importDetails ? importDetails.mutated ?? [] : [
+  const substitutions = (editor ? draft?.mutated : fit?.mutated) ?? importDetails?.mutated
+  const mutated = substitutions ?? [
     ...(parsed?.modules ?? []),
     ...(parsed?.stacks.flat() ?? []),
   ].filter(({ name, mutated }) =>
@@ -181,8 +183,7 @@ function PilotFit({ pilot, charId, summary, interactions }: {
   return <div className="u7-fit">
     <div className="u7-fit-actions">
       {(!editor || loss) && <Button disabled={busy !== null} onClick={() => {
-        setDraft(fit?.eft ?? '')
-        setDraftImport(undefined)
+        setDraft({ eft: fit?.eft ?? '', mutated: fit?.mutated })
         setError(undefined)
       }}>粘贴 EFT</Button>}
       {losses.length > 1 && <label>击毁时间 <select className="app-select" disabled={busy !== null}
@@ -199,14 +200,13 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     {editor && <form onSubmit={(event) => { event.preventDefault(); void save() }}>
       <label>EFT 配装
         <textarea value={text} placeholder="[Ship, Fit name]" disabled={busy !== null}
-          onChange={(event) => { setDraft(event.currentTarget.value); setError(undefined) }} />
+          onChange={(event) => { setDraft({ eft: event.currentTarget.value }); setError(undefined) }} />
       </label>
       {tooLarge && <p role="alert" className="u7-fit-hint">配装文本超过 64 KiB。</p>}
       {!tooLarge && text.trim() && !parsed && <p className="u7-fit-hint">无法识别 EFT 格式，请检查文本。</p>}
       <div className="u7-fit-confirm">
         {fit && <Button disabled={busy !== null} onClick={() => {
           setDraft(null)
-          setDraftImport(undefined)
           setError(undefined)
         }}>取消</Button>}
         <Button type="submit" variant="primary" disabled={busy !== null || tooLarge || !parsed}>

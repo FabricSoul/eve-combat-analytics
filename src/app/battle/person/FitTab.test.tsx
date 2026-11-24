@@ -45,6 +45,14 @@ const button = (label: string) => [...host.querySelectorAll('button')].find((el)
 const eft = '[Leshak, Killmail ' + loss.id + ']\nEntropic Radiation Sink II'
 const result = { charId: pilot.charId, killmailId: loss.id, shipTypeId: loss.victim.shipTypeId!, eft }
 const warning = '按基础属性计算，理论值会偏离实际'
+const mutatedModules = ['Entropic Radiation Sink II']
+const importedFit = { charId: pilot.charId!, eft, setAt: 1, mutated: mutatedModules }
+
+it('shows the named abyssal warning from a saved fit on a fresh mount', async () => {
+  await renderFit({ ...fixture, summary: { ...fixture.summary, fits: [importedFit] } })
+  expect(host.querySelector('textarea')).toBeNull()
+  expect(host.textContent).toContain(`${warning}。 Entropic Radiation Sink II`)
+})
 
 it.each([
   { label: 'absent', mutated: undefined },
@@ -64,15 +72,36 @@ it.each([
 })
 
 it('names the mutated module returned by the killmail API', async () => {
-  vi.spyOn(api, 'getKillmailFit').mockResolvedValue({ ...result, mutated: ['Entropic Radiation Sink II'] })
+  vi.spyOn(api, 'getKillmailFit').mockResolvedValue({ ...result, mutated: mutatedModules })
+  const put = vi.spyOn(api, 'putFit').mockResolvedValue(importedFit)
   await renderFit()
   await act(async () => button('从击毁报告带入').click())
   const hint = [...host.querySelectorAll('.u7-fit-hint')].find((el) => el.textContent.includes(warning))
   expect(hint?.textContent).toContain('Entropic Radiation Sink II')
-  vi.spyOn(api, 'putFit').mockResolvedValue({ charId: pilot.charId!, eft, setAt: 1 })
   await act(async () => button('保存配装').click())
+  expect(put).toHaveBeenCalledWith(fixture.summary.meta.brId, pilot.charId, eft, mutatedModules)
   expect([...host.querySelectorAll('.u7-fit-hint')].find((el) => el.textContent.includes(warning))?.textContent)
     .toContain('Entropic Radiation Sink II')
+})
+
+it('clears substitution metadata when a user hand edits imported EFT', async () => {
+  vi.spyOn(api, 'getKillmailFit').mockResolvedValue({ ...result, mutated: mutatedModules })
+  const edited = `${eft}\nDamage Control II`
+  const put = vi.spyOn(api, 'putFit').mockResolvedValue({ charId: pilot.charId!, eft: edited, setAt: 2 })
+  await renderFit()
+  await act(async () => button('从击毁报告带入').click())
+  expect(host.textContent).toContain(warning)
+
+  const editor = host.querySelector('textarea')!
+  const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+  act(() => {
+    setValue.call(editor, edited)
+    editor.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(host.textContent).not.toContain(warning)
+  await act(async () => button('保存配装').click())
+  expect(put).toHaveBeenCalledWith(fixture.summary.meta.brId, pilot.charId, edited)
+  expect(host.textContent).not.toContain(warning)
 })
 
 it('counts skipped item types while keeping the imported EFT available', async () => {

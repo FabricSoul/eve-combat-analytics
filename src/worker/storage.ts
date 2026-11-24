@@ -14,6 +14,7 @@ type LogRow = Omit<UploadedLogSummary, keyof LogEventSummary> & {
   unparsedCount: number | null
   affiliation: string | null
 }
+type FitRow = Omit<FitEntry, 'mutated'> & { mutated: string | null }
 export type StoredLog = UploadedLog & { unparsedCount: number }
 export type PendingLog = { id: string; nameOffset: number; events: LogEvent[] }
 export type PackedJson = ArrayBuffer[]
@@ -148,7 +149,7 @@ export class BattleStorage {
     })
   }
 
-  private hasColumn(table: 'logs' | 'names', column: string): boolean {
+  private hasColumn(table: 'logs' | 'names' | 'fits', column: string): boolean {
     return this.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray()
       .some(({ name }) => name === column)
   }
@@ -225,7 +226,9 @@ export class BattleStorage {
   }
 
   private fitsAndNames(): Pick<BattleState, 'fits' | 'names'> {
-    const fits = this.sql.exec<FitEntry & Record<string, SqlStorageValue>>('SELECT * FROM fits ORDER BY charId').toArray()
+    const mutations = this.hasColumn('fits', 'mutated') ? 'mutated' : 'NULL AS mutated'
+    const fits = this.sql.exec<FitRow>(`SELECT charId, eft, setAt, ${mutations} FROM fits ORDER BY charId`).toArray()
+      .map(({ mutated, ...fit }): FitEntry => mutated === null ? fit : { ...fit, mutated: JSON.parse(mutated) })
     return { fits, names: this.nameIndex() }
   }
 
@@ -423,11 +426,13 @@ export class BattleStorage {
     return { id, charId, charName, side, corpId, allyId, events: parsed.events.length, uploadedAt, ...details }
   }
 
-  setFit({ charId, eft, setAt }: FitEntry): void {
+  setFit({ charId, eft, setAt, mutated }: FitEntry): void {
     this.storage.transactionSync(() => {
+      if (!this.hasColumn('fits', 'mutated')) this.sql.exec('ALTER TABLE fits ADD COLUMN mutated TEXT')
       this.sql.exec(
-        'INSERT INTO fits VALUES (?, ?, ?) ON CONFLICT(charId) DO UPDATE SET eft = excluded.eft, setAt = excluded.setAt',
-        charId, eft, setAt,
+        `INSERT INTO fits (charId, eft, setAt, mutated) VALUES (?, ?, ?, ?)
+          ON CONFLICT(charId) DO UPDATE SET eft = excluded.eft, setAt = excluded.setAt, mutated = excluded.mutated`,
+        charId, eft, setAt, mutated === undefined ? null : JSON.stringify(mutated),
       )
       this.markAnalysisDirty()
     })
