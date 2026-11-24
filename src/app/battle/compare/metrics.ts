@@ -6,6 +6,7 @@ import shipTypes from '@/core/data/ship-types.json'
 import { fmtNum, fmtPct, fmtSec } from '../../lib/format'
 import { useBattleContext } from '../../state/battle-store'
 import { useView } from '../../state/view-store'
+import { classifyWeapon, isUngradedWeapon } from '../hits/analysis'
 import { hitRate, noHitQualityReason } from './hit-quality'
 import damageTypes from './damage-types.json'
 import em from './em_small.png'
@@ -150,8 +151,24 @@ export function useCombatRows() {
       }
     }
     const damage = new Map<EntityKey, DamageBreakdown>()
+    const ungradedWeapons = new Map<string, boolean>()
+    const ungradedByPilot = new Map<EntityKey, PilotStats['hitQuality']>()
     for (const event of interactions) {
-      if (event.kind !== 'damage' || !analysis.entities[event.to]?.hasLog) continue
+      if (event.kind !== 'damage') continue
+      const { from, weapon, quality } = event
+      if (weapon && quality && quality !== 'none' && analysis.entities[from]?.hasLog) {
+        let ungraded = ungradedWeapons.get(weapon)
+        if (ungraded === undefined) {
+          ungraded = isUngradedWeapon(classifyWeapon(weapon))
+          ungradedWeapons.set(weapon, ungraded)
+        }
+        if (ungraded) {
+          const counts = ungradedByPilot.get(from) ?? {}
+          counts[quality] = (counts[quality] ?? 0) + 1
+          ungradedByPilot.set(from, counts)
+        }
+      }
+      if (!analysis.entities[event.to]?.hasLog) continue
       const kind = damageKind(event, ammo.get(event.from))
       const totals = damage.get(event.to) ?? {}
       totals[kind] = (totals[kind] ?? 0) + event.amount
@@ -159,7 +176,14 @@ export function useCombatRows() {
     }
     const rows = stats.flatMap((entry): CompareRow[] => {
       const entity = analysis.entities[entry.key]
-      return entity ? [{ entity, stats: entry, damage: damage.get(entry.key) }] : []
+      if (!entity) return []
+      const ungraded = ungradedByPilot.get(entry.key)
+      if (!ungraded) return [{ entity, stats: entry, damage: damage.get(entry.key) }]
+      const hitQuality = { ...entry.hitQuality }
+      for (const grade of Object.keys(ungraded) as (keyof PilotStats['hitQuality'])[]) {
+        hitQuality[grade] = Math.max(0, (hitQuality[grade] ?? 0) - (ungraded[grade] ?? 0))
+      }
+      return [{ entity, stats: { ...entry, hitQuality }, damage: damage.get(entry.key) }]
     })
     return { rows, interactions }
   }, [analysis, summary, range])

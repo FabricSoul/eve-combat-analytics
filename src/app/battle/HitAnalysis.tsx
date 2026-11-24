@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { fmtHms, fmtNum, fmtPct } from '../lib/format'
+import { fmtHms, fmtNum } from '../lib/format'
 import { sideColor, sideLabel, sideOrder } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
 import { useView } from '../state/view-store'
@@ -7,7 +7,7 @@ import { Button } from '../ui/Button'
 import { Portrait } from '../ui/Portrait'
 import { HitQualityBar } from './compare/HitQualityBar'
 import { HitTrend } from './hits/HitTrend'
-import { WeaponClasses } from './hits/WeaponClasses'
+import { HitRateValue, UngradedShots, WeaponClasses } from './hits/WeaponClasses'
 import {
   hitMetricKeys, hitMetrics, hitObservationHint, MIN_RANKED_SHOTS, rankPilots, weaponRows, type HitMetric,
 } from './hits/analysis'
@@ -81,9 +81,10 @@ export function HitAnalysis() {
             {sideLabel(side, order)} {side !== oursSide && <small>据我方日志</small>}
           </h3>
           <div className="hit-team-summary">
-            <span>命中率 <strong className="app-number">{fmtPct(counts ? hitMetrics.hitRate.value(counts) : null)}</strong></span>
+            <span>命中率 <strong><HitRateValue counts={counts} /></strong></span>
             <span className="app-number">{fmtNum(counts?.shots ?? 0)} 发</span>
           </div>
+          <UngradedShots count={counts?.ungraded ?? 0} />
           {counts && <HitQualityBar stats={counts} color={sideColor(side, order)} />}
           <WeaponClasses classes={counts?.classes ?? new Map()} />
         </section>)}
@@ -102,7 +103,9 @@ export function HitAnalysis() {
                 <td className="app-number">{fmtNum(rank)} · {fmtNum(pilot.shots)} 发</td>
                 <th scope="row"><button className="hit-pilot-name" type="button" onClick={() => select(entity.key)}>
                   <Portrait charId={entity.charId} size={20} />{entity.name}
-                </button><small>{sideLabel(entity.side, order)}{entity.side !== oursSide && ' · 据我方日志'}</small></th>
+                </button><small>{sideLabel(entity.side, order)}{entity.side !== oursSide && ' · 据我方日志'}</small>
+                  <UngradedShots count={pilot.ungraded} />
+                </th>
                 <td className="app-number">{definition.format(value)}</td>
                 <td><HitQualityBar stats={pilot} color={sideColor(entity.side, order)} /></td>
                 <td>{weaponRows(pilot)[0]?.[0] ?? '—'}</td>
@@ -113,9 +116,13 @@ export function HitAnalysis() {
         </div> : <p className="hit-secondary">当前筛选下没有达到排名门槛的飞行员。</p>}
         <details className="hit-insufficient">
           <summary>样本不足 <span className="app-number">{fmtNum(ranks.insufficient.length)}</span> 人 · 少于 {MIN_RANKED_SHOTS} 发</summary>
-          <ul>{ranks.insufficient.map(({ entity, shots }) => <li key={entity.key}>
-            <button type="button" onClick={() => select(entity.key)}>{entity.name}</button>
-            <small>{sideLabel(entity.side, order)}</small><span className="app-number">{fmtNum(shots)} 发</span>
+          <ul>{ranks.insufficient.map((pilot) => <li key={pilot.entity.key}>
+            <button type="button" onClick={() => select(pilot.entity.key)}>{pilot.entity.name}</button>
+            <small>{sideLabel(pilot.entity.side, order)}</small>
+            <span className="app-number">{fmtNum(pilot.shots)} 发</span>
+            {pilot.ungraded > 0 && <div className="hit-insufficient-coverage">
+              <UngradedShots count={pilot.ungraded} /><span>命中率 <HitRateValue counts={pilot} /></span>
+            </div>}
           </li>)}</ul>
         </details>
       </section>

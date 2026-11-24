@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
 import type { Entity, EntityKey, Interaction } from '@/core/contract'
+import { itemTypeGroup } from '@/core/data/item-types'
 import { loadUiFixture, uiReplayStart } from '../../test/ui-fixture'
 import { aggregateHits, hitMetrics, MIN_RANKED_SHOTS, rankPilots } from './analysis'
 
@@ -60,7 +61,7 @@ it('uses inclusive range bounds and recomputes sample eligibility', () => {
   expect(rankPilots(data.pilots.values(), 'hitRate').ranked.map(({ pilot }) => pilot.entity.key)).toEqual(['char:4'])
 })
 
-it('finds shots on both sides of J125990 and agrees with existing uploader counters for the same range', async () => {
+it('finds shots on both sides of J125990 and reconciles checked samples with raw uploader counters', async () => {
   const { statsForRange } = await import('@/core/analysis/range')
   const { analysis, summary } = loadUiFixture()
   const range = [uiReplayStart, uiReplayStart + 60_000] as const
@@ -71,6 +72,35 @@ it('finds shots on both sides of J125990 and agrees with existing uploader count
   for (const key of ['char:2121605780', 'char:2117427381'] as const) {
     const counts = rangeStats.find((pilot) => pilot.key === key)!
     const { none, ...graded } = counts.hitQuality
-    expect(data.pilots.get(key)).toMatchObject({ hitQuality: graded, misses: counts.misses })
+    const excluded = analysis.interactions.filter(({ from, t, kind, weapon, quality }) => {
+      if (from !== key || t < range[0] || t > range[1] || kind !== 'damage' || !weapon || quality !== 'Hits') return false
+      const group = itemTypeGroup(weapon)?.groupId
+      return group === 72 || group === 4807
+    }).length
+    if (excluded) graded.Hits = (graded.Hits ?? 0) - excluded
+    expect(data.pilots.get(key)).toMatchObject({ hitQuality: graded, misses: counts.misses, ungraded: (none ?? 0) + excluded })
   }
+})
+
+it('keeps ungraded damage and generic smartbomb and breacher Hits out of rate, rank and distribution', () => {
+  const data = aggregateHits(entities, [
+    ...shots('char:1', 'char:3', 3),
+    ...shots('char:1', 'char:3', 1, { kind: 'miss', amount: 0, quality: null }),
+    ...shots('char:1', 'char:3', 4, { weapon: 'Uncatalogued effect', quality: 'none' }),
+    ...shots('char:2', 'char:3', 35, { weapon: 'Federation Navy Large Plasma Smartbomb', quality: 'Hits' }),
+    ...shots('char:2', 'char:3', 1, { weapon: 'Federation Navy Large Plasma Smartbomb', quality: 'none' }),
+    ...shots('char:3', 'char:1', 74, { weapon: 'Medium Breacher Pod Launcher', quality: 'Hits' }),
+  ], uploaders, 0)
+  const ours = data.sides.get(0)!
+  expect(hitMetrics.hitRate.value(ours)).toBe(.75)
+  expect(ours).toMatchObject({ shots: 4, ungraded: 40, hitQuality: { Wrecks: 3 }, misses: 1 })
+  expect(ours.hitQuality.Hits).toBeUndefined()
+  expect(ours.minutes.get(0)?.shots).toBe(4)
+  const smartbombPilot = data.pilots.get('char:2')!
+  expect(smartbombPilot).toMatchObject({ shots: 0, ungraded: 36 })
+  expect(hitMetrics.hitRate.value(smartbombPilot)).toBeNull()
+  expect(rankPilots(data.pilots.values(), 'hitRate').ranked).toHaveLength(0)
+  expect(smartbombPilot.classes.get('smartbomb')).toMatchObject({ shots: 0, ungraded: 36 })
+  expect(data.sides.get(1)?.classes.get('missile')).toMatchObject({ shots: 0, ungraded: 74 })
+  expect(data.sides.get(1)?.minutes.size).toBe(0)
 })

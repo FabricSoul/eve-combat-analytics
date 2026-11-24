@@ -88,10 +88,11 @@ it('shows hit rate, team median, quality counts, and observed weapon breakdown f
       <BattleProvider static={fixture}><ViewProvider syncUrl={false} defaultSide={1}><Harness /></ViewProvider></BattleProvider>,
     ))
     const tile = [...host.querySelectorAll('.u7-stat-tile')].find((el) => el.querySelector('h3')?.textContent === '命中')!
-    expect(tile?.textContent).toContain('93%')
+    expect(tile?.textContent).toContain('90%')
     expect(tile?.textContent).toContain('全队中位')
     const breakdown = [...host.querySelectorAll('section')].find((el) => el.querySelector('h3')?.textContent === '命中质量')!
     expect(breakdown?.textContent).toContain('184')
+    expect(breakdown?.textContent).toContain('无命中质量 726 发')
     const rankRows = breakdown.querySelectorAll('.hit-person-ranks > div')
     expect(rankRows).toHaveLength(4)
     expect(rankRows[0]?.textContent).toMatch(/同阵营.*第.*发.*全场.*第.*发/)

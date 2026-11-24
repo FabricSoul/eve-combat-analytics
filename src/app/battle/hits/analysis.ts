@@ -5,23 +5,26 @@ import classNames from './weapon-classes.json'
 
 export const MIN_RANKED_SHOTS = 30
 export const HIT_MINUTE = 60_000
-export const hitObservationHint = '只统计有命中质量或明确未命中的记录，略过无质量的立体炸弹等效果。敌方数据仅覆盖对我方日志上传者的射击。'
-export const classLabels = { turret: '炮台', missile: '导弹', drone: '无人机', other: '其他 / 未识别' } as const
+export const hitObservationHint = '命中率和排名样本只统计有质量的命中和明确未命中。立体炸弹、分裂者舱等无质量伤害另计。敌方数据仅覆盖对我方日志上传者的射击。'
+export const classLabels = { turret: '炮台', missile: '导弹', drone: '无人机 / 铁骑舰载机', smartbomb: '立体炸弹', other: '其他 / 未识别' } as const
 export type WeaponClass = keyof typeof classLabels
 
-const classByName = new Map([
-  ...classNames.turret.map((name) => [name, 'turret'] as const),
-  ...classNames.missile.map((name) => [name, 'missile'] as const),
-  ...classNames.drone.map((name) => [name, 'drone'] as const),
-])
+type CatalogWeapon = keyof typeof classNames
+const classByName = new Map(
+  (Object.keys(classNames) as CatalogWeapon[]).flatMap((kind) => classNames[kind].map((name) => [name, kind] as const)),
+)
 
-function classifyWeapon(name: string): WeaponClass {
+export function classifyWeapon(name: string): CatalogWeapon | 'other' {
   const key = name.trim().replace(/\*+$/, '').trim().toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
   return classByName.get(key) ?? 'other'
 }
 
+// These weapon groups print generic Hits for damage that has no hit-quality roll.
+export const isUngradedWeapon = (kind: CatalogWeapon | 'other') => kind === 'breacher' || kind === 'smartbomb'
+
 export interface ShotCounts extends HitCounts {
   shots: number
+  ungraded: number
   hits: number
   damage: number
 }
@@ -35,7 +38,7 @@ export interface PilotHits extends CombatHits {
 
 interface SideHits extends CombatHits { minutes: Map<number, ShotCounts> }
 
-const emptyCounts = (): ShotCounts => ({ shots: 0, hits: 0, damage: 0, hitQuality: {}, misses: 0 })
+const emptyCounts = (): ShotCounts => ({ shots: 0, ungraded: 0, hits: 0, damage: 0, hitQuality: {}, misses: 0 })
 const emptyCombat = (): CombatHits => ({ ...emptyCounts(), classes: new Map() })
 
 function entry<K, V>(map: Map<K, V>, key: K, create: () => V): V {
@@ -46,7 +49,11 @@ function entry<K, V>(map: Map<K, V>, key: K, create: () => V): V {
   return value
 }
 
-function record(counts: ShotCounts, outcome: HitOutcome, amount: number) {
+function record(counts: ShotCounts, outcome: HitOutcome | null, amount: number) {
+  if (outcome === null) {
+    counts.ungraded++
+    return
+  }
   counts.shots++
   if (outcome === 'miss') counts.misses++
   else {
@@ -65,22 +72,25 @@ export function aggregateHits(
 ) {
   const pilots = new Map<EntityKey, PilotHits>()
   const sides = new Map<number, SideHits>()
-  const classes = new Map<string, WeaponClass>()
+  const classes = new Map<string, CatalogWeapon | 'other'>()
   for (const entity of Object.values(entities)) {
     if (entity.charId !== null) pilots.set(entity.key, { entity, ...emptyCombat(), weapons: new Map() })
   }
   for (const event of interactions) {
+    if (event.kind !== 'damage' && event.kind !== 'miss') continue
     if (range && (event.t < range[0] || event.t > range[1])) continue
     const source = entities[event.from]
     if (!source || (source.side !== ours && !(uploaders.has(event.to) && entities[event.to]?.side === ours))) continue
-    const outcome = hitOutcome(event)
-    if (outcome === null) continue
     const weapon = event.weapon ?? '未记录武器'
-    const weaponClass = entry(classes, weapon, () => classifyWeapon(weapon))
+    const catalogClass = entry(classes, weapon, () => classifyWeapon(weapon))
+    const weaponClass = catalogClass === 'breacher' ? 'missile' : catalogClass
+    const outcome = event.kind === 'damage' && isUngradedWeapon(catalogClass)
+      ? null
+      : hitOutcome(event)
     const side = entry(sides, source.side, () => ({ ...emptyCombat(), minutes: new Map() }))
     record(side, outcome, event.amount)
     record(entry(side.classes, weaponClass, emptyCounts), outcome, event.amount)
-    record(entry(side.minutes, Math.floor(event.t / HIT_MINUTE) * HIT_MINUTE, emptyCounts), outcome, event.amount)
+    if (outcome !== null) record(entry(side.minutes, Math.floor(event.t / HIT_MINUTE) * HIT_MINUTE, emptyCounts), outcome, event.amount)
     const pilot = pilots.get(source.key)
     if (!pilot) continue
     record(pilot, outcome, event.amount)
@@ -121,5 +131,7 @@ export function rankPilots(pilots: Iterable<PilotHits>, metric: HitMetric) {
 }
 
 export function weaponRows(pilot: PilotHits) {
-  return [...pilot.weapons].sort(([a, first], [b, second]) => second.shots - first.shots || a.localeCompare(b))
+  return [...pilot.weapons].sort(([a, first], [b, second]) => shotTotal(second) - shotTotal(first) || a.localeCompare(b))
 }
+
+export const shotTotal = (counts: ShotCounts) => counts.shots + counts.ungraded

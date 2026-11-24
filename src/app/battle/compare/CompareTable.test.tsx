@@ -155,7 +155,7 @@ it('shows hit rate and a quality distribution for two uploaders and recomputes b
   const cells = (name: string) => [...host.querySelectorAll('tbody tr')].find((row) => row.querySelector('th')?.textContent === name)!
     .querySelector('td:last-child')!
   const rate = (name: string) => cells(name).querySelector('.app-number')?.textContent
-  expect(rate('Blanchard2213')).toBe('93%')
+  expect(rate('Blanchard2213')).toBe('92%')
   expect(rate('Lucinda HIly')).toBe('98%')
   const bar = () => cells('Blanchard2213').querySelector('.u7-hit-quality')!
   expect(bar().getAttribute('title')).toContain('未命中 184')
@@ -166,7 +166,7 @@ it('shows hit rate and a quality distribution for two uploaders and recomputes b
   act(() => header.querySelector('button')!.click())
   expect(header.getAttribute('aria-sort')).toBe('descending')
   act(() => host.querySelector<HTMLButtonElement>('#hit-range')!.click())
-  expect(rate('Blanchard2213')).toBe('99%')
+  expect(rate('Blanchard2213')).toBe('97%')
   expect(rate('Lucinda HIly')).toBe('97%')
   expect(bar().getAttribute('title')).toContain('未命中 2')
   expect(widths()).toBeCloseTo(100)

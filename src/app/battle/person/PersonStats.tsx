@@ -1,14 +1,14 @@
 import { useMemo } from 'react'
 import type { Analysis, Entity, EntityKey, EwarSpan, Interaction } from '@/core/contract'
-import { fmtHms, fmtNum, fmtPct } from '../../lib/format'
+import { fmtHms, fmtNum } from '../../lib/format'
 import { sideColor } from '../../lib/sides'
 import { TypeIcon } from '../../ui/TypeIcon'
 import { HitQualityBar } from '../compare/HitQualityBar'
 import { noHitQualityReason } from '../compare/hit-quality'
-import { hitMetrics, hitObservationHint, weaponRows } from '../hits/analysis'
+import { hitMetrics, hitObservationHint, shotTotal, weaponRows } from '../hits/analysis'
 import { PilotHitRanks } from '../hits/PilotHitRanks'
 import { useHitAnalysis } from '../hits/use-hit-analysis'
-import { WeaponClasses } from '../hits/WeaponClasses'
+import { HitRateValue, UngradedShots, WeaponClasses } from '../hits/WeaponClasses'
 import '../hits/hits.css'
 import {
   damageKinds, metricValue, metrics, median, missingReason, rowMedian, seconds, shipId, unknownDamageReason, type CompareRow,
@@ -85,17 +85,16 @@ export function PersonStats({ analysis, pilot, rows, interactions, bounds, order
     <section className="u7-person-card">
       <h3>命中质量</h3>
       <p className="u7-secondary">{hitObservationHint}</p>
+      {observed && <UngradedShots count={observed.ungraded} />}
       {observed && <PilotHitRanks pilot={observed} pilots={hitPilots} />}
-      {observed && observed.shots > 0 && <>
-        <HitQualityBar stats={observed} color={sideColor(pilot.side, order)} showCounts />
-        <WeaponClasses classes={observed.classes} />
-      </>}
+      {observed && observed.shots > 0 && <HitQualityBar stats={observed} color={sideColor(pilot.side, order)} showCounts />}
+      {observed && observed.classes.size > 0 && <WeaponClasses classes={observed.classes} />}
       {weapons.length > 0 && <><h4 className="hit-weapon-heading">武器 · 出手 / 命中率</h4>
         <ul>{weapons.map(([name, counts]) => <li className="u7-hit-weapon" key={name}>
-        <span>{name}</span><span className="app-number">{fmtNum(counts.shots)} 次</span>
-        <span className="app-number">{fmtPct(hitMetrics.hitRate.value(counts))}</span>
+        <span>{name}</span><span className="app-number">{fmtNum(shotTotal(counts))} 次</span>
+        <HitRateValue counts={counts} />
       </li>)}</ul></>}
-      {!weapons.length && <p className="u7-secondary">{noHitQualityReason}。</p>}
+      {!observed?.shots && <p className="u7-secondary">{noHitQualityReason}。</p>}
     </section>
     <section className="u7-person-card">
       <h3>按时间 · 每 10 秒</h3>
