@@ -9,6 +9,7 @@ import { Tabs } from '../ui/Tabs'
 import { defaultColumns, metricValue, metrics, useCombatRows, type Metric } from './compare/metrics'
 import { Distribution, makeColumn, MetricBar, MetricLabel, MetricValue, PilotName, SideBySide } from './compare/CompareViews'
 import { HitQualityBar } from './compare/HitQualityBar'
+import { RangeChip } from './RangeChip'
 import './compare/compare.css'
 
 export interface CompareTableProps {}
@@ -22,7 +23,7 @@ const initialSort = { key: 'damageOut', direction: 'descending' } as const
 
 export function CompareTable(_props: CompareTableProps) {
   const { analysis, summary } = useBattleContext()
-  const { oursSide, selected, select, range, pinned, setPinned, togglePin } = useView()
+  const { oursSide, selected, select, range, clearRange, pinned, setPinned, togglePin } = useView()
   const pilotMenu = usePilotMenu()
   const { rows } = useCombatRows()
   const [mode, setMode] = useState<CompareMode>('table')
@@ -65,7 +66,7 @@ export function CompareTable(_props: CompareTableProps) {
     fightEnd = Math.max(fightEnd, t)
   }
   const bounds = range ?? (fightStart <= fightEnd ? [fightStart, fightEnd] as const : undefined)
-  const formatTime = range ? fmtHms : (time: number) => fmtHms(time).slice(0, 5)
+  const formatTime = (time: number) => fmtHms(time).slice(0, 5)
 
   function toggle<K>(set: ReadonlySet<K>, key: K) {
     const next = new Set(set)
@@ -112,7 +113,8 @@ export function CompareTable(_props: CompareTableProps) {
     <div className="u7-compare-note">
       <span>{mode === 'table' ? '勾选的人置顶 · 竖线是中位数' : mode === 'side-by-side' ? '每项一组条形 · 竖线是中位数' : '每项一条轴 · 虚线是中位数'}</span>
       {pinned.size > 0 && <Button variant="ghost" onClick={() => setPinned(new Set())}>清除勾选</Button>}
-      {bounds && <span>{range ? '选段' : '全场'} <span className="app-number">{formatTime(bounds[0])}–{formatTime(bounds[1])}</span></span>}
+      {range ? <RangeChip range={range} clearRange={clearRange} /> : bounds
+        && <span>全场 <span className="app-number">{formatTime(bounds[0])}–{formatTime(bounds[1])}</span></span>}
     </div>
     {mode !== 'table' && <details className="u7-compare-pick">
       <summary>选择飞行员 <span className="app-number">{pinned.size}</span></summary>

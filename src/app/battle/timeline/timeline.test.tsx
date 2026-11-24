@@ -7,6 +7,8 @@ import { ViewProvider, usePlayback, useView } from '@/app/state/view-store'
 import { fmtHms, fmtNum } from '@/app/lib/format'
 import { loadUiFixture } from '@/app/test/ui-fixture'
 import { CompareTable } from '../CompareTable'
+import { EventFeed } from '../EventFeed'
+import { HitAnalysis } from '../HitAnalysis'
 import { Roster } from '../Roster'
 import { Timeline } from '../Timeline'
 import { Plot } from './Plot'
@@ -46,7 +48,11 @@ const lanes = () => [...chart().querySelectorAll('[data-lane]')].map((lane) => l
 const button = (label: string) => [...host.querySelectorAll('button'), ...document.querySelectorAll<HTMLButtonElement>('.side-menu [role="menuitem"]')]
   .find((item) => (item.getAttribute('aria-label') ?? item.textContent?.trim()) === label)!
 const click = (label: string) => act(() => button(label).click())
-const xAt = (t: number) => 72 + (bounds.width - 72 - 12) * (t - start) / (end - start)
+function xAt(t: number) {
+  const from = Number(chart().dataset.domainStart)
+  const to = Number(chart().dataset.domainEnd)
+  return 72 + (bounds.width - 72 - 12) * (t - from) / (to - from)
+}
 function pointer(type: string, clientX: number, shiftKey = false, pointerId = 1, pointerType = 'mouse') {
   return act(() => chart().dispatchEvent(new PointerEvent(type, {
     bubbles: true, clientX, pointerId, shiftKey, pointerType,
@@ -70,6 +76,57 @@ afterEach(async () => {
 })
 
 describe('timeline', () => {
+  it('shows the current draft times, commits at the range start, and clears from the range chip', async () => {
+    await render()
+    const from = start + 40_000
+    const to = start + 100_000
+    const label = `选段 ${fmtHms(from)}–${fmtHms(to)}`
+    await pointer('pointerdown', xAt(to), true)
+    await pointer('pointermove', xAt(from), true)
+    expect(host.querySelector('.eca-timeline-controls')?.textContent).toContain(label)
+    expect(view.range).toBeNull()
+    await pointer('pointerup', xAt(from), true)
+    expect(view.t).toBe(from)
+    const chip = host.querySelector<HTMLButtonElement>('.eca-timeline-controls button[title="取消选段"]')
+    expect(chip?.textContent).toBe(`${label} ×`)
+    await act(() => chip!.click())
+    expect(view.range).toBeNull()
+    expect(view.t).toBe(from)
+  })
+
+  it('clears from compare, hits, and event range subtitles', async () => {
+    await render(false, fixture, <><CompareTable /><HitAnalysis /><EventFeed /></>)
+    for (const selector of ['.u7-compare-note', '.hit-analysis-controls', '.feed-title']) {
+      await act(() => view.setRange([start + 30_000, start + 90_000]))
+      const chip = host.querySelector<HTMLButtonElement>(`${selector} button[title="取消选段"]`)
+      expect(chip).not.toBeNull()
+      await act(() => chip!.click())
+      expect(view.range).toBeNull()
+    }
+  })
+
+  it('stays in the selection for scrubs and inside clicks, and clears it on an outside click', async () => {
+    await render()
+    const from = start + 40_000
+    const to = start + 100_000
+    await act(() => view.setRange([from, to]))
+    const inside = start + 60_000
+    const outside = start + 120_000
+    await pointer('pointerdown', xAt(inside))
+    await pointer('pointerup', xAt(inside))
+    expect(view.range).toEqual([from, to])
+    expect(view.t).toBe(inside)
+    await pointer('pointerdown', xAt(inside))
+    await pointer('pointermove', xAt(outside))
+    await pointer('pointerup', xAt(outside))
+    expect(view.range).toEqual([from, to])
+    expect(view.t).toBe(to)
+    await pointer('pointerdown', xAt(outside))
+    await pointer('pointerup', xAt(outside))
+    expect(view.range).toBeNull()
+    expect(view.t).toBe(outside)
+  })
+
   it('shows an empty lane prompt and hides pilot lanes in compact mode', async () => {
     await render()
     expect(host.textContent).toContain('在名单或对比里勾选飞行员，会出现在这里')
@@ -88,8 +145,8 @@ describe('timeline', () => {
     const time = start + 60_000
     await act(() => {
       view.setPinned(new Set([pilot.key, observed.key]))
-      view.seek(time)
       view.setRange([time - 20_000, time + 20_000])
+      view.seek(time)
     })
     const lane = () => host.querySelector('[data-pilot-lane]')!
     const expectAligned = () => {
@@ -325,7 +382,7 @@ describe('timeline', () => {
     await pointer('pointerup', xAt(start + 80_000), true)
     expect(view.range).toEqual([start + 80_000, start + 120_000])
     expect(chart().querySelector('[stroke-dasharray="3 3"]')).not.toBeNull()
-    expect(view.t).toBe(start + 65_000)
+    expect(view.t).toBe(start + 80_000)
     await act(() => chart().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
     expect(view.range).toBeNull()
   })
@@ -350,8 +407,12 @@ describe('timeline', () => {
     expect(view.range).toBeNull()
     await key('ArrowDown', true)
     expect(view.range).toEqual([cursor - 10_000, cursor])
+    await key('ArrowUp', true)
+    expect(view.range).toBeNull()
+    expect(view.t).toBe(cursor)
+    await key('ArrowDown', true)
     await key('ArrowRight')
-    expect(view.t).toBe(cursor + 1000)
+    expect(view.t).toBe(cursor - 9000)
   })
 
   it('shows and describes the timeline readout at the keyboard cursor until blur', async () => {

@@ -126,7 +126,10 @@ describe('EventFeed range, focus and scope', () => {
     mode(el, '只看关键')
     expect(el.querySelector('.feed-at')?.textContent).toBe(`${fmtHms(T)} 之前的关键事件`)
     act(() => view.setRange([T - 4_000, T - 2_500]))
-    expect(el.querySelector('.feed-at')?.textContent).toBe(`${fmtHms(T - 4_000)}–${fmtHms(T - 2_500)} 内的关键事件`)
+    const scoped = () => el.querySelector('.feed-title .battle-range-chip')?.textContent
+    expect(scoped()).toBe(`选段 ${fmtHms(T - 4_000)}–${fmtHms(T - 4_000)} 内的关键事件 ×`)
+    act(() => view.seek(T))
+    expect(scoped()).toBe(`选段 ${fmtHms(T - 4_000)}–${fmtHms(T - 2_500)} 内的关键事件 ×`)
     mode(el, '逐条')
     expect(rows(el).map((r) => r.querySelector('.feed-time')?.textContent)).toEqual([fmtHms(T - 3_000)])
   })

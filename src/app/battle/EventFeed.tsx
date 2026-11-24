@@ -8,6 +8,7 @@ import { useModuleTypeId } from './feed/item-icon'
 import { Who } from './feed/Who'
 import { useNoiseFilteredAnalysis } from './replay/noise'
 import { fullSideOrder } from './roster/model'
+import { RangeChip } from './RangeChip'
 import './roster/roster.css'
 import './feed/feed.css'
 
@@ -134,7 +135,9 @@ export function EventFeed({ compact: forcedCompact, search, showFilters = true }
   return (
     <div ref={root} className="feed" data-mode={mode} data-compact={compactHead ? '' : undefined}>
       <div className="feed-bar">
-        <div className="feed-title"><span>事件</span><span className="feed-at">{scopeLabel(mode, t, view.range)}</span></div>
+        <div className="feed-title"><span>事件</span>{view.range
+          ? <RangeChip range={view.range} clearRange={view.clearRange} label={`选段 ${scopeLabel(mode, t, view.range)}`} />
+          : <span className="feed-at">{scopeLabel(mode, t, null)}</span>}</div>
         <div className="feed-modes" role="group" aria-label="事件流模式">
           {modes.map(({ value, label }) => (
             <button key={value} type="button" aria-pressed={mode === value} onClick={() => view.setFeedMode(value)}>{label}</button>

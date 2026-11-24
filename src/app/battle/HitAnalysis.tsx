@@ -13,11 +13,12 @@ import {
   hitMetricKeys, hitMetrics, hitObservationHint, MIN_RANKED_SHOTS, rankPilots, weaponRows, type HitMetric,
 } from './hits/analysis'
 import { useHitAnalysis } from './hits/use-hit-analysis'
+import { RangeChip } from './RangeChip'
 import './hits/hits.css'
 
 export function HitAnalysis() {
   const { analysis, summary } = useBattleContext()
-  const { oursSide, range, selected, select } = useView()
+  const { oursSide, range, clearRange, selected, select } = useView()
   const pilotMenu = usePilotMenu()
   const hits = useHitAnalysis()
   const [expanded, setExpanded] = useState(false)
@@ -75,7 +76,8 @@ export function HitAnalysis() {
         }}>
           {hitMetricKeys.map((key) => <option key={key} value={key}>{hitMetrics[key].label}</option>)}
         </select></label>
-        {bounds && <span>{range ? '选段' : '全场'} <span className="app-number">{fmtHms(bounds[0])}–{fmtHms(bounds[1])}</span></span>}
+        {range ? <RangeChip range={range} clearRange={clearRange} /> : bounds
+          && <span>全场 <span className="app-number">{fmtHms(bounds[0])}–{fmtHms(bounds[1])}</span></span>}
       </div>
       <div className="hit-team-grid" aria-label="阵营命中对比">
         {teams.map(({ side, counts }) => <section className="hit-card" key={side}>

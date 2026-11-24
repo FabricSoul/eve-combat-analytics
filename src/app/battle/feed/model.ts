@@ -61,7 +61,7 @@ function eventRow(i: Interaction, patch: Partial<FeedRow> = {}): FeedRow {
 
 /** Earliest and latest time the feed may show. */
 function bounds(t: number, range: FeedInput['range']): [from: number, to: number] {
-  return range ? [range[0], Math.min(t, range[1])] : [-Infinity, t]
+  return range ? [range[0], Math.max(range[0], Math.min(t, range[1]))] : [-Infinity, t]
 }
 
 /** First index in `list` (sorted by `time`) whose time is >= t, or > t when `after`. */
@@ -197,6 +197,7 @@ export function buildFeed(input: FeedInput): FeedRow[] {
 export function scopeLabel(mode: FeedMode, t: number, range: FeedInput['range']): string {
   const seconds = windowMs / 1000
   if (!range) return mode === 'key' ? `${fmtHms(t)} 之前的关键事件` : `${fmtHms(t)} 之前 ${seconds} 秒`
-  const span = `${fmtHms(range[0])}–${fmtHms(Math.min(t, range[1]))} 内`
+  const [from, to] = bounds(t, range)
+  const span = `${fmtHms(from)}–${fmtHms(to)} 内`
   return mode === 'key' ? `${span}的关键事件` : `${span} · 最近 ${seconds} 秒`
 }

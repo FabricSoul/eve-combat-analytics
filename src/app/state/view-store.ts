@@ -32,6 +32,11 @@ interface PlaybackState {
   playing: boolean
 }
 
+interface TransportState {
+  time: number | null
+  range: TimeRange | null
+}
+
 interface ViewState {
   speed: PlaybackSpeed
   range: TimeRange | null
@@ -50,6 +55,7 @@ interface ViewState {
   pause(): void
   setSpeed(speed: PlaybackSpeed): void
   setRange(range: TimeRange | null): void
+  clearRange(): void
   select(key: EntityKey | null): void
   setPinned(keys: ReadonlySet<EntityKey>): void
   togglePin(key: EntityKey): void
@@ -100,14 +106,13 @@ export function ViewProvider({
   children, initialTime = 0, endTime, defaultSide = 0, syncUrl = true,
 }: ViewProviderProps) {
   const [initialView] = useState(() => syncUrl ? readView() : emptyUrlView)
-  const [time, setTime] = useState(initialView.t)
+  const [{ time, range }, setTransport] = useState<TransportState>({ time: initialView.t, range: null })
   const [side, setSide] = useState(initialView.oursSide)
   const [selected, setSelected] = useState(initialView.selected)
   const [hiddenNoise, setHiddenNoise] = useState(initialView.hiddenNoise)
   const [pinned, setPinned] = useState<ReadonlySet<EntityKey>>(() => new Set())
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState<PlaybackSpeed>(1)
-  const [range, saveRange] = useState<TimeRange | null>(null)
   const [focusOnly, setFocusOnly] = useState(false)
   const [layers, setLayers] = useState<ReadonlySet<LayerId>>(() => new Set(defaultLayers))
   const [feedMode, setFeedMode] = useState<FeedMode>('merged')
@@ -122,7 +127,7 @@ export function ViewProvider({
     if (!syncUrl) return
     function restore() {
       const view = readView()
-      setTime(view.t)
+      setTransport({ time: view.t, range: null })
       setSide(view.oursSide)
       setSelected(view.selected)
       setHiddenNoise(view.hiddenNoise)
@@ -163,7 +168,10 @@ export function ViewProvider({
     function tick(now: number) {
       const increment = Math.max(0, now - last) * speed
       last = now
-      setTime((previous) => Math.min((previous ?? initialTime) + increment, endTime ?? Infinity))
+      setTransport((previous) => ({
+        ...previous,
+        time: Math.min((previous.time ?? initialTime) + increment, previous.range?.[1] ?? endTime ?? Infinity),
+      }))
       frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
@@ -172,9 +180,10 @@ export function ViewProvider({
     }
   }, [playing, speed, initialTime, endTime])
 
+  const playEnd = range?.[1] ?? endTime
   useEffect(() => {
-    if (playing && endTime !== undefined && t >= endTime) setPlaying(false)
-  }, [t, playing, endTime])
+    if (playing && playEnd !== undefined && t >= playEnd) setPlaying(false)
+  }, [t, playing, playEnd])
 
   const select = useCallback((key: EntityKey | null) => {
     setSelected((previous) => previous === key ? null : key)
@@ -184,16 +193,33 @@ export function ViewProvider({
 
   const getTime = useCallback(() => currentTime.current, [])
   const seek = useCallback((next: number) => {
-    if (Number.isFinite(next)) setTime(Math.max(0, Math.round(next)))
+    if (!Number.isFinite(next)) return
+    const rounded = Math.max(0, Math.round(next))
+    setTransport((previous) => {
+      const range = previous.range
+      const time = range ? Math.max(range[0], Math.min(rounded, range[1])) : rounded
+      return previous.time === time ? previous : { ...previous, time }
+    })
   }, [])
   const play = useCallback(() => {
-    if (endTime !== undefined && getTime() >= endTime) setTime(initialTime)
+    setTransport((previous) => {
+      const end = previous.range?.[1] ?? endTime
+      if (end === undefined || (previous.time ?? initialTime) < end) return previous
+      return { ...previous, time: previous.range?.[0] ?? initialTime }
+    })
     setPlaying(true)
-  }, [endTime, initialTime, getTime])
+  }, [endTime, initialTime])
   const pause = useCallback(() => setPlaying(false), [])
-  const setRange = useCallback((next: TimeRange | null) => {
-    saveRange(next && (next[0] <= next[1] ? next : [next[1], next[0]]))
+  const clearRange = useCallback(() => {
+    setTransport((previous) => previous.range ? { ...previous, range: null } : previous)
   }, [])
+  const setRange = useCallback((next: TimeRange | null) => {
+    if (!next) return clearRange()
+    const from = Math.min(...next)
+    const to = Math.max(...next)
+    setTransport({ time: from, range: [from, to] })
+    setPlaying(false)
+  }, [clearRange])
   const setOursSide = useCallback((side: number) => {
     if (Number.isSafeInteger(side) && side >= 0) setSide(side)
   }, [])
@@ -235,6 +261,7 @@ export function ViewProvider({
     pause,
     setSpeed,
     setRange,
+    clearRange,
     select,
     setPinned,
     togglePin,
@@ -246,9 +273,9 @@ export function ViewProvider({
     setDrawerTab,
     setPanelTab,
   }), [speed, range, selected, pinned, focused, oursSide, layers, hiddenNoise, feedMode, drawerTab, panelTab,
-    getTime, seek, play, pause, setRange, select, togglePin, setOursSide, toggleLayer, toggleNoiseFilter])
+    getTime, seek, play, pause, setRange, clearRange, select, togglePin, setOursSide, toggleLayer, toggleNoiseFilter])
   const playback = useMemo(() => ({ t, playing }), [t, playing])
-  const coarseTime = playing ? Math.floor(t / coarseInterval) * coarseInterval : t
+  const coarseTime = playing ? Math.max(range?.[0] ?? 0, Math.floor(t / coarseInterval) * coarseInterval) : t
   const coarsePlayback = useMemo(() => ({ t: coarseTime, playing }), [coarseTime, playing])
   return createElement(ViewContext.Provider, { value },
     createElement(PlaybackContext.Provider, { value: playback },

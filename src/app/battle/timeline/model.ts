@@ -49,24 +49,32 @@ export function centeredDamageMean(samples: readonly number[]) {
   })
 }
 
-export function timelineData(summary: BattleSummary, analysis: Analysis | null, ours: number) {
-  const kills = summary.meta.killmails
-  const interactions = analysis?.interactions ?? []
-  const start = analysis?.timeline.start || summary.meta.windows[0]?.start || kills[0]?.t || 0
-  const damage = new Map<number, number[]>()
-  let length = 0
-  for (const [side, samples] of Object.entries(analysis?.timeline.damageBySide ?? {})) {
-    damage.set(Number(side), centeredDamageMean(samples))
-    length = Math.max(length, samples.length)
-  }
-
-  let first = start
-  let last = Math.max(start, interactions.at(-1)?.t ?? 0, start + Math.max(0, length - 1) * second)
-  for (const { t } of kills) {
+export function activityBounds(summary: BattleSummary | null, analysis: Analysis | null): TimeRange | null {
+  const interactions = analysis?.interactions
+  let first = interactions?.[0]?.t ?? Infinity
+  let last = interactions?.at(-1)?.t ?? -Infinity
+  if (analysis?.timeline.start && interactions?.length) first = Math.min(first, analysis.timeline.start)
+  for (const { t } of summary?.meta.killmails ?? []) {
     first = Math.min(first, t)
     last = Math.max(last, t)
   }
-  const full: TimeRange = [first, Math.max(first + second, last)]
+  return first <= last ? [first, last] : null
+}
+
+export function timelineData(summary: BattleSummary, analysis: Analysis | null, ours: number) {
+  const kills = summary.meta.killmails
+  const interactions = analysis?.interactions ?? []
+  const activity = activityBounds(summary, analysis)
+  const start = analysis?.timeline.start || activity?.[0] || summary.meta.windows[0]?.start || 0
+  const damage = new Map<number, number[]>()
+  for (const [side, samples] of Object.entries(analysis?.timeline.damageBySide ?? {})) {
+    damage.set(Number(side), centeredDamageMean(samples))
+  }
+
+  const padding = activity ? clamp(Math.round((activity[1] - activity[0]) * 0.01), second, 5 * second) : 0
+  const full: TimeRange = activity
+    ? [Math.max(0, activity[0] - padding), activity[1] + padding]
+    : [start, start + second]
   const eventTimes = [...new Set([...interactions.map(({ t }) => t), ...kills.map(({ t }) => t)])].sort((a, b) => a - b)
   const primaries = analysis?.primaries.filter(({ bySide }) => bySide === ours) ?? []
   return { full, start, damage, eventTimes, primaries }

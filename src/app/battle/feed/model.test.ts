@@ -158,3 +158,7 @@ describe('scopeLabel', () => {
     expect(scopeLabel('key', T, [T - 60_000, T + 30_000])).toBe(`${fmtHms(T - 60_000)}–${fmtHms(T)} 内的关键事件`)
   })
 })
+
+it('never prints a reversed scoped feed time window', () => {
+  expect(scopeLabel('merged', T - 5000, [T, T + 10000])).toBe(`${fmtHms(T)}–${fmtHms(T)} 内 · 最近 10 秒`)
+})

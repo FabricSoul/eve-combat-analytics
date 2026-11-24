@@ -116,7 +116,7 @@ export function useTimelineGestures(
     if (mode === 'range') setDraft([time, time])
     if (mode === 'seek') {
       view.pause()
-      view.seek(time)
+      if (!view.range || (time >= view.range[0] && time <= view.range[1])) view.seek(time)
     }
   }
 
@@ -160,13 +160,15 @@ export function useTimelineGestures(
     if (event.type === 'pointerup') {
       const time = timeAt(event)
       const selectedRange = active.mode === 'range' && time !== active.start
+      const moved = active.moved || Math.abs(event.clientX - active.startX) >= dragSlop
       if (active.mode === 'range') {
         if (selectedRange) view.setRange(ordered(active.start, time))
       } else {
         view.pause()
+        if (!moved && view.range && (time < view.range[0] || time > view.range[1])) view.clearRange()
         view.seek(time)
       }
-      if (selectedRange || active.moved || Math.abs(event.clientX - active.startX) >= dragSlop) onDrag()
+      if (selectedRange || moved) onDrag()
     }
     setDraft(null)
   }
@@ -178,7 +180,7 @@ export function useTimelineGestures(
       drag.current = null
       keyboardRange.current = null
       setDraft(null)
-      view.setRange(null)
+      view.clearRange()
       return
     }
     const direction = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[event.key]
@@ -191,7 +193,10 @@ export function useTimelineGestures(
       const anchor = previous?.anchor ?? clamp(view.t, start, end)
       const edge = clamp((previous?.edge ?? anchor) + direction * 10 * second, start, end)
       keyboardRange.current = { anchor, edge }
-      view.setRange(edge === anchor ? null : ordered(anchor, edge))
+      if (edge === anchor) {
+        view.clearRange()
+        view.seek(anchor)
+      } else view.setRange(ordered(anchor, edge))
       return
     }
     const time = {
@@ -213,5 +218,5 @@ export function useTimelineGestures(
     onBlur: () => { setFocusReadout(false); keyboardRange.current = null },
   }
   const readout = hover ?? (focusReadout ? clamp(view.t, start, end) : null)
-  return { chart, width, start, end, readout, focusReadout, range: draft ?? view.range, events }
+  return { chart, width, start, end, readout, focusReadout, range: draft ?? view.range, draft, events }
 }

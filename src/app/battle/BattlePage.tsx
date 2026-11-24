@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { recordRecent } from '../home/recent'
 import { fmtNum } from '../lib/format'
 import { defaultOursSide } from '../lib/sides'
@@ -23,6 +23,7 @@ import { ReplayCanvas } from './ReplayCanvas'
 import { Roster } from './Roster'
 import { SidesPanel } from './SidesPanel'
 import { Timeline, PilotTimelineModule } from './Timeline'
+import { activityBounds } from './timeline/model'
 import { UploadDock } from './UploadDock'
 import { PilotActions, usePilotMenu } from './roster/PilotActions'
 import { BattleUndo } from './undo'
@@ -135,6 +136,7 @@ function BattleWorkspace() {
       const lastFloat = moduleLayout.order.filter((id) => moduleLayout.modules[id].floating && !moduleLayout.modules[id].hidden).at(-1)
       const localMenu = document.activeElement?.closest('[role="menu"], .eca-timeline-help-popover, .app-side-picker:has([aria-expanded="true"])')
       if (localMenu) return // These widgets close themselves and restore the focus.
+      if (document.activeElement?.closest('[data-timeline-chart][data-range-draft]')) return
       const openMenu = [...document.querySelectorAll<HTMLDetailsElement>(
         '.battle-module-controls[open], .battle-layout details[open]:not(.replay-close-fights)',
       )].filter((menu) => menu.getClientRects().length > 0).at(-1)
@@ -153,14 +155,14 @@ function BattleWorkspace() {
         else view.select(null)
       } else if (expanded) expanded.click()
       else if (lastFloat && workspace) dispatchModule({ type: 'dock', id: lastFloat })
-      else if (view.range) view.setRange(null)
+      else if (view.range) view.clearRange()
       else if (view.selected) view.select(null)
       else return
       event.preventDefault()
     }
     window.addEventListener('keydown', closeOrClear, true)
     return () => window.removeEventListener('keydown', closeOrClear, true)
-  }, [sidesOpen, closeSides, menuOpen, view.range, view.selected, view.select, view.setRange, drawerOpen, moduleLayout, workspace, pilotMenu])
+  }, [sidesOpen, closeSides, menuOpen, view.range, view.selected, view.select, view.clearRange, drawerOpen, moduleLayout, workspace, pilotMenu])
 
   function renderModule(id: ModuleId) {
     if (id === 'roster') return <Roster search={search === id} alphabetical={rosterAlphabetical} />
@@ -279,12 +281,9 @@ function BattleWorkspace() {
 
 function BattleViewRoot() {
   const { summary, analysis } = useBattleContext()
-  const initialTime = analysis?.timeline.start || summary?.meta.windows[0]?.start || 0
-  const endTime = Math.max(
-    initialTime,
-    analysis?.interactions.at(-1)?.t ?? 0,
-    summary?.meta.killmails.at(-1)?.t ?? 0,
-  )
+  const activity = useMemo(() => activityBounds(summary, analysis), [summary, analysis])
+  const initialTime = activity?.[0] ?? summary?.meta.windows[0]?.start ?? 0
+  const endTime = activity?.[1] ?? initialTime
   return (
     <ViewProvider initialTime={initialTime} endTime={endTime} defaultSide={summary ? defaultOursSide(summary) : 0}>
       <BattleUndo><PilotActions><BattleWorkspace /></PilotActions></BattleUndo>

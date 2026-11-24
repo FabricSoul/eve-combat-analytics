@@ -3,9 +3,10 @@ import type { Analysis, BattleSummary } from '@/core/contract'
 import { fmtHms, fmtNum } from '../lib/format'
 import { sideColor, sideLetter } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
-import { usePlayback, useView, type LayerId } from '../state/view-store'
+import { usePlayback, useView, type LayerId, type TimeRange } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { Portrait } from '../ui/Portrait'
+import { RangeChip, rangeLabel } from './RangeChip'
 import { useTimelineGestures } from './timeline/gestures'
 import { clamp, nextEvent, plotScale, pointed, repairs, second, timelineData, timelineLayout, timelineSides } from './timeline/model'
 import { PilotLanes } from './timeline/PilotLanes'
@@ -34,8 +35,9 @@ function LayerChip({ label, on, toggle, children, disabled }: {
   </button>
 }
 
-function Controls({ view, next, canPlay, compact }: {
+function Controls({ view, next, canPlay, compact, draft }: {
   view: ReturnType<typeof useView> & ReturnType<typeof usePlayback>; next: number | undefined; canPlay: boolean; compact: boolean
+  draft: TimeRange | null
 }) {
   const nextSpeed = { 1: 2, 2: 4, 4: 8, 8: 1 } as const
   return <div className="eca-timeline-controls" role="group" aria-label="回放控制">
@@ -54,6 +56,8 @@ function Controls({ view, next, canPlay, compact }: {
     </Button>
     <Button onClick={() => view.setSpeed(nextSpeed[view.speed])} title="回放倍速">{view.speed}×</Button>
     <time className="app-number eca-timeline-clock">{fmtHms(view.t)}</time>
+    {draft ? <span className="battle-range-draft">{rangeLabel(draft)}</span>
+      : view.range && <RangeChip range={view.range} clearRange={view.clearRange} />}
   </div>
 }
 
@@ -84,7 +88,7 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
   const right = compact ? 8 : 12
   const tipId = useId()
   const { showHint, dismissHint } = useTimelineHint()
-  const { chart, width, start, end, readout, focusReadout, range, events } = useTimelineGestures(data.full, left, right, view, dismissHint)
+  const { chart, width, start, end, readout, focusReadout, range, draft, events } = useTimelineGestures(data.full, left, right, view, dismissHint)
   const seriesEnd = analysis?.interactions.at(-1)?.t ?? data.start
   const showRepair = !compact && layers.has('repOurs')
   const showPoint = !compact && layers.has('point')
@@ -111,6 +115,8 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
     target.start <= readout && target.end >= readout && (!current || current.start <= target.start) ? target : current,
   undefined) : undefined
   const primaryEntity = primary ? analysis?.entities[primary.target] : undefined
+  const eventTime = nextEvent(data.eventTimes, view.t)
+  const next = eventTime !== undefined && (!view.range || eventTime <= view.range[1]) ? eventTime : undefined
 
   function toggleSide(side: number, layer: LayerId | undefined) {
     if (layer) return view.toggleLayer(layer)
@@ -130,7 +136,7 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
 
   return <div className="eca-timeline" data-compact={compact}>
     <div className="eca-timeline-bar">
-      <Controls view={view} next={nextEvent(data.eventTimes, view.t)} canPlay={data.eventTimes.length > 0} compact={compact} />
+      <Controls view={view} next={next} canPlay={data.eventTimes.length > 0} compact={compact} draft={draft} />
       <div className="eca-timeline-options">
         {!compact && <div className="eca-timeline-layers" role="group" aria-label="时间轴图层">
           {curves.map(({ side, layer, label, color }) => <LayerChip key={side} label={`${label}伤害`}
@@ -152,7 +158,7 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
       }}>×</Button>
     </div>}
     <div className="eca-timeline-plot">
-      <svg ref={chart} data-timeline-chart="" data-domain-start={start} data-domain-end={end}
+      <svg ref={chart} data-timeline-chart="" data-domain-start={start} data-domain-end={end} data-range-draft={draft ? '' : undefined}
         width="100%" height={layout.height} viewBox={`0 0 ${width} ${layout.height}`}
         role="slider" tabIndex={0} aria-label="回放时间" aria-valuemin={Math.floor(start)} aria-valuemax={Math.ceil(end)}
         aria-keyshortcuts="Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown Escape"

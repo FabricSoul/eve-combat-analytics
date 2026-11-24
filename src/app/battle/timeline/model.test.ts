@@ -19,3 +19,12 @@ it('centers damage smoothing and averages only available buckets at either edge'
   const curve = damage.get(0)!
   expect([curve[0], curve[1], curve[6], curve[11], curve[12]]).toEqual([10, 170 / 7, 10, 230 / 7, 20])
 })
+
+it('fits the axis to observed activity using small padding even while analysis is pending', () => {
+  const { summary, analysis } = loadUiFixture()
+  const kill = { ...summary.meta.killmails[0]!, t: 20_000 }
+  const data = { ...summary, meta: { ...summary.meta, killmails: [kill] } }
+  expect(timelineData(data, null, 0).full).toEqual([19_000, 21_000])
+  const event = { ...analysis.interactions[0]!, t: 10_000 }
+  expect(timelineData(data, { ...analysis, interactions: [event] }, 0).full).toEqual([9_000, 21_000])
+})

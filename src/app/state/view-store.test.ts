@@ -84,3 +84,43 @@ it('does not render stable view consumers or CompareTable as the playhead advanc
     act(() => root.unmount())
   }
 })
+
+it('starts, seeks, plays and restarts within the active range', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  let frame!: FrameRequestCallback
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frame = callback; return 1 })
+  vi.stubGlobal('cancelAnimationFrame', vi.fn())
+  let view!: ReturnType<typeof useView>
+  let playback!: ReturnType<typeof usePlayback>
+  let coarse!: number
+  function Probe() {
+    view = useView()
+    playback = usePlayback()
+    coarse = useCoarseTime()
+    return null
+  }
+  const root = createRoot(document.createElement('div'))
+  try {
+    act(() => root.render(createElement(ViewProvider, {
+      syncUrl: false, initialTime: 1_000, endTime: 10_000, children: createElement(Probe),
+    })))
+    act(() => view.setRange([5_300, 2_100]))
+    expect(view.range).toEqual([2_100, 5_300])
+    expect(playback.t).toBe(2_100)
+    act(() => view.seek(1_300))
+    expect(playback.t).toBe(2_100)
+    act(() => view.play())
+    expect(coarse).toBe(2_100)
+    act(() => frame(performance.now() + 9_000))
+    expect(playback).toEqual({ t: 5_300, playing: false })
+    act(() => view.play())
+    expect(playback).toEqual({ t: 2_100, playing: true })
+    act(() => view.seek(8_000))
+    expect(playback.t).toBe(5_300)
+    act(() => { view.clearRange(); view.seek(8_000) })
+    expect(playback.t).toBe(8_000)
+    expect(view.range).toBeNull()
+  } finally {
+    act(() => root.unmount())
+  }
+})
