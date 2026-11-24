@@ -300,8 +300,8 @@ body.battle-window-dragging * {
 .battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll { margin-top: 0; }
 .battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll table { min-width: 286px; }
 .battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll :is(th, td) { padding: 0 var(--space-1); }
-.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll :is(th, td):nth-child(n+5),
-.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll th > small { display: none; }
-.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll td:nth-child(4) { min-width: 64px; width: 25%; }
-.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll th:nth-child(2) { min-width: 96px; }
+.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll :is(th, td):nth-child(n+5) { display: none; }
+.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll th:nth-child(1) { width: 84px; }
+.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll th:nth-child(3) { width: 56px; }
+.battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll th:nth-child(4) { width: 25%; }
 .hit-pilot-cell { display: flex; align-items: center; gap: var(--space-1); }

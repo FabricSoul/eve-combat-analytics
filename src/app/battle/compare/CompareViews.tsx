@@ -47,14 +47,16 @@ export function PilotName({ row, onClick }: { row: CompareRow; onClick?: () => v
     : <span className="u7-compare-who" title={entity.name}>{name}</span>
 }
 
-export function MetricValue({ row, metric }: { row: CompareRow; metric: Metric }) {
+export function MetricValue({ row, metric, compactSample = false }: { row: CompareRow; metric: Metric; compactSample?: boolean }) {
   const value = metricValue(row, metric)
   const rendered = value === null
     ? <MissingValue reason={missingReason(row, metric)} />
     : <span className="app-number">{metric.format(value)}</span>
-  return metric.key === 'hitRate' && row.observedHits
-    ? <>{rendered}<ObservedHitSample shots={row.observedHits.shots} /></>
-    : rendered
+  if (metric.key !== 'hitRate' || !row.observedHits) return rendered
+  const shots = row.observedHits.shots
+  if (!compactSample) return <>{rendered}<ObservedHitSample shots={shots} /></>
+  const sample = `${observedLabel} · ${fmtNum(shots)} 发`
+  return <span title={sample}>{rendered}<span className="sr-only">{sample}</span></span>
 }
 
 function MissingValue({ reason }: { reason: string }) {

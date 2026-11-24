@@ -8,7 +8,7 @@ import { Button } from '../ui/Button'
 import { Portrait } from '../ui/Portrait'
 import { HitQualityBar } from './compare/HitQualityBar'
 import { HitTrend } from './hits/HitTrend'
-import { HitRateValue, UngradedShots, WeaponClasses } from './hits/WeaponClasses'
+import { HitRateValue, UngradedShots, WeaponClasses, WeaponClassSummary } from './hits/WeaponClasses'
 import {
   hitMetricKeys, hitMetrics, hitObservationHint, MIN_RANKED_SHOTS, weaponRows, type HitMetric,
 } from './hits/analysis'
@@ -104,27 +104,32 @@ export function HitAnalysis() {
         <h3>飞行员排名 <small>{pilotCountLabel(rows.length + insufficient.length, include ? unidentified.length : 0)}</small></h3>
         {rows.length > 0 ? <div className="hit-table-scroll" role="region" aria-label="飞行员命中排名" tabIndex={0}>
           <table>
-            <thead><tr><th scope="col">全场名次 / 样本</th><th scope="col">飞行员</th><th scope="col" aria-sort={direction}>
-              <button type="button" onClick={() => setReverse(!reverse)}>{definition.label} {direction === 'ascending' ? '↑' : '↓'}</button>
-            </th><th scope="col">命中质量</th><th scope="col">出手最多的武器</th><th scope="col">武器类别 · 出手 / 命中率</th></tr></thead>
+            <thead><tr><th scope="col" title="全场名次和样本数">名次·样本</th><th scope="col">飞行员</th><th scope="col" aria-sort={direction}>
+              <button type="button" className="hit-table-text" title={definition.label} onClick={() => setReverse(!reverse)}>
+                {definition.label} {direction === 'ascending' ? '↑' : '↓'}
+              </button>
+            </th><th scope="col">命中质量</th><th scope="col">出手最多的武器</th><th scope="col" title="武器类别、出手数和命中率">武器类别</th></tr></thead>
             <tbody>{rows.map(({ pilot, value, rank }) => {
               const { entity } = pilot
+              const details = `${sideLabel(entity.side, order)}${entity.side !== oursSide ? ' · 据我方日志' : ''} · 无命中质量 ${fmtNum(pilot.ungraded)} 发`
+              const weapon = weaponRows(pilot)[0]?.[0] ?? '—'
               return <tr key={entity.key} data-pilot-key={entity.key} data-selected={selected === entity.key || undefined} onContextMenu={(event) => pilotMenu?.open(entity.key, event)}>
                 <td className="app-number">{fmtNum(rank)} · {fmtNum(pilot.shots)} 发</td>
                 <th scope="row">
                   <div className="hit-pilot-cell">
-                    <button className="hit-pilot-name" type="button" onClick={() => select(entity.key)}>
-                      <Portrait charId={entity.charId} size={20} />{entity.name}
+                    <button className="hit-pilot-name" type="button" aria-label={entity.name}
+                      title={`${entity.name} · ${details}`} onClick={() => select(entity.key)}>
+                      <span className="hit-side-dot" style={{ background: sideColor(entity.side, order) }} aria-hidden="true" />
+                      <Portrait charId={entity.charId} size={20} /><span className="hit-table-text">{entity.name}</span>
                     </button>
                     <PilotMore pilot={entity.key} name={entity.name} />
                   </div>
-                  <small>{sideLabel(entity.side, order)}{entity.side !== oursSide && ' · 据我方日志'}</small>
-                  <UngradedShots count={pilot.ungraded} />
+                  <small className="sr-only">{details}</small>
                 </th>
                 <td className="app-number">{definition.format(value)}</td>
                 <td><HitQualityBar stats={pilot} color={sideColor(entity.side, order)} /></td>
-                <td>{weaponRows(pilot)[0]?.[0] ?? '—'}</td>
-                <td><WeaponClasses classes={pilot.classes} /></td>
+                <td><span className="hit-table-text" title={weapon}>{weapon}</span></td>
+                <td><WeaponClassSummary classes={pilot.classes} /></td>
               </tr>
             })}</tbody>
           </table>

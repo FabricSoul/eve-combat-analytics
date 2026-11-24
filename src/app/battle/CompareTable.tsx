@@ -171,7 +171,7 @@ export function CompareTable(_props: CompareTableProps) {
               <PilotName row={row} onClick={() => select(row.entity.key)} />
               <PilotMore pilot={row.entity.key} name={row.entity.name} /></th>
             {columns.map((column) => <td key={column.metric.key} data-compact={column.metric.key === activeCompact}>
-              <MetricValue row={row} metric={column.metric} />
+              <MetricValue row={row} metric={column.metric} compactSample />
               <MetricBar value={metricValue(row, column.metric)} column={column} color={sideColor(row.entity.side, order)} />
               {column.metric.key === 'hitRate' && (row.entity.hasLog || row.observedHits) &&
                 <HitQualityBar stats={row.observedHits ?? row.stats} color={sideColor(row.entity.side, order)} />}

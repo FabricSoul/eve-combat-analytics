@@ -38,12 +38,22 @@
 .hit-trend svg line { stroke: var(--color-hair); }
 .hit-legend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); font-size: var(--fs-s); }
 .hit-table-scroll { overflow-x: auto; margin-block: var(--space-2); border: 1px solid var(--color-hair); border-radius: var(--radius-card); }
-.hit-table-scroll table { width: 100%; min-width: 720px; border-collapse: collapse; }
-.hit-table-scroll th, .hit-table-scroll td { padding: var(--space-2); border-bottom: 1px solid var(--color-hair); }
+.hit-table-scroll table {
+  width: 100%; min-width: 720px; table-layout: fixed; border-collapse: collapse;
+  white-space: nowrap; font-size: var(--fs-compact-table); line-height: 16px;
+}
+.hit-table-scroll tr { height: var(--row-compact); }
+.hit-table-scroll th, .hit-table-scroll td { padding: 0 var(--space-2); border-bottom: 1px solid var(--color-hair); }
 .hit-table-scroll th { text-align: start; }
 .hit-table-scroll thead { background: var(--color-raised); }
-.hit-table-scroll td:nth-child(4) { min-width: 96px; }
-.hit-table-scroll td:nth-child(6) { min-width: 150px; }
+.hit-table-scroll th:nth-child(1) { width: 92px; }
+.hit-table-scroll th:nth-child(3) { width: 10%; }
+.hit-table-scroll th:nth-child(4) { width: 14%; }
+.hit-table-scroll th:nth-child(5) { width: 24%; }
+.hit-table-scroll th:nth-child(6) { width: 26%; }
+.hit-table-scroll .hit-pilot-name { min-width: 0; gap: var(--space-1); }
+.hit-table-scroll .hit-side-dot { width: 6px; height: 6px; }
+.hit-table-text { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hit-pilot-name, .hit-table-scroll thead button, .hit-insufficient button { cursor: pointer; text-align: start; }
 .hit-insufficient ul { display: grid; gap: var(--space-1) var(--space-3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); }
 .hit-insufficient li { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: var(--space-2); padding: var(--space-1); align-items: baseline; }

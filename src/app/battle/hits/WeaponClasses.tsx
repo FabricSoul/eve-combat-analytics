@@ -38,3 +38,12 @@ export function WeaponClasses({ classes }: { classes: ReadonlyMap<WeaponClass, S
     })}
   </dl>
 }
+
+export function WeaponClassSummary({ classes }: { classes: ReadonlyMap<WeaponClass, ShotCounts> }) {
+  const summary = [...classes].map(([kind, counts]) => {
+    const rate = kind === 'smartbomb' ? '' : ` · ${fmtPct(hitMetrics.hitRate.value(counts))}`
+    const sample = rate && counts.shots > 0 && counts.ungraded > 0 ? `（${fmtNum(counts.shots)} 发样本）` : ''
+    return `${classLabels[kind]} ${fmtNum(shotTotal(counts))} 发${rate}${sample}`
+  }).join(' / ')
+  return <span className="hit-table-text" title={summary}>{summary}</span>
+}

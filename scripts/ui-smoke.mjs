@@ -516,6 +516,34 @@ export class BattleRoom extends ProductionRoom {
     [...document.querySelectorAll('.roster-main')].some((row) =>
       row.textContent.includes(pilotName) && row.querySelector('[aria-label="有日志"]')),
   'Numala Airuta', { timeout: 30_000 })
+  const density = []
+  for (const width of [1280, 1630]) {
+    const { context, page } = await open(width, 940, 'dark', 'no-preference', '?t=1750606982000')
+    const hits = page.locator('[data-module="hits"] .hit-table-scroll')
+    const compare = page.locator('[data-module="compare"]')
+    const tableHeights = (table) => table.locator('thead tr, tbody tr[data-pilot-key]').evaluateAll((rows) =>
+      rows.map((row) => row.getBoundingClientRect().height).filter((height) => height > 0))
+    try {
+      await hits.locator('tbody tr[data-pilot-key]').first().waitFor()
+      const kohera = hits.getByRole('button', { name: 'Kohera Hakomairos', exact: true })
+      assert.match(await kohera.getAttribute('title'), /Kohera Hakomairos.*据我方日志.*无命中质量/)
+      await page.evaluate(() => document.fonts.ready)
+      const hitHeights = await tableHeights(hits)
+      density.push({ width, table: '命中 module', max: Math.max(...hitHeights) })
+
+      await compare.getByRole('button', { name: '整页查看对比', exact: true }).click()
+      const fullCompare = compare.locator('.u7-compare[data-expanded="true"] .u7-compare-scroll')
+      await fullCompare.locator('tbody tr[data-pilot-key]').first().waitFor()
+      assert.ok(await fullCompare.locator('tbody .u7-observed').count(), 'J125990 includes observed rows')
+      assert.ok(await fullCompare.locator('tbody [title^="据我方日志 · "]').count(), 'observed sample counts have a tooltip')
+      const compareHeights = await tableHeights(fullCompare)
+      density.push({ width, table: 'full-page 对比', max: Math.max(...compareHeights) })
+    } finally {
+      await context.close()
+    }
+  }
+  console.log('Table density:', JSON.stringify(density))
+  assert.deepEqual(density.filter(({ max }) => !Number.isFinite(max) || max > 26), [], 'table rows stay at or below 26 px')
   const unresolved = b.page.locator('[data-module="roster"] [data-pilot-key^="ship:"]').first()
   const unresolvedKey = await unresolved.getAttribute('data-pilot-key')
   assert.ok(unresolvedKey)
