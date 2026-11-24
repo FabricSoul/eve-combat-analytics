@@ -4,7 +4,7 @@ import { Button } from '@/app/ui/Button'
 const helpItems = [
   '点击跳到某一刻',
   '拖动拖进度',
-  'Shift+拖动选一段（只看这段）',
+  'Shift+拖动选一段（只看这段），两端对齐到整秒。拖满 60 秒时对齐到 10 秒，按住 Alt 不对齐',
   'Esc 取消选段',
   '滚轮/双指缩放',
   '方向键逐秒，Shift+方向键以十秒为单位扩展选段',

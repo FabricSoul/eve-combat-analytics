@@ -53,9 +53,9 @@ function xAt(t: number) {
   const to = Number(chart().dataset.domainEnd)
   return 72 + (bounds.width - 72 - 12) * (t - from) / (to - from)
 }
-function pointer(type: string, clientX: number, shiftKey = false, pointerId = 1, pointerType = 'mouse') {
+function pointer(type: string, clientX: number, shiftKey = false, pointerId = 1, pointerType = 'mouse', altKey = false) {
   return act(() => chart().dispatchEvent(new PointerEvent(type, {
-    bubbles: true, clientX, pointerId, shiftKey, pointerType,
+    bubbles: true, clientX, pointerId, shiftKey, pointerType, altKey,
   })))
 }
 
@@ -76,6 +76,68 @@ afterEach(async () => {
 })
 
 describe('timeline', () => {
+  it('snaps Shift-drag to one second, snaps long drags to ten seconds, and bypasses snapping with Alt', async () => {
+    await render()
+    const drag = async (from: number, to: number, alt = false) => {
+      await pointer('pointerdown', xAt(from), true, 1, 'mouse', alt)
+      await pointer('pointermove', xAt(to), true, 1, 'mouse', alt)
+      const actual = host.querySelector('.battle-range-draft')?.textContent
+      await pointer('pointerup', xAt(to), true, 1, 'mouse', alt)
+      return actual
+    }
+    await drag(start + 41_400, start + 58_800)
+    expect(view.range).toEqual([start + 41_000, start + 59_000])
+    expect(await drag(start + 102_800, start + 41_400)).toBe(
+      `选段 ${fmtHms(start + 40_000)}–${fmtHms(start + 100_000)}`)
+    expect(view.range).toEqual([start + 40_000, start + 100_000])
+    await drag(start + 41_400, start + 102_800, true)
+    expect(view.range).toEqual([start + 41_400, start + 102_800])
+    await drag(start - 4_000, start + 17_400)
+    expect(view.range).toEqual([start, start + 17_000])
+  })
+
+  it('edits range times, validates format and fight boundaries, and cancels with Escape', async () => {
+    await render()
+    const original = [start + 40_000, start + 100_000] as const
+    await act(() => view.setRange(original))
+    const edit = () => host.querySelector<HTMLButtonElement>('button[title="编辑选段"]')!
+    expect(edit()).not.toBeNull()
+    await act(() => edit().click())
+    const dialog = () => host.querySelector<HTMLFormElement>('form[aria-label="编辑选段"]')!
+    const inputs = () => [...dialog().querySelectorAll<HTMLInputElement>('input')]
+    const apply = () => act(() => dialog().dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(inputs().map((input) => input.value)).toEqual(original.map(fmtHms))
+    expect(document.activeElement).toBe(inputs()[0])
+    inputs()[0]!.value = '8:00'
+    await apply()
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('HH:MM:SS')
+    inputs()[0]!.value = fmtHms(start - 1_000)
+    await apply()
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('战斗范围')
+    inputs()[0]!.value = fmtHms(start + 110_000)
+    await apply()
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('晚于')
+    expect(view.range).toEqual(original)
+    await act(() => inputs()[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(dialog()).toBeNull()
+    expect(document.activeElement).toBe(edit())
+    expect(view.range).toEqual(original)
+    await act(() => edit().click())
+    const clear = host.querySelector<HTMLButtonElement>('.eca-timeline-controls button[title="取消选段"]')!
+    await act(() => clear.focus())
+    await act(() => clear.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(dialog()).toBeNull()
+    expect(view.range).toEqual(original)
+    await act(() => edit().click())
+    inputs()[0]!.value = fmtHms(start + 61_000)
+    inputs()[1]!.value = fmtHms(start + 139_000)
+    await apply()
+    expect(view.range).toEqual([start + 61_000, start + 139_000])
+    expect(view.t).toBe(start + 61_000)
+    expect(dialog()).toBeNull()
+    expect(document.activeElement).toBe(edit())
+  })
+
   it('shows the current draft times, commits at the range start, and clears from the range chip', async () => {
     await render()
     const from = start + 40_000
@@ -88,7 +150,8 @@ describe('timeline', () => {
     await pointer('pointerup', xAt(from), true)
     expect(view.t).toBe(from)
     const chip = host.querySelector<HTMLButtonElement>('.eca-timeline-controls button[title="取消选段"]')
-    expect(chip?.textContent).toBe(`${label} ×`)
+    expect(host.querySelector('button[title="编辑选段"]')?.textContent).toBe(label)
+    expect(chip?.textContent).toBe('×')
     await act(() => chip!.click())
     expect(view.range).toBeNull()
     expect(view.t).toBe(from)
@@ -209,7 +272,7 @@ describe('timeline', () => {
     expect([...popover.querySelectorAll('li')].map((row) => row.textContent)).toEqual([
       '点击跳到某一刻',
       '拖动拖进度',
-      'Shift+拖动选一段（只看这段）',
+      'Shift+拖动选一段（只看这段），两端对齐到整秒。拖满 60 秒时对齐到 10 秒，按住 Alt 不对齐',
       'Esc 取消选段',
       '滚轮/双指缩放',
       '方向键逐秒，Shift+方向键以十秒为单位扩展选段',

@@ -138,7 +138,9 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
         return
       }
       const lastFloat = moduleLayout.order.filter((id) => moduleLayout.modules[id].floating && !moduleLayout.modules[id].hidden).at(-1)
-      const localMenu = document.activeElement?.closest('[role="menu"], .eca-timeline-help-popover, .app-side-picker:has([aria-expanded="true"])')
+      const localMenu = document.activeElement?.closest(
+        '[role="menu"], .eca-timeline-help-popover, .eca-timeline-range[data-range-editing], .app-side-picker:has([aria-expanded="true"])',
+      )
       if (localMenu) return // These widgets close themselves and restore the focus.
       if (document.activeElement?.closest('[data-timeline-chart][data-range-draft]')) return
       const openMenu = [...document.querySelectorAll<HTMLDetailsElement>(

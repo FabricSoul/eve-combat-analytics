@@ -8,6 +8,29 @@ const damageSmoothingRadius = 5
 
 export const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
+export function snapTimelineRange(anchor: number, edge: number, bounds: TimeRange, unsnapped: boolean): TimeRange {
+  const step = Math.abs(edge - anchor) >= 60 * second ? 10 * second : second
+  const first = Math.ceil(bounds[0] / step) * step
+  const last = Math.floor(bounds[1] / step) * step
+  function endpoint(time: number) {
+    return unsnapped || first > last ? clamp(time, ...bounds) : clamp(Math.round(time / step) * step, first, last)
+  }
+  return [endpoint(Math.min(anchor, edge)), endpoint(Math.max(anchor, edge))]
+}
+
+export function eveTimeInRange(clock: string, previous: number, bounds: TimeRange): number | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/.exec(clock)
+  if (!match) return null
+  const offset = (Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])) * second
+  const day = 86_400 * second
+  const firstDay = Math.ceil((bounds[0] - offset) / day)
+  const lastDay = Math.floor((bounds[1] - offset) / day)
+  if (firstDay > lastDay) return null
+  // The current endpoint identifies the closest UTC day when the clock repeats.
+  const selectedDay = clamp(Math.round((previous - offset) / day), firstDay, lastDay)
+  return selectedDay * day + offset
+}
+
 export function plotScale(width: number, left: number, right: number, start: number, end: number) {
   const plotWidth = Math.max(1, width - left - right)
   return (time: number) => left + plotWidth * (time - start) / (end - start)
@@ -77,7 +100,7 @@ export function timelineData(summary: BattleSummary, analysis: Analysis | null, 
     : [start, start + second]
   const eventTimes = [...new Set([...interactions.map(({ t }) => t), ...kills.map(({ t }) => t)])].sort((a, b) => a - b)
   const primaries = analysis?.primaries.filter(({ bySide }) => bySide === ours) ?? []
-  return { full, start, damage, eventTimes, primaries }
+  return { full, activity, start, damage, eventTimes, primaries }
 }
 
 export function nextEvent(times: readonly number[], t: number) {

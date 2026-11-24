@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import type { TimeRange, usePlayback, useView } from '@/app/state/view-store'
-import { clamp, second, zoomDomain } from './model'
+import { clamp, second, snapTimelineRange, zoomDomain } from './model'
 
 interface Drag {
   id: number
@@ -31,7 +31,7 @@ function fractionAt(chart: SVGSVGElement, clientX: number, left: number, right: 
 
 export function useTimelineGestures(
   full: TimeRange, left: number, right: number, view: ReturnType<typeof useView> & ReturnType<typeof usePlayback>,
-  onDrag: () => void,
+  onDrag: () => void, activity: TimeRange,
 ) {
   const chart = useRef<SVGSVGElement>(null)
   const [width, setWidth] = useState(960)
@@ -113,7 +113,7 @@ export function useTimelineGestures(
     const time = timeAt(event)
     const mode = isTouch ? 'touch' : event.shiftKey ? 'range' : 'seek'
     drag.current = { id: event.pointerId, mode, start: time, startX: event.clientX, moved: false }
-    if (mode === 'range') setDraft([time, time])
+    if (mode === 'range') setDraft(snapTimelineRange(time, time, activity, event.altKey))
     if (mode === 'seek') {
       view.pause()
       if (!view.range || (time >= view.range[0] && time <= view.range[1])) view.seek(time)
@@ -138,7 +138,7 @@ export function useTimelineGestures(
       if (event.pointerType !== 'touch') setHover(time)
     } else if (active.id === event.pointerId) {
       const moved = Math.abs(event.clientX - active.startX) >= dragSlop
-      if (active.mode === 'range') setDraft(ordered(active.start, time))
+      if (active.mode === 'range') setDraft(snapTimelineRange(active.start, time, activity, event.altKey))
       else {
         if (!active.moved && active.mode === 'touch') {
           // Ignore the first finger's small movements while a pinch starts.
@@ -159,10 +159,11 @@ export function useTimelineGestures(
     drag.current = null
     if (event.type === 'pointerup') {
       const time = timeAt(event)
-      const selectedRange = active.mode === 'range' && time !== active.start
+      const range = active.mode === 'range' ? snapTimelineRange(active.start, time, activity, event.altKey) : null
+      const selectedRange = range && range[0] < range[1] ? range : null
       const moved = active.moved || Math.abs(event.clientX - active.startX) >= dragSlop
       if (active.mode === 'range') {
-        if (selectedRange) view.setRange(ordered(active.start, time))
+        if (selectedRange) view.setRange(selectedRange)
       } else {
         view.pause()
         if (!moved && view.range && (time < view.range[0] || time > view.range[1])) view.clearRange()

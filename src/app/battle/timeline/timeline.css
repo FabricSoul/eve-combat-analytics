@@ -285,3 +285,65 @@
   display: flow-root;
   min-block-size: calc(var(--space-6) + var(--space-1));
 }
+
+.eca-timeline-range { position: relative; }
+
+.eca-timeline-range .eca-timeline-range-chip {
+  gap: 0;
+  padding: 0;
+}
+
+.eca-timeline-range-chip button {
+  min-height: calc(var(--space-6) - 2px);
+  padding-inline: var(--space-2);
+  cursor: pointer;
+}
+
+.eca-timeline-range-chip button + button { border-inline-start: 1px solid var(--color-hair); }
+
+.eca-timeline-range-editor {
+  position: absolute;
+  z-index: 2;
+  inset-inline-start: 0;
+  bottom: calc(100% + var(--space-2));
+  width: min(270px, calc(100vw - 2 * var(--space-4)));
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  font-size: var(--fs-s);
+}
+
+.eca-timeline-range-editor > p { color: var(--color-text-2); }
+
+.eca-timeline-range-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.eca-timeline-range-fields label { display: grid; gap: var(--space-1); }
+
+.eca-timeline-range-fields input {
+  width: 100%;
+  min-height: var(--row);
+  padding-inline: var(--space-2);
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-ctl);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+}
+
+.eca-timeline-range-editor .eca-timeline-range-error { color: var(--color-text); }
+
+.eca-timeline-range-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.eca-timeline[data-compact="true"] .eca-timeline-controls { position: relative; }
+.eca-timeline[data-compact="true"] .eca-timeline-range { position: static; }

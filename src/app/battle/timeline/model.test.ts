@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { loadUiFixture } from '@/app/test/ui-fixture'
-import { timelineData, zoomDomain } from './model'
+import { eveTimeInRange, timelineData, zoomDomain } from './model'
 
 it('clamps the zoom domain to the full fight and a five-second minimum', () => {
   const full = [10_000, 110_000] as const
@@ -27,4 +27,13 @@ it('fits the axis to observed activity using small padding even while analysis i
   expect(timelineData(data, null, 0).full).toEqual([19_000, 21_000])
   const event = { ...analysis.interactions[0]!, t: 10_000 }
   expect(timelineData(data, { ...analysis, interactions: [event] }, 0).full).toEqual([9_000, 21_000])
+})
+
+it('interprets EVE clock times in UTC within a fight that crosses midnight', () => {
+  const from = Date.UTC(2025, 5, 22, 23, 50)
+  const to = Date.UTC(2025, 5, 23, 0, 10)
+  expect(eveTimeInRange('23:55:01', from, [from, to])).toBe(Date.UTC(2025, 5, 22, 23, 55, 1))
+  expect(eveTimeInRange('00:05:02', to, [from, to])).toBe(Date.UTC(2025, 5, 23, 0, 5, 2))
+  expect(eveTimeInRange('12:00:00', from, [from, to])).toBeNull()
+  expect(eveTimeInRange('24:00:00', from, [from, to])).toBeNull()
 })

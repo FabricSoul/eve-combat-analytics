@@ -6,12 +6,13 @@ import { useBattleContext } from '../state/battle-store'
 import { usePlayback, useView, type LayerId, type TimeRange } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { Portrait } from '../ui/Portrait'
-import { RangeChip, rangeLabel } from './RangeChip'
+import { rangeLabel } from './RangeChip'
 import { useTimelineGestures } from './timeline/gestures'
 import { clamp, nextEvent, plotScale, pointed, repairs, second, timelineData, timelineLayout, timelineSides } from './timeline/model'
 import { PilotLanes } from './timeline/PilotLanes'
 import { Plot } from './timeline/Plot'
 import { TimelineHelp, useTimelineHint } from './timeline/TimelineHelp'
+import { TimelineRange } from './timeline/TimelineRange'
 import './timeline/timeline.css'
 
 export interface TimelineProps {
@@ -35,9 +36,10 @@ function LayerChip({ label, on, toggle, children, disabled }: {
   </button>
 }
 
-function Controls({ view, next, canPlay, compact, draft }: {
+function Controls({ view, next, canPlay, compact, draft, activity }: {
   view: ReturnType<typeof useView> & ReturnType<typeof usePlayback>; next: number | undefined; canPlay: boolean; compact: boolean
   draft: TimeRange | null
+  activity: TimeRange
 }) {
   const nextSpeed = { 1: 2, 2: 4, 4: 8, 8: 1 } as const
   return <div className="eca-timeline-controls" role="group" aria-label="回放控制">
@@ -57,7 +59,7 @@ function Controls({ view, next, canPlay, compact, draft }: {
     <Button onClick={() => view.setSpeed(nextSpeed[view.speed])} title="回放倍速">{view.speed}×</Button>
     <time className="app-number eca-timeline-clock">{fmtHms(view.t)}</time>
     {draft ? <span className="battle-range-draft">{rangeLabel(draft)}</span>
-      : view.range && <RangeChip range={view.range} clearRange={view.clearRange} />}
+      : view.range && <TimelineRange range={view.range} bounds={activity} setRange={view.setRange} clearRange={view.clearRange} />}
   </div>
 }
 
@@ -88,7 +90,9 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
   const right = compact ? 8 : 12
   const tipId = useId()
   const { showHint, dismissHint } = useTimelineHint()
-  const { chart, width, start, end, readout, focusReadout, range, draft, events } = useTimelineGestures(data.full, left, right, view, dismissHint)
+  const activity = data.activity ?? data.full
+  const { chart, width, start, end, readout, focusReadout, range, draft, events } =
+    useTimelineGestures(data.full, left, right, view, dismissHint, activity)
   const seriesEnd = analysis?.interactions.at(-1)?.t ?? data.start
   const showRepair = !compact && layers.has('repOurs')
   const showPoint = !compact && layers.has('point')
@@ -144,7 +148,7 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
 
   return <div className="eca-timeline" data-compact={compact}>
     <div className="eca-timeline-bar">
-      <Controls view={view} next={next} canPlay={data.eventTimes.length > 0} compact={compact} draft={draft} />
+      <Controls view={view} next={next} canPlay={data.eventTimes.length > 0} compact={compact} draft={draft} activity={activity} />
       <div className="eca-timeline-options">
         {!compact && <div className="eca-timeline-layers" role="group" aria-label="时间轴图层">
           {curves.map(({ side, layer, label, color }) => <LayerChip key={side} label={`${label}伤害`}
