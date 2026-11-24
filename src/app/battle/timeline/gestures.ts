@@ -191,7 +191,7 @@ export function useTimelineGestures(
       setFocusReadout(true)
       setHover(null)
       const previous = view.range ? keyboardRange.current : null
-      const anchor = previous?.anchor ?? clamp(view.t, start, end)
+      const anchor = previous?.anchor ?? clamp(view.getTime(), start, end)
       const edge = clamp((previous?.edge ?? anchor) + direction * 10 * second, start, end)
       keyboardRange.current = { anchor, edge }
       if (edge === anchor) {
@@ -202,7 +202,7 @@ export function useTimelineGestures(
     }
     const time = {
       Home: start, End: end,
-    }[event.key] ?? (direction === undefined ? undefined : view.t + direction * second)
+    }[event.key] ?? (direction === undefined ? undefined : view.getTime() + direction * second)
     if (typeof time !== 'number') return
     event.preventDefault()
     keyboardRange.current = null

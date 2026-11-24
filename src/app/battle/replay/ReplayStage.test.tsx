@@ -122,7 +122,7 @@ it('reveals the full map weapon name while hovering its generic glyph', async ()
   const weapon = 'Test launcher without a module icon'
   await render(analysis([alpha, beta], [{ ...observation(beta.key), weapon }]), time + 250)
   const point = (name: string) => {
-    const [, x, y] = /translate3d\(([-.\d]+)px, ([-.\d]+)px/.exec(marker(name).style.transform)!
+    const [, x, y] = /translate(?:3d)?\(([-.\d]+)px, ([-.\d]+)px/.exec(marker(name).style.transform)!
     return { x: Number(x), y: Number(y) }
   }
   const { position } = projectileAt('damage', point(alpha.name), point(beta.name), 250, true, 1)
@@ -166,7 +166,7 @@ describe('replay keyboard navigation', () => {
 
   function expectBracketAt(name: string) {
     function xy(element: HTMLElement) {
-      return element.style.transform.match(/translate3d\(([^,]+), ([^,]+)/)!.slice(1).map(parseFloat)
+      return element.style.transform.match(/translate(?:3d)?\(([^,]+), ([^,)]+)/)!.slice(1).map(parseFloat)
     }
     const bracket = host.querySelector<HTMLElement>('.replay-lock[data-positioned]')!
     const [x, y] = xy(marker(name))
@@ -238,7 +238,7 @@ describe('replay keyboard navigation', () => {
 it('shows the miss tooltip when the pointer crosses the trace and hides it off the trace', async () => {
   await render(analysis([alpha, beta], [{ ...observation(beta.key), kind: 'miss', amount: 0 }]), time + 250)
   const stage = host.querySelector('.replay-stage')!
-  const xy = (name: string) => marker(name).style.transform.match(/translate3d\(([^,]+), ([^,]+)/)!.slice(1).map(parseFloat)
+  const xy = (name: string) => marker(name).style.transform.match(/translate(?:3d)?\(([^,]+), ([^,)]+)/)!.slice(1).map(parseFloat)
   const [ax, ay] = xy(alpha.name)
   const [bx, by] = xy(beta.name)
   const move = (clientX: number, clientY: number) => act(() => stage.dispatchEvent(
@@ -428,7 +428,7 @@ it('pans a zoomed touch drag that starts on a ship and keeps a tap selectable', 
   const zoom = host.querySelector<HTMLButtonElement>('[aria-label="放大"]')!
   await act(() => zoom.click())
   await refresh()
-  const coordinates = () => marker(alpha.name).style.transform.match(/translate3d\(([^,]+), ([^,]+)/)!.slice(1).map(parseFloat)
+  const coordinates = () => marker(alpha.name).style.transform.match(/translate(?:3d)?\(([^,]+), ([^,)]+)/)!.slice(1).map(parseFloat)
   const before = coordinates()
 
   function touch(type: string, x: number, y: number, element = target) {

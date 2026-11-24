@@ -14,6 +14,7 @@ import { makePainter, missedTracerAt, type MissTracer, type PaintedModule, type 
 import type { Point } from './layout-effects'
 import { createProjectilePlayback } from './projectile'
 import { placePilotLabel } from './placement'
+import { watchLabelObstacles } from './label-obstacles'
 import { deathAt, recentEngagement } from './presence'
 import type { Rect } from './placement'
 import { buildScene, makeLayout } from './scene'
@@ -36,6 +37,7 @@ interface ReplayStageProps extends Omit<ReplayFrame, 'reducedMotion' | 'pausedEl
   killmails: readonly Killmail[]
   order: readonly number[]
   select: (key: EntityKey) => void
+  getTime?: () => number
 }
 
 interface PilotMarkerProps {
@@ -96,7 +98,7 @@ function ReplayLegend({ analysis, order }: Pick<ReplayStageProps, 'analysis' | '
   )
 }
 
-export function ReplayStage({ analysis, headerActions, stage, closeFights, fightTime, killmails, order, select, t, playing, selected, focusOnly }: ReplayStageProps) {
+export function ReplayStage({ analysis, headerActions, stage, closeFights, fightTime, killmails, order, select, t, playing, getTime, selected, focusOnly }: ReplayStageProps) {
   const host = useRef<HTMLDivElement>(null)
   const { camera, zoom, reset, handlers } = useReplayCamera(host)
   const under = useRef<HTMLCanvasElement>(null)
@@ -214,6 +216,12 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       if (!disposed && animation === null) animation = requestAnimationFrame(draw)
     }
 
+    let overlayRects: Rect[] | null = null
+    const obstacles = watchLabelObstacles(element, () => {
+      overlayRects = null
+      labelKey = ''
+      schedule()
+    })
     const painter = makePainter(lineCanvas, effectsCanvas, element, schedule, playback)
     void document.fonts?.ready.then(() => {
       labelSizes = new WeakMap()
@@ -234,10 +242,12 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       animation = null
       if (!layout) return
       const { detailKey, lockedKey, camera, ...current } = frame.current
-      const { t, playing, selected } = current
+      const { playing, selected } = current
+      const t = playing && getTime ? getTime() : current.t
       const cameraChanged = paintedCamera !== camera
       paintedCamera = camera
       bracket.current?.toggleAttribute('data-camera-change', cameraChanged)
+      overlayRects ??= obstacles.measure()
       const now = performance.now()
       let pause = pauseClock.current
       if (!pause || pause.t !== t || pause.playing !== playing) {
@@ -260,7 +270,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       layout.placeVisible(present, live)
       layout.placeUnassigned(present)
       const { related, positions, bounds, misses, modules, animating, burst } = painter.paint(
-        layout, live, scene.pointSpans, present, { ...current, reducedMotion, pausedElapsed }, width, height, camera,
+        layout, live, scene.pointSpans, present, { ...current, t, reducedMotion, pausedElapsed }, width, height, camera,
       )
       missTracers.current = misses
       paintedModules.current = modules
@@ -298,7 +308,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         const keep = selected === null || selected === key || related.has(key)
         const previous = markerPositions.get(marker)
         if (x !== previous?.x || y !== previous.y) {
-          marker.style.transform = `translate3d(${x}px, ${y}px, 0)`
+          // Keep moving pilots in the stage's paint layer instead of promoting each pilot.
+          marker.style.transform = `translate(${x}px, ${y}px)`
           markerPositions.set(marker, position)
         }
         if (side === -1) marker.style.setProperty('--replay-diameter', `${node.radius * 2}px`)
@@ -350,7 +361,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       // Stable ship coordinates keep the label layout out of the transient effect draw.
       if (nextLabelKey !== labelKey) {
         labelKey = nextLabelKey
-        const occupied: Rect[] = tooltipRect ? [tooltipRect] : []
+        const occupied = [...overlayRects]
+        if (tooltipRect) occupied.push(tooltipRect)
         for (const { node, center: { x, y } } of labels) {
           const inset = node.radius + 2
           occupied.push(
@@ -365,12 +377,12 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
           const rect = placePilotLabel(center, node.radius, labelSizes.get(element)!, bounds, occupied, required)
           element.toggleAttribute('data-positioned', rect !== null)
           if (!rect) continue
-          element.style.transform = `translate3d(${rect.x}px, ${rect.y}px, 0)`
+          element.style.transform = `translate(${rect.x}px, ${rect.y}px)`
           occupied.push(rect)
         }
       }
       firstFrame = false
-      if (!reducedMotion && !playing && (animating || bursting)) schedule()
+      if (playing ? getTime !== undefined : !reducedMotion && (animating || bursting)) schedule()
     }
 
     draw()
@@ -379,9 +391,10 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       if (animation !== null) cancelAnimationFrame(animation)
       invalidate.current = () => {}
       appearanceObserver.disconnect()
+      obstacles.disconnect()
       reduced.removeEventListener('change', schedule)
     }
-  }, [layout, scene, width, height, dpr, playback, updateTargets, updateEffectTooltip])
+  }, [layout, scene, width, height, dpr, getTime, playback, updateTargets, updateEffectTooltip])
 
   useLayoutEffect(() => {
     frame.current = { t, playing, selected, focusOnly, detailKey, lockedKey, camera }

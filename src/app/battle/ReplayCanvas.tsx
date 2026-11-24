@@ -37,8 +37,8 @@ const noKillmails: readonly Killmail[] = []
 
 export function ReplayCanvas({ stage }: ReplayCanvasProps) {
   const { analysis, summary, status } = useBattleContext()
-  const { selected, focusOnly, oursSide, select } = useView()
-  const { t, playing } = usePlayback()
+  const { selected, focusOnly, oursSide, select, getTime } = useView()
+  const { t, playing } = usePlayback('coarse')
   const visibleAnalysis = useNoiseFilteredAnalysis(analysis)
   const selectRef = useRef(select)
   useLayoutEffect(() => { selectRef.current = select }, [select])
@@ -55,5 +55,5 @@ export function ReplayCanvas({ stage }: ReplayCanvasProps) {
 
   return <ReplayStage stage={stage} closeFights={stage ? <CloseFights analysis={visibleAnalysis} order={order} /> : undefined}
     fightTime={stage ? <FightTime /> : undefined} analysis={visibleAnalysis} headerActions={<ReplayNoiseControls />} killmails={summary?.meta.killmails ?? noKillmails}
-    order={order} select={selectPilot} t={t} playing={playing} selected={selected} focusOnly={focusOnly} />
+    order={order} select={selectPilot} t={t} playing={playing} getTime={getTime} selected={selected} focusOnly={focusOnly} />
 }

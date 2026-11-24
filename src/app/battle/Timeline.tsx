@@ -36,8 +36,9 @@ function LayerChip({ label, on, toggle, children, disabled }: {
   </button>
 }
 
-function Controls({ view, next, canPlay, compact, draft, activity }: {
+function Controls({ view, next, skip, canPlay, compact, draft, activity }: {
   view: ReturnType<typeof useView> & ReturnType<typeof usePlayback>; next: number | undefined; canPlay: boolean; compact: boolean
+  skip: () => void
   draft: TimeRange | null
   activity: TimeRange
 }) {
@@ -50,7 +51,7 @@ function Controls({ view, next, canPlay, compact, draft, activity }: {
       {view.playing ? '暂停' : '播放'}
     </Button>
     <Button aria-label="下一事件" title="下一事件" disabled={next === undefined}
-      onClick={() => { if (next !== undefined) view.seek(next) }}>
+      onClick={skip}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <path d="m5 5 12 7-12 7zM19 5v14" strokeLinejoin="round" />
       </svg>
@@ -63,13 +64,22 @@ function Controls({ view, next, canPlay, compact, draft, activity }: {
   </div>
 }
 
+function TimelinePlayhead({ width, left, right, start, end, bottom }: {
+  width: number; left: number; right: number; start: number; end: number; bottom: number
+}) {
+  const { t } = usePlayback()
+  if (t < start || t > end) return null
+  const x = plotScale(width, left, right, start, end)(t)
+  return <line x1={x} x2={x} y1="2" y2={bottom} stroke="var(--color-accent)" strokeWidth="2" />
+}
+
 function TimelineRoom({ compact, separateLanes, summary, analysis }: {
   compact: boolean
   separateLanes: boolean
   summary: BattleSummary
   analysis: Analysis | null
 }) {
-  const view = { ...useView(), ...usePlayback() }
+  const view = { ...useView(), ...usePlayback('coarse') }
   const { layers, oursSide } = view
   const [hidden, setHidden] = useState<ReadonlySet<number>>(() => new Set())
   const data = useMemo(() => timelineData(summary, analysis, oursSide), [summary, analysis, oursSide])
@@ -120,8 +130,15 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
     target.start <= readout && target.end >= readout && (!current || current.start <= target.start) ? target : current,
   undefined) : undefined
   const primaryEntity = primary ? analysis?.entities[primary.target] : undefined
-  const eventTime = nextEvent(data.eventTimes, view.t)
-  const next = eventTime !== undefined && (!view.range || eventTime <= view.range[1]) ? eventTime : undefined
+  function nextAt(time: number) {
+    const event = nextEvent(data.eventTimes, time)
+    return event !== undefined && (!view.range || event <= view.range[1]) ? event : undefined
+  }
+
+  function skip() {
+    const next = nextAt(view.getTime())
+    if (next !== undefined) view.seek(next)
+  }
 
   function toggleSide(side: number, layer: LayerId | undefined) {
     if (layer) return view.toggleLayer(layer)
@@ -149,7 +166,7 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
 
   return <div className="eca-timeline" data-compact={compact} data-workspace={separateLanes || undefined}>
     <div className="eca-timeline-bar">
-      <Controls view={view} next={next} canPlay={data.eventTimes.length > 0} compact={compact} draft={draft} activity={activity} />
+      <Controls view={view} next={nextAt(view.t)} skip={skip} canPlay={data.eventTimes.length > 0} compact={compact} draft={draft} activity={activity} />
       {separateLanes && hint}
       <div className="eca-timeline-options">
         {!compact && <div className="eca-timeline-layers" role="group" aria-label="时间轴图层">
@@ -180,7 +197,7 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
           {brush && <rect x={brush.x} y="4" width={brush.width}
             height={Math.max(1, bottom - 6)} fill="var(--color-sel)" stroke="var(--color-accent-line)" strokeDasharray="3 3" />}
           {readoutOnPlot && <line x1={x(readout)} x2={x(readout)} y1="2" y2={bottom} stroke="var(--color-text-3)" />}
-          {cursorX !== null && <line x1={cursorX} x2={cursorX} y1="2" y2={bottom} stroke="var(--color-accent)" strokeWidth="2" />}
+          <TimelinePlayhead width={width} left={left} right={right} start={start} end={end} bottom={bottom} />
         </g>
       </svg>
       {readoutOnPlot && <div id={tipId} className="eca-timeline-tip" role="tooltip" style={{ '--hover-x': `${x(readout)}px` } as CSSProperties}>

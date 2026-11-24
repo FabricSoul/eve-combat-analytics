@@ -124,6 +124,60 @@ export class BattleRoom extends ProductionRoom {
     return { context, page, frames, errors }
   }
 
+  async function checkReplayCadence(page) {
+    const start = page.url()
+    const controls = page.getByRole('group', { name: '回放控制' })
+    let best = 0
+    for (let sample = 0; sample < 3; sample++) {
+      if (sample > 0) await page.goto(start)
+      await page.locator('.replay-marker[data-present] .replay-pilot').first().waitFor()
+      await page.evaluate(() => document.fonts.ready)
+      await controls.getByRole('button', { name: '1×', exact: true }).click()
+      await controls.getByRole('button', { name: '2×', exact: true }).click()
+      await controls.getByRole('button', { name: '4×', exact: true }).waitFor()
+      await page.evaluate(() => {
+        const ctx = document.querySelector('.replay-layer').getContext('2d')
+        const clear = ctx.clearRect
+        window.replayPaintTimes = []
+        ctx.clearRect = function (...bounds) {
+          window.replayPaintTimes.push(performance.now())
+          return clear.apply(this, bounds)
+        }
+      })
+      await controls.getByRole('button', { name: '播放', exact: true }).click()
+      const fps = await page.evaluate(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 6_000))
+        const times = window.replayPaintTimes
+        const frames = times.filter((time) => time >= times[0] + 750)
+        return frames.length < 2 ? 0 : 1000 * (frames.length - 1) / (frames.at(-1) - frames[0])
+      })
+      await controls.getByRole('button', { name: '暂停', exact: true }).click()
+      best = Math.max(best, fps)
+      console.log(`Full workspace at 4×, sample ${sample + 1}: ${fps.toFixed(1)} painted fps`)
+      if (best >= 38) break
+    }
+    assert.ok(best >= 38, `full workspace at 4× paints at least 38 fps, measured ${best.toFixed(1)}`)
+  }
+
+  async function assertClearPilotLabels(page) {
+    const covered = await page.locator('.replay-stage').evaluate(async (stage) => {
+      // Let observer-driven placement run after an overlay opens or moves.
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      const obstacles = [...stage.querySelectorAll('.replay-control-trigger, .replay-noise summary, .replay-zoom')]
+      for (const trigger of [...obstacles]) {
+        const panel = document.getElementById(trigger.getAttribute('aria-controls') ?? '')
+        if (panel) obstacles.push(panel)
+      }
+      const bounds = obstacles.map((node) => node.getBoundingClientRect())
+      return [...stage.querySelectorAll('.replay-pilot-label[data-positioned]')].filter((label) => {
+        const rect = label.getBoundingClientRect()
+        return bounds.some((box) => rect.right > box.left && rect.left < box.right
+          && rect.bottom > box.top && rect.top < box.bottom)
+      }).map((label) => label.textContent)
+    })
+    assert.deepEqual(covered, [], 'pilot names avoid replay buttons and open overlay windows')
+  }
+
   async function checkReplayOverlays(page, width, height) {
     const stage = page.getByRole('region', { name: '回放舞台' })
     const replay = page.getByRole('region', { name: '回放', exact: true })
@@ -183,6 +237,7 @@ export class BattleRoom extends ProductionRoom {
       return box
     }
     const initial = await checkLegend()
+    await assertClearPilotLabels(page)
     await page.screenshot({ path: join(output, `replay-overlays-${width}x${height}-dark.png`) })
     const bar = await legend.getByRole('group', { name: '交互图例 标题栏' }).boundingBox()
     await page.mouse.move(bar.x + 18, bar.y + 15)
@@ -190,6 +245,7 @@ export class BattleRoom extends ProductionRoom {
     await page.mouse.move(bar.x + 340, bar.y + 314, { steps: 5 })
     await page.mouse.up()
     const moved = await checkLegend()
+    await assertClearPilotLabels(page)
     assert.ok(moved.x > initial.x && moved.y > initial.y && moved.y + moved.height > stageBox.y + stageBox.height,
       'the legend can move past the stage into the module area')
     await legend.getByRole('button', { name: '收起 交互图例' }).click()
@@ -495,6 +551,10 @@ export class BattleRoom extends ProductionRoom {
 
   // Pause in the board's active replay sequence at the same time in every capture.
   const screenshotTime = Date.parse('2025-06-22T15:43:02.420Z')
+  if (process.env.PERF === '1') {
+    const perf = await open(1280, 800, 'dark', undefined, `?t=${screenshotTime}`)
+    try { await checkReplayCadence(perf.page) } finally { await perf.context.close() }
+  }
   for (const [width, height, theme, motion] of [
     [1280, 800, 'dark'], [1280, 800, 'light'], [1630, 940, 'dark'], [900, 800, 'dark'], [900, 800, 'light'],
     [390, 844, 'dark'], [390, 844, 'light'], [390, 844, 'dark', 'reduce'],
@@ -511,7 +571,10 @@ export class BattleRoom extends ProductionRoom {
       assert.equal(await shot.page.locator('[data-module-area]').count(), width >= 1100 ? 3 : 2)
       assert.equal(await shot.page.locator('.battle-layout').getAttribute('data-density'), 'compact')
     }
-    if (width >= 1280 && theme === 'dark') await checkReplayOverlays(shot.page, width, height)
+    if (width >= 1280 && theme === 'dark') {
+      await assertClearPilotLabels(shot.page)
+      await checkReplayOverlays(shot.page, width, height)
+    }
     if (width === 1280 && theme === 'dark') {
       const page = shot.page
       const feed = page.locator('[data-module="feed"]')
@@ -581,6 +644,7 @@ export class BattleRoom extends ProductionRoom {
       await page.getByRole('dialog', { name: '时间轴用法' }).waitFor({ state: 'hidden' })
       await page.locator('.replay-noise summary').click()
       await page.getByRole('checkbox', { name: '隐藏无人机/战斗机伤害' }).check()
+      await assertClearPilotLabels(page)
       await page.keyboard.press('Escape')
       assert.equal(await page.locator('.replay-noise[open]').count(), 0)
       await page.locator('.replay-noise summary').click()
