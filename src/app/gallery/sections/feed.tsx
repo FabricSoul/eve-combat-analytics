@@ -31,10 +31,10 @@ function Box({ label, width, mode, compact }: { label: ReactNode; width: number;
 function FeedSection() {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-4)', alignItems: 'start' }}>
+      <Box label="逐条（默认）" width={460} mode="raw" />
       <Box label="合并同类（最后时间 · 总量 ×次数）" width={460} mode="merged" />
-      <Box label="逐条" width={460} mode="raw" />
       <Box label="只看关键" width={460} mode="key" />
-      <Box label="窄栏（< 340）：时间分隔行代替时间列" width={300} mode="merged" />
+      <Box label="窄栏（≤ 400）：时间分隔行代替时间列" width={300} mode="raw" />
     </div>
   )
 }

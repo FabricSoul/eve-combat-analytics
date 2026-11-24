@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import { CompareTable } from '../battle/CompareTable'
 import { BattleProvider } from './battle-store'
-import { useCoarseTime, usePlayback, useView, ViewProvider } from './view-store'
+import { feedModeStorageKey, useCoarseTime, usePlayback, useView, ViewProvider } from './view-store'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -123,4 +123,29 @@ it('starts, seeks, plays and restarts within the active range', () => {
   } finally {
     act(() => root.unmount())
   }
+})
+
+it('shows each event by default and keeps the mode the user picked across a reload', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  localStorage.removeItem(feedModeStorageKey)
+  let view!: ReturnType<typeof useView>
+  function Probe() { view = useView(); return null }
+  const mount = () => {
+    const root = createRoot(document.createElement('div'))
+    act(() => root.render(createElement(ViewProvider, null, createElement(Probe))))
+    return root
+  }
+  let root = mount()
+  expect(view.feedMode).toBe('raw')
+  act(() => view.setFeedMode('merged'))
+  expect(localStorage.getItem(feedModeStorageKey)).toBe('merged')
+  act(() => root.unmount())
+  root = mount()
+  expect(view.feedMode).toBe('merged')
+  localStorage.setItem(feedModeStorageKey, 'nonsense')
+  act(() => root.unmount())
+  root = mount()
+  expect(view.feedMode).toBe('raw')
+  act(() => root.unmount())
+  localStorage.removeItem(feedModeStorageKey)
 })

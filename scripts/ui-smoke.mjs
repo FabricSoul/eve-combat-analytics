@@ -267,7 +267,8 @@ export class BattleRoom extends ProductionRoom {
 
   const phone = await open(390, 844, 'light', 'reduce')
   const phonePage = phone.page
-  const feedMode = phonePage.getByRole('button', { name: '合并同类' })
+  const feedMode = phonePage.getByRole('button', { name: '逐条' })
+  assert.equal(await feedMode.getAttribute('aria-pressed'), 'true', 'phone feed shows each event by default')
   assert.ok((await feedMode.boundingBox())?.height >= 44, 'phone feed mode has a 44px touch target')
   assert.equal(await phonePage.getByRole('slider', { name: '回放时间' }).getAttribute('height'), '64')
   assert.equal((await phonePage.getByRole('banner').boundingBox())?.height, 44)

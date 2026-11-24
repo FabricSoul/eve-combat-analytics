@@ -36,8 +36,16 @@ const mode = (el: HTMLElement, label: string) => act(() =>
   [...el.querySelectorAll<HTMLButtonElement>('.feed-modes button')].find((b) => b.textContent === label)!.click())
 
 describe('EventFeed', () => {
+  it('shows each event (逐条) by default, not merged by kind', () => {
+    const el = mount()
+    expect(el.querySelector('.feed-modes [aria-pressed="true"]')?.textContent).toBe('逐条')
+    expect(headers(el)).toEqual(['时间', '出手', '用', '对象', '数值'])
+    expect(rows(el).length).toBeGreaterThan(2)
+  })
+
   it('merged: column headers, last time, count ×n and total, newest row current', () => {
     const el = mount()
+    mode(el, '合并同类')
     expect(headers(el)).toEqual(['最后时间', '出手', '用', '对象', '总量 ×次数'])
     const [first, second] = rows(el)
     expect(first?.textContent).toContain(fmtHms(T - 1_000))
@@ -78,6 +86,8 @@ describe('EventFeed', () => {
 
   it('compact: time separator rows instead of a time column', () => {
     const el = mount({ compact: true })
+    expect(headers(el)).toEqual(['出手', '用', '对象', '数值'])
+    mode(el, '合并同类')
     expect(headers(el)).toEqual(['出手', '用', '对象', '总量 ×次数'])
     expect([...el.querySelectorAll('.feed-sep')].map((s) => s.textContent)).toEqual([fmtHms(T - 1_000), fmtHms(T - 2_000)])
     expect(rows(el)[0]?.querySelector('.feed-time')).toBeNull()

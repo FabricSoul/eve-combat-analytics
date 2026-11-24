@@ -110,10 +110,10 @@ export function EventFeed({ compact: forcedCompact, search, onSearchClose, showF
   function renderRows() {
     let lastSeparator: number | null = null
     return rows.flatMap((row) => {
-      const separator = compact && mode === 'merged' && row.lastT !== lastSeparator
+      const separator = compact && mode !== 'key' && row.lastT !== lastSeparator
         ? [<div key={`sep-${row.id}`} className="feed-sep">{fmtHms(row.lastT)}</div>] : []
       lastSeparator = row.lastT
-      const time = compact && mode === 'merged' ? null : <span className="feed-time">{fmtHms(row.lastT)}</span>
+      const time = compact && mode !== 'key' ? null : <span className="feed-time">{fmtHms(row.lastT)}</span>
       const current = row.current ? { 'aria-current': 'true' as const } : {}
       const selected = view.selected !== null && (view.selected === row.from || view.selected === row.to || view.selected === row.victim)
       if (mode === 'key') {
@@ -128,9 +128,9 @@ export function EventFeed({ compact: forcedCompact, search, onSearchClose, showF
     })
   }
 
-  const compactHead = compact && mode === 'merged'
+  const compactHead = compact && mode !== 'key'
   const heads = mode === 'key' ? ['时间', '', '事件']
-    : compactHead ? ['出手', '用', '对象', '总量 ×次数']
+    : compactHead ? ['出手', '用', '对象', mode === 'merged' ? '总量 ×次数' : '数值']
       : [mode === 'merged' ? '最后时间' : '时间', '出手', '用', '对象', mode === 'merged' ? '总量 ×次数' : '数值']
 
   return (

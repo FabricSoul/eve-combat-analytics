@@ -6,6 +6,23 @@ import type { EntityKey } from '@/core/contract'
 
 export type LayerId = 'dmgOurs' | 'dmgTheirs' | 'primary' | 'repOurs' | 'point' | 'kills' | 'killIcons'
 export type FeedMode = 'merged' | 'raw' | 'key'
+/** Each event, not merged by kind (user decision 2026-11-24). */
+export const defaultFeedMode: FeedMode = 'raw'
+export const feedModeStorageKey = 'eca.feedMode'
+
+/** The mode the user last chose on this device, else the default. */
+export function readFeedMode(storage: Pick<Storage, 'getItem'> = window.localStorage): FeedMode {
+  try {
+    const value = storage.getItem(feedModeStorageKey)
+    return value === 'merged' || value === 'raw' || value === 'key' ? value : defaultFeedMode
+  } catch {
+    return defaultFeedMode
+  }
+}
+
+function writeFeedMode(mode: FeedMode, storage: Pick<Storage, 'setItem'> = window.localStorage) {
+  try { storage.setItem(feedModeStorageKey, mode) } catch { /* A private window keeps the choice for this visit only. */ }
+}
 export type DrawerTab = 'stats' | 'fit' | 'events'
 export type PanelTab = 'roster' | 'compare' | 'hits' | 'kills' | 'fit'
 export type PlaybackSpeed = 1 | 2 | 4 | 8
@@ -119,7 +136,11 @@ export function ViewProvider({
   const [speed, setSpeed] = useState<PlaybackSpeed>(1)
   const [focusOnly, setFocusOnly] = useState(false)
   const [layers, setLayers] = useState<ReadonlySet<LayerId>>(() => new Set(defaultLayers))
-  const [feedMode, setFeedMode] = useState<FeedMode>('merged')
+  const [feedMode, setFeedModeState] = useState<FeedMode>(() => syncUrl ? readFeedMode() : defaultFeedMode)
+  const setFeedMode = useCallback((mode: FeedMode) => {
+    setFeedModeState(mode)
+    if (syncUrl) writeFeedMode(mode)
+  }, [syncUrl])
   const [drawerTab, setDrawerTab] = useState<DrawerTab>('stats')
   const [panelTab, setPanelTab] = useState<PanelTab>('roster')
   const [includeUnidentified, setIncludeUnidentified] = useState<ReadonlySet<PilotModule>>(() => new Set())
