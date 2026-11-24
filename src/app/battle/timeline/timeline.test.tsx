@@ -51,6 +51,7 @@ function pointer(type: string, clientX: number, shiftKey = false, pointerId = 1,
 }
 
 beforeEach(() => {
+  localStorage.clear()
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   restore = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(bounds)
   host = document.createElement('div')
@@ -66,6 +67,80 @@ afterEach(async () => {
 })
 
 describe('timeline', () => {
+  it('opens the usage list from a focusable help button and returns focus on Escape', async () => {
+    await render()
+    const trigger = button('时间轴用法')
+    expect(trigger?.textContent).toBe('?')
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    await act(() => trigger.focus())
+    expect(document.activeElement).toBe(trigger)
+    // jsdom does not translate a button's Enter/Space into its native click.
+    await click('时间轴用法')
+    const popover = host.querySelector('[role="dialog"][aria-label="时间轴用法"]')!
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    expect(trigger.getAttribute('aria-controls')).toBe(popover.id)
+    expect(document.activeElement).toBe(popover)
+    expect([...popover.querySelectorAll('li')].map((row) => row.textContent)).toEqual([
+      '点击跳到某一刻',
+      '拖动拖进度',
+      'Shift+拖动选一段（只看这段）',
+      'Esc 取消选段',
+      '滚轮/双指缩放',
+      '方向键逐秒，Shift+方向键以十秒为单位扩展选段',
+      'Home/End 跳到当前视图的开头/结尾',
+    ])
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    await act(() => popover.dispatchEvent(escape))
+    expect(escape.defaultPrevented).toBe(true)
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(popover.hasAttribute('hidden')).toBe(true)
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('remembers an explicitly dismissed first-visit hint across remounts', async () => {
+    await render()
+    expect(host.textContent).toContain('Shift+拖动可以只看一段')
+    await click('关闭时间轴提示')
+    expect(host.textContent).not.toContain('Shift+拖动可以只看一段')
+    await act(() => root.unmount())
+    root = createRoot(host)
+    await render()
+    expect(host.textContent).not.toContain('Shift+拖动可以只看一段')
+  })
+
+  it('keeps the hint on a click and dismisses it after a completed timeline drag', async () => {
+    await render()
+    const from = xAt(start + 30_000)
+    const to = xAt(start + 60_000)
+    await pointer('pointerdown', from)
+    await pointer('pointerup', from)
+    expect(host.textContent).toContain('Shift+拖动可以只看一段')
+    await pointer('pointerdown', from, true)
+    await pointer('pointermove', to, true)
+    await pointer('pointerup', to, true)
+    expect(view.range).toEqual([start + 30_000, start + 60_000])
+    expect(host.textContent).not.toContain('Shift+拖动可以只看一段')
+    await act(() => root.unmount())
+    root = createRoot(host)
+    await render()
+    expect(host.textContent).not.toContain('Shift+拖动可以只看一段')
+  })
+
+  it('can dismiss the hint when browser storage is unavailable', async () => {
+    const reject = () => { throw new Error('Storage disabled') }
+    const read = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(reject)
+    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(reject)
+    try {
+      await render()
+      expect(host.textContent).toContain('Shift+拖动可以只看一段')
+      await click('关闭时间轴提示')
+      expect(host.textContent).not.toContain('Shift+拖动可以只看一段')
+    } finally {
+      read.mockRestore()
+      write.mockRestore()
+    }
+  })
+
   it('uses the accent token for the playback cursor stroke', async () => {
     await render()
     const cursor = chart().querySelector('g[pointer-events="none"] > line[stroke-width="2"]')

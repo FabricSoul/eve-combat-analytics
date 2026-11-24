@@ -9,6 +9,7 @@ import { Portrait } from '../ui/Portrait'
 import { useTimelineGestures } from './timeline/gestures'
 import { clamp, nextEvent, pointed, repairs, second, timelineData, timelineLayout, timelineSides } from './timeline/model'
 import { Plot } from './timeline/Plot'
+import { TimelineHelp, useTimelineHint } from './timeline/TimelineHelp'
 import './timeline/timeline.css'
 
 export interface TimelineProps {
@@ -79,7 +80,8 @@ function TimelineRoom({ compact, summary, analysis }: {
   const left = compact ? 8 : 72
   const right = compact ? 8 : 12
   const tipId = useId()
-  const { chart, width, start, end, readout, focusReadout, range, events } = useTimelineGestures(data.full, left, right, view)
+  const { showHint, dismissHint } = useTimelineHint()
+  const { chart, width, start, end, readout, focusReadout, range, events } = useTimelineGestures(data.full, left, right, view, dismissHint)
   const seriesEnd = analysis?.interactions.at(-1)?.t ?? data.start
   const showRepair = !compact && layers.has('repOurs')
   const showPoint = !compact && layers.has('point')
@@ -124,16 +126,26 @@ function TimelineRoom({ compact, summary, analysis }: {
   return <div className="eca-timeline" data-compact={compact}>
     <div className="eca-timeline-bar">
       <Controls view={view} next={nextEvent(data.eventTimes, view.t)} canPlay={data.eventTimes.length > 0} compact={compact} />
-      {!compact && <div className="eca-timeline-layers" role="group" aria-label="时间轴图层">
-        {curves.map(({ side, layer, label, color }) => <LayerChip key={side} label={`${label}伤害`}
-          on={layer ? layers.has(layer) : !hidden.has(side)} toggle={() => toggleSide(side, layer)}><Dot color={color} /></LayerChip>)}
-        {layerChip('primary', '主目标')}
-        {layerChip('repOurs', '我方维修', 'var(--color-repair)')}
-        {layerChip('point', '点人')}
-        {layerChip('kills', '击毁')}
-        {layerChip('killIcons', '击毁用舰船图标', undefined, !layers.has('kills'))}
-      </div>}
+      <div className="eca-timeline-options">
+        {!compact && <div className="eca-timeline-layers" role="group" aria-label="时间轴图层">
+          {curves.map(({ side, layer, label, color }) => <LayerChip key={side} label={`${label}伤害`}
+            on={layer ? layers.has(layer) : !hidden.has(side)} toggle={() => toggleSide(side, layer)}><Dot color={color} /></LayerChip>)}
+          {layerChip('primary', '主目标')}
+          {layerChip('repOurs', '我方维修', 'var(--color-repair)')}
+          {layerChip('point', '点人')}
+          {layerChip('kills', '击毁')}
+          {layerChip('killIcons', '击毁用舰船图标', undefined, !layers.has('kills'))}
+        </div>}
+        <TimelineHelp />
+      </div>
     </div>
+    {showHint && <div className="eca-timeline-hint">
+      <span>Shift+拖动可以只看一段</span>
+      <Button variant="ghost" aria-label="关闭时间轴提示" onClick={(event) => {
+        dismissHint()
+        if (event.detail === 0) chart.current?.focus({ preventScroll: true })
+      }}>×</Button>
+    </div>}
     <div className="eca-timeline-plot">
       <svg ref={chart} data-timeline-chart="" data-domain-start={start} data-domain-end={end}
         width="100%" height={layout.height} viewBox={`0 0 ${width} ${layout.height}`}

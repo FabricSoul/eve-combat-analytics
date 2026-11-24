@@ -16,6 +16,7 @@ interface Pinch {
   domain: TimeRange
 }
 
+const dragSlop = 4
 const ordered = (a: number, b: number): TimeRange => a <= b ? [a, b] : [b, a]
 const pinchGeometry = (points: Map<number, number>) => {
   const [left, right] = points.values()
@@ -30,6 +31,7 @@ function fractionAt(chart: SVGSVGElement, clientX: number, left: number, right: 
 
 export function useTimelineGestures(
   full: TimeRange, left: number, right: number, view: ReturnType<typeof useView> & ReturnType<typeof usePlayback>,
+  onDrag: () => void,
 ) {
   const chart = useRef<SVGSVGElement>(null)
   const [width, setWidth] = useState(960)
@@ -135,16 +137,17 @@ export function useTimelineGestures(
     if (!active) {
       if (event.pointerType !== 'touch') setHover(time)
     } else if (active.id === event.pointerId) {
+      const moved = Math.abs(event.clientX - active.startX) >= dragSlop
       if (active.mode === 'range') setDraft(ordered(active.start, time))
       else {
         if (!active.moved && active.mode === 'touch') {
           // Ignore the first finger's small movements while a pinch starts.
-          if (Math.abs(event.clientX - active.startX) < 4) return
+          if (!moved) return
           view.pause()
         }
         view.seek(time)
       }
-      active.moved = true
+      active.moved ||= moved
     }
   }
 
@@ -156,12 +159,14 @@ export function useTimelineGestures(
     drag.current = null
     if (event.type === 'pointerup') {
       const time = timeAt(event)
+      const selectedRange = active.mode === 'range' && time !== active.start
       if (active.mode === 'range') {
-        if (time !== active.start) view.setRange(ordered(active.start, time))
+        if (selectedRange) view.setRange(ordered(active.start, time))
       } else {
         view.pause()
         view.seek(time)
       }
+      if (selectedRange || active.moved || Math.abs(event.clientX - active.startX) >= dragSlop) onDrag()
     }
     setDraft(null)
   }
