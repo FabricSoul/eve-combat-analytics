@@ -227,10 +227,22 @@ export class BattleStorage {
     this.sql.exec('INSERT OR IGNORE INTO affiliation_history VALUES (?, ?, ?)', kind, id, owner)
   }
 
+  private fitRows(legacyOnly = false): FitRow[] {
+    const hasMutations = this.hasColumn('fits', 'mutated')
+    const mutations = hasMutations ? 'mutated' : 'NULL AS mutated'
+    const where = hasMutations && legacyOnly ? 'WHERE mutated IS NULL' : ''
+    return this.sql.exec<FitRow>(`SELECT charId, eft, setAt, ${mutations} FROM fits ${where} ORDER BY charId`).toArray()
+  }
+
+  legacyFits(): FitEntry[] {
+    return this.fitRows(true).map(({ charId, eft, setAt }) => ({ charId, eft, setAt }))
+  }
+
   private fitsAndNames(): Pick<BattleState, 'fits' | 'names'> {
-    const mutations = this.hasColumn('fits', 'mutated') ? 'mutated' : 'NULL AS mutated'
-    const fits = this.sql.exec<FitRow>(`SELECT charId, eft, setAt, ${mutations} FROM fits ORDER BY charId`).toArray()
-      .map(({ mutated, ...fit }): FitEntry => mutated === null ? fit : { ...fit, mutated: JSON.parse(mutated) })
+    const fits = this.fitRows().map(({ mutated, ...fit }): FitEntry => {
+      const names: string[] | undefined = mutated === null ? undefined : JSON.parse(mutated)
+      return names?.length ? { ...fit, mutated: names } : fit
+    })
     return { fits, names: this.nameIndex() }
   }
 
@@ -432,13 +444,29 @@ export class BattleStorage {
     return { id, charId, charName, side, corpId, allyId, events: parsed.events.length, uploadedAt, ...details }
   }
 
+  private ensureFitMutationColumn(): void {
+    if (!this.hasColumn('fits', 'mutated')) this.sql.exec('ALTER TABLE fits ADD COLUMN mutated TEXT')
+  }
+
+  recoverFitMutations({ charId, eft, setAt }: FitEntry, mutated: string[]): boolean {
+    return this.storage.transactionSync(() => {
+      this.ensureFitMutationColumn()
+      // The fit may have been edited or removed while ESI was in flight.
+      return this.sql.exec(
+        'UPDATE fits SET mutated = ? WHERE charId = ? AND eft = ? AND setAt = ? AND mutated IS NULL',
+        JSON.stringify(mutated), charId, eft, setAt,
+      ).rowsWritten > 0
+    })
+  }
+
   setFit({ charId, eft, setAt, mutated }: FitEntry): void {
     this.storage.transactionSync(() => {
-      if (!this.hasColumn('fits', 'mutated')) this.sql.exec('ALTER TABLE fits ADD COLUMN mutated TEXT')
+      this.ensureFitMutationColumn()
       this.sql.exec(
         `INSERT INTO fits (charId, eft, setAt, mutated) VALUES (?, ?, ?, ?)
           ON CONFLICT(charId) DO UPDATE SET eft = excluded.eft, setAt = excluded.setAt, mutated = excluded.mutated`,
-        charId, eft, setAt, mutated === undefined ? null : JSON.stringify(mutated),
+        // NULL identifies legacy rows. An empty list records a save without substitutions.
+        charId, eft, setAt, JSON.stringify(mutated ?? []),
       )
       this.markAnalysisDirty()
     })

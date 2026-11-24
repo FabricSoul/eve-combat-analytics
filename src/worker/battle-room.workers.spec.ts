@@ -2,10 +2,11 @@
 import { env, exports as worker } from 'cloudflare:workers'
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test'
 import { expect, it, vi } from 'vitest'
+import leshak from '../../fixtures/real/j125990-20250622/killmail-128067587.json'
 import * as battleAnalysis from '../core/analysis/analyze'
 import { sideOf } from '../core/br/normalize'
-import type { Analysis, BattleSummary, ServerMessage, SideOverride, UploadedLog, UploadedLogSummary, UploadResult } from '../core/contract'
-import router from './index'
+import type { Analysis, BattleSummary, FitEntry, KillmailFit, ServerMessage, SideOverride, UploadedLog, UploadedLogSummary, UploadResult } from '../core/contract'
+import router, { createWorker } from './index'
 import type { Env } from './index'
 import { packJson } from './storage'
 import { brId, end, largeMeta, meta, now, parseGamelog, realFightId, start, teams } from './test/entry'
@@ -296,6 +297,54 @@ it('persists killmail substitutions for reload and a second live viewer, then cl
   } finally {
     editor.close()
     viewer.close()
+  }
+})
+
+it.each([
+  { room: 992, edited: false },
+  { room: 993, edited: true },
+])('recovers legacy killmail substitutions only for matching EFT (edited: $edited)', async ({ room, edited }) => {
+  const id = await prepare(room)
+  const stub = env.BATTLE.getByName(id)
+  const killmail = env.REAL_FIGHT_INFO.meta.killmails.find(({ id }) => id === leshak.killmail_id)!
+  const esiUrl = `https://esi.evetech.net/latest/killmails/${killmail.id}/${killmail.hash}/`
+  const esiFetch = vi.fn<typeof fetch>(async (input) => {
+    if (input !== esiUrl) throw new Error(`Unexpected upstream request: ${String(input)}`)
+    return Response.json(leshak)
+  })
+  const imported = await createWorker(esiFetch).fetch(
+    new Request(`https://import.example/api/killmails/${killmail.id}/${killmail.hash}/fit`), env,
+  )
+  expect(imported.status).toBe(200)
+  const { eft } = await imported.json<KillmailFit>()
+  const oldFit: FitEntry = {
+    charId: leshak.victim.character_id, eft: edited ? `${eft}\nDamage Control II` : eft, setAt: now - 1,
+  }
+  const chunks = await packJson({ ...meta, brId: id, killmails: [killmail] })
+  await runInDurableObject(stub, (_, { storage }) => {
+    storage.sql.exec('DELETE FROM meta_chunks')
+    chunks.forEach((chunk, seq) => storage.sql.exec('INSERT INTO meta_chunks VALUES (?, ?)', seq, chunk))
+    storage.sql.exec('INSERT INTO fits (charId, eft, setAt) VALUES (?, ?, ?)', oldFit.charId, oldFit.eft, oldFit.setAt)
+  })
+
+  const expected = edited ? oldFit : { ...oldFit, mutated: ['Entropic Radiation Sink II'] }
+  esiFetch.mockClear()
+  vi.stubGlobal('fetch', esiFetch)
+  try {
+    expect((await state(id)).fits).toEqual([expected])
+    expect(esiFetch).toHaveBeenCalledTimes(1)
+    await evictDurableObject(stub)
+    const viewer = await connect(id)
+    try {
+      const snapshot = await viewer.next()
+      expect(snapshot.type === 'snapshot' && snapshot.state.fits).toEqual([expected])
+      expect((await state(id)).fits).toEqual([expected])
+      expect(esiFetch).toHaveBeenCalledTimes(1)
+    } finally {
+      viewer.close()
+    }
+  } finally {
+    vi.unstubAllGlobals()
   }
 })
 
