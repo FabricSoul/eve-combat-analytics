@@ -16,7 +16,13 @@
 .kills-row--sel { background: var(--color-sel); box-shadow: inset 2px 0 0 var(--color-accent-line); }
 .kills-time { color: var(--color-text-3); }
 .kills-ship { position: relative; display: inline-flex; width: 28px; height: 28px; }
-.kills-type { position: absolute; right: -4px; bottom: 0; border: 1px solid var(--color-surface); }
+.kills-ship .kills-type {
+  position: absolute;
+  right: -4px;
+  bottom: 0;
+  border: 1px solid var(--color-surface);
+  border-radius: var(--radius-ctl);
+}
 .kills-who { display: flex; flex-direction: column; min-width: 0; }
 .kills-name, .kills-sub { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .kills-sub { color: var(--color-text-3); font-size: 11px; }

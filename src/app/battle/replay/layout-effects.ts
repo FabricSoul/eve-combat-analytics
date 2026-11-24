@@ -9,13 +9,14 @@ export function sideAnchors(order: readonly number[], width: number, height: num
   if (ours === undefined) return anchors
   if (populations) opponents.sort((a, b) => (populations.get(b) ?? 0) - (populations.get(a) ?? 0))
   // Quarter turns from the right in screen coordinates.
-  const cardinal = [2, 0, -1, 1]
+  const cardinal = [2, 0, order.length === 3 ? -1 : 1, -1]
   for (const [index, side] of [ours, ...opponents].entries()) {
     let turn = cardinal[index]!
     if (order.length >= 5 && index > 0) {
-      // Reserve the leftmost position. Start at the lower of the two rightmost positions for odd counts.
-      const offset = (Math.floor(order.length / 2) + index - 2) % opponents.length + 1
-      turn = 2 - 4 * offset / order.length
+      // Skip the left slot. Odd counts start half a slot clockwise from the right.
+      const skipLeft = index > Math.floor(order.length / 2) ? 1 : 0
+      const slot = index - 1 + skipLeft + (order.length % 2) / 2
+      turn = 4 * slot / order.length
     }
     const angle = turn * Math.PI / 2
     anchors.set(side, {

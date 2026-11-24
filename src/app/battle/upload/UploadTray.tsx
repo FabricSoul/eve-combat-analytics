@@ -18,6 +18,11 @@ const failureLabel: Record<string, string> = {
 const kb = (bytes: number) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
 const language = { zh: '中文客户端', en: '英文客户端' } as const
 
+function filenameCharId(name: string): number | undefined {
+  const id = Number(/^\d{8}_\d{6}_(\d+)\.txt$/i.exec(name)?.[1])
+  return Number.isSafeInteger(id) && id > 0 ? id : undefined
+}
+
 function span(log: UploadedLogSummary): string | null {
   return log.first != null && log.last != null ? `${fmtHms(log.first)}–${fmtHms(log.last)}` : null
 }
@@ -67,6 +72,7 @@ export function UploadTray({ items, onRemove, onClose, logCorrected = () => fals
       <div className="upload-rows" role="list">
         {items.map((item) => {
           const failed = failureStatuses.includes(item.status)
+          const charId = filenameCharId(item.name) ?? item.log?.charId
           return (
             <div className="upload-row" role="listitem" key={item.id} data-status={item.status}>
               <span className="upload-icon" data-failed={failed || undefined}><Icon name={statusIcon[item.status]} /></span>
@@ -77,7 +83,7 @@ export function UploadTray({ items, onRemove, onClose, logCorrected = () => fals
                 </div>
                 <div className="upload-detail">
                   {item.demo && <><Tag>示例</Tag>{' '}</>}
-                  {item.log && <Portrait charId={item.log.charId} size={16} />}
+                  {charId !== undefined && <Portrait charId={charId} size={16} />}
                   {item.log && <b>{item.log.charName}</b>}
                   {item.log && ' · '}
                   {detail(item, logCorrected)}

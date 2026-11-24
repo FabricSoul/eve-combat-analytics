@@ -118,9 +118,18 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     : balance + (entity.side === order[0] ? 1 : entity.side === order[1] ? -1 : 0), 0) : 0
   const splitRatio = 0.5 + Math.sign(logBalance) * 0.05
   const compactTop = 57
+  const topReserve = Math.max(split ? compactTop : 42, topInset)
+  const bottomInset = pilots.some(({ entity }) => entity.side === -1) ? 41 : 0
+  const largestInset = (compact ? 12 : 15) + 5
+  // Leave room for several ship rows when controls and the unassigned row
+  // would otherwise consume the map. Compress the reserves along with the hulls.
+  const fleetHeight = 6 * largestInset
+  const heightScale = Math.min(1, height / (topReserve + Math.max(bottomInset, 20) + fleetHeight))
+  const top = topReserve * heightScale
+  const confineDuringSettling = Boolean(split) || heightScale < 1
   // Allocate more of the space lost to wrapped controls to the fleet with fewer names.
   const upperFleetShare = 0.5 + Math.sign(logBalance) * 0.35
-  const verticalDivider = height * splitRatio + Math.max(0, topInset - compactTop) * upperFleetShare
+  const verticalDivider = height * splitRatio + Math.max(0, topInset - compactTop) * upperFleetShare * heightScale
   if (split === 'x') {
     anchors.get(order[0]!)!.x = width * 0.28
     anchors.get(order[1]!)!.x = width * 0.84
@@ -133,12 +142,13 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     const anchor = anchors.get(side) ?? anchors.get(-1)!
     const angle = index * Math.PI * (3 - Math.sqrt(5))
     const spread = Math.sqrt(index + 1) * 7
+    const radius = hasLog ? (split ? 9 : compact ? 12 : 15) : pilot.primaryEnemy ? (compact ? 11 : 13) : (split ? 6 : compact ? 8 : 9)
     return {
       ...pilot,
       ordinal: index,
       x: anchor.x + Math.cos(angle) * spread,
-      y: anchor.y + Math.sin(angle) * spread,
-      radius: hasLog ? (split ? 9 : compact ? 12 : 15) : pilot.primaryEnemy ? (compact ? 11 : 13) : (split ? 6 : compact ? 8 : 9),
+      y: anchor.y + Math.sin(angle) * spread * heightScale,
+      radius: radius * heightScale,
       labeled: hasLog || (!compact && pilot.primaryEnemy),
     }
   })
@@ -147,7 +157,6 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   let activeNodes: ReplayNode[] = []
   const placed = new Set<EntityKey>()
   const unassigned = nodes.filter(({ entity }) => entity.side === -1).map((node) => ({ node, radius: node.radius }))
-  const bottomInset = unassigned.length ? 41 : 0
   const anchorFor = ({ entity }: ReplayNode) => anchors.get(entity.side) ?? anchors.get(-1)!
 
   function confine(node: ReplayNode, x: number, y: number) {
@@ -155,9 +164,9 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     const ours = node.entity.side === order[0]
     const minX = split === 'x' && !ours ? width * splitRatio + inset : inset
     const maxX = split === 'x' && ours ? width * splitRatio - inset : width - inset
-    const top = split === 'y' && !ours ? verticalDivider : split ? compactTop : 42
-    const minY = Math.max(top, topInset) + inset
-    const floor = height - inset - Math.max(bottomInset, node.labeled ? 20 : 8)
+    const ceiling = split === 'y' && !ours ? Math.max(verticalDivider, top) : top
+    const minY = ceiling + inset
+    const floor = height - inset - Math.max(bottomInset, node.labeled ? 20 : 8) * heightScale
     const maxY = split === 'y' && ours ? Math.min(floor, verticalDivider - inset) : floor
     return { x: Math.max(minX, Math.min(maxX, x)), y: Math.max(minY, Math.min(maxY, y)) }
   }
@@ -171,10 +180,13 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   const simulation = forceSimulation<ReplayNode>([]).stop()
     .force('x', forceX<ReplayNode>((node) => anchorFor(node).x).strength(0.09))
     .force('y', forceY<ReplayNode>((node) => anchorFor(node).y).strength(split === 'y' || order.length >= 3 ? 0.10 : 0.025))
-    .force('collide', forceCollide<ReplayNode>(({ radius, labeled, entity }) => radius + (split ? (entity.hasLog ? 6 : smallShipMargin) : labeled ? 26 : 8)).strength(0.9))
+    .force('collide', forceCollide<ReplayNode>(({ radius, labeled, entity }) => {
+      const margin = split ? (entity.hasLog ? 6 : smallShipMargin) : labeled ? 26 : 8
+      return radius + margin * heightScale
+    }).strength(0.9))
     .force('charge', forceManyBody().strength(split ? -80 : -30).distanceMax(160))
     .force('link', links)
-    .force('bounds', split ? () => {
+    .force('bounds', confineDuringSettling ? () => {
       for (const node of activeNodes) {
         const position = confine(node, node.x + node.vx! * velocityFactor, node.y + node.vy! * velocityFactor)
         node.vx = (position.x - node.x) / velocityFactor
@@ -203,7 +215,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
       node.fy = node.y
     }
     for (const node of entrants) {
-      if (split) Object.assign(node, confine(node, node.x, node.y))
+      if (confineDuringSettling) Object.assign(node, confine(node, node.x, node.y))
       node.vx = node.vy = 0
     }
 
@@ -279,11 +291,11 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     }
 
     const step = rowWidth / slots
-    const scale = Math.min(1, step / slotSize)
+    const seatScale = Math.min(1, step / slotSize)
     for (const { node, radius } of seated) {
-      node.radius = Math.max(0, (radius + 2) * scale - 2)
+      node.radius = Math.max(0, (radius + 2) * seatScale - 2)
       node.x = (width - rowWidth) / 2 + (seats.get(node.entity.key)! + 0.5) * step
-      node.y = height - 25
+      node.y = height - Math.max(node.radius + 5, 25 * heightScale)
     }
   }
 

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -35,6 +36,19 @@ function mount(fixture = loadUiFixture(), initialTime = 0) {
 const lastBefore = (list: { t: number }[], t: number) => list.reduce((last, kill, index) => kill.t <= t ? index : last, -1)
 
 describe('KillsList', () => {
+  it('uses the control radius on the 16 px ship overlay', () => {
+    mount()
+    const style = document.createElement('style')
+    style.textContent = `.app-type-icon { border-radius: var(--space-1); }
+      ${readFileSync('src/app/battle/upload/kills.css', 'utf8')}`
+    host.appendChild(style)
+    const overlay = host.querySelector<HTMLElement>('.kills-type')!
+    overlay.style.setProperty('--radius-ctl', '6px')
+    overlay.style.setProperty('--space-1', '4px')
+    expect(overlay.getAttribute('width')).toBe('16')
+    expect(getComputedStyle(overlay).borderRadius).toBe('6px')
+  })
+
   it('lists every killmail except pods, in time order', () => {
     const { summary } = mount()
     const shown = summary.meta.killmails.filter(({ victim }) => !podTypes.has(victim.shipTypeId ?? -1))

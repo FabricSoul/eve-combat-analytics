@@ -27,20 +27,20 @@ describe('replay layout and effects', () => {
     expect(anchors.get(5)?.y).toBeLessThan(300)
   })
 
-  it('adds the fourth side below center with the unassigned row farther down', () => {
+  it('orders four sides left and then clockwise from the right, with the unassigned row farther down', () => {
     const anchors = sideAnchors([7, 9, 5, 2], 1000, 600, new Map([[7, 1], [2, 9], [5, 5], [9, 3]]))
     expect(anchors.get(7)?.x).toBeLessThan(500)
     expect(anchors.get(2)?.x).toBeGreaterThan(500)
     expect(anchors.get(7)?.y).toBe(anchors.get(2)?.y)
     expect(anchors.get(5)?.x).toBeCloseTo(500)
-    expect(anchors.get(5)?.y).toBeLessThan(300)
+    expect(anchors.get(5)?.y).toBeGreaterThan(300)
     expect(anchors.get(9)?.x).toBeCloseTo(500)
-    expect(anchors.get(9)?.y).toBeGreaterThan(300)
+    expect(anchors.get(9)?.y).toBeLessThan(300)
     expect(anchors.get(-1)).toEqual({ x: 500, y: 540 })
-    expect(anchors.get(9)!.y).toBeLessThan(anchors.get(-1)!.y)
+    expect(anchors.get(5)!.y).toBeLessThan(anchors.get(-1)!.y)
   })
 
-  it.each([5, 8])('keeps our side left and orders the other %i-side anchors from right through top', (size) => {
+  it.each([5, 8])('keeps our side left and orders the other %i-side anchors clockwise from the right', (size) => {
     const order = [7, 9, 2, 13, 5, 3, 11, 8].slice(0, size)
     const counts = new Map([[7, 2], [2, 15], [5, 12], [9, 8], [13, 6], [11, 4], [8, 3], [3, 1]])
     const populationOrder = [2, 5, 9, 13, 11, 8, 3].filter((side) => order.includes(side))
@@ -50,7 +50,7 @@ describe('replay layout and effects', () => {
       const { x, y } = anchors.get(side)!
       return Math.atan2((y - 308) / 174, (x - 500) / 280)
     })
-    const expected = size === 5 ? [36, -36, -108, 108] : [0, -45, -90, -135, 135, 90, 45]
+    const expected = size === 5 ? [36, 108, -108, -36] : [0, 45, 90, 135, -135, -90, -45]
     angles.forEach((angle, index) => expect(angle * 180 / Math.PI).toBeCloseTo(expected[index]!))
   })
 

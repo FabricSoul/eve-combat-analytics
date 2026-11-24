@@ -282,11 +282,16 @@ it('positions every present uploader label in the 1280 × 800 desktop canvas', a
     .map((pilot) => pilot.getAttribute('aria-label'))).toEqual([])
 })
 
-it('keeps all in-view uploader, selected and hovered names at the 900 × 680 minimum stage', async () => {
+it('contains hulls and keeps all required names at the 900 × 680 minimum stage', async () => {
   const fixture = loadUiFixture()
   // Measured canvas within the 300 px stage, after controls and timeline.
-  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(882)
-  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(79)
+  const width = 882
+  const height = 79
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(width)
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(height)
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    return this.classList.contains('replay-header-actions') ? new DOMRect(0, 0, 400, 62) : new DOMRect()
+  })
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
     return Math.min(94, (this.textContent?.length ?? 0) * 6)
   })
@@ -304,9 +309,24 @@ it('keeps all in-view uploader, selected and hovered names at the 900 × 680 min
 
   const uploaders = [...host.querySelectorAll('.replay-marker[data-present] [data-log="true"]')]
   expect(uploaders).toHaveLength(17)
+  expect(uploaders.every((pilot) =>
+    parseFloat(pilot.parentElement!.style.getPropertyValue('--replay-diameter')) < 24,
+  )).toBe(true)
   expect(host.querySelector(`[data-pilot-label="${hovered}"][data-inspected="true"]`)).not.toBeNull()
   const required = [...uploaders.map((pilot) => pilot.parentElement!.dataset.pilotKey), selected, hovered]
   expect(required.filter((key) => !host.querySelector(`[data-pilot-label="${key}"][data-positioned]`))).toEqual([])
+
+  const markers = [...host.querySelectorAll<HTMLElement>('.replay-marker[data-present]')]
+  expect(markers.length).toBeGreaterThan(uploaders.length)
+  const clipped = markers.filter((marker) => {
+    const [, left, top] = /^translate\((.+)px, (.+)px\)$/.exec(marker.style.transform)!
+    const x = Number(left)
+    const y = Number(top)
+    // The centered hull button has a 4 px ring allowance in replay.css.
+    const ringRadius = parseFloat(marker.style.getPropertyValue('--replay-diameter')) / 2 + 2
+    return x - ringRadius < 0 || x + ringRadius > width || y - ringRadius < 0 || y + ringRadius > height
+  })
+  expect(clipped.map((marker) => marker.dataset.pilotKey)).toEqual([])
 })
 
 it('keeps paused nodes still and keeps them still during quiet playback', async () => {
