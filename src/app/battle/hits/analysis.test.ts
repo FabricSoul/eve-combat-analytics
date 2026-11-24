@@ -18,7 +18,8 @@ function shots(from: EntityKey, to: EntityKey, count: number, options: Partial<I
   }))
 }
 const events = [
-  ...shots('char:1', 'char:3', 24),
+  ...shots('char:1', 'char:3', 12),
+  ...shots('char:1', 'char:3', 12, { weapon: ' 暗泽裔潮上熵能分解者** ' }),
   ...shots('char:1', 'char:3', 6, { kind: 'miss', quality: null, amount: 0 }),
   ...shots('char:1', 'char:3', 10, { quality: 'none' }),
   ...shots('char:3', 'char:1', 24, { weapon: 'Imperial Navy Curator' }),

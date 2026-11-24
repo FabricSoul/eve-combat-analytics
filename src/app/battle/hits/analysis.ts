@@ -1,8 +1,7 @@
 import type { Entity, EntityKey, Interaction } from '@/core/contract'
-import { itemTypeId } from '@/core/data/item-types'
 import { fmtNum, fmtPct } from '../../lib/format'
 import { hitOutcome, type HitCounts, type HitOutcome } from '../compare/hit-quality'
-import classIds from './weapon-classes.json'
+import classNames from './weapon-classes.json'
 
 export const MIN_RANKED_SHOTS = 30
 export const HIT_MINUTE = 60_000
@@ -10,11 +9,16 @@ export const hitObservationHint = '只统计有命中质量或明确未命中的
 export const classLabels = { turret: '炮台', missile: '导弹', drone: '无人机', other: '其他 / 未识别' } as const
 export type WeaponClass = keyof typeof classLabels
 
-const classById = new Map([
-  ...classIds.turret.map((id) => [id, 'turret'] as const),
-  ...classIds.missile.map((id) => [id, 'missile'] as const),
-  ...classIds.drone.map((id) => [id, 'drone'] as const),
+const classByName = new Map([
+  ...classNames.turret.map((name) => [name, 'turret'] as const),
+  ...classNames.missile.map((name) => [name, 'missile'] as const),
+  ...classNames.drone.map((name) => [name, 'drone'] as const),
 ])
+
+function classifyWeapon(name: string): WeaponClass {
+  const key = name.trim().replace(/\*+$/, '').trim().toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+  return classByName.get(key) ?? 'other'
+}
 
 export interface ShotCounts extends HitCounts {
   shots: number
@@ -72,7 +76,7 @@ export function aggregateHits(
     const outcome = hitOutcome(event)
     if (outcome === null) continue
     const weapon = event.weapon ?? '未记录武器'
-    const weaponClass = entry(classes, weapon, () => classById.get(itemTypeId(weapon) ?? -1) ?? 'other')
+    const weaponClass = entry(classes, weapon, () => classifyWeapon(weapon))
     const side = entry(sides, source.side, () => ({ ...emptyCombat(), minutes: new Map() }))
     record(side, outcome, event.amount)
     record(entry(side.classes, weaponClass, emptyCounts), outcome, event.amount)

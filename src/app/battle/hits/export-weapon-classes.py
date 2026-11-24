@@ -1,15 +1,15 @@
-"""Export known weapon class IDs from the pinned pyfa database.
+"""Export localized weapon classes from the pinned pyfa database and item catalog.
 
 Run from the repository root: python3 src/app/battle/hits/export-weapon-classes.py build/eve.db
-The existing item-types catalog supplies localized names and IDs.
+Export only labels of known weapons so the aggregation does not load the entire item catalog.
 """
 import json
 import sqlite3
 import sys
 from pathlib import Path
 
-ids = {row[0] for row in json.loads(Path("src/core/data/item-types.json").read_text())}
-result = {kind: [] for kind in ("turret", "missile", "drone")}
+catalog = json.loads(Path("src/core/data/item-types.json").read_text())
+classes = {}
 turret_ammo = ("projectile ammo", "hybrid charge", "frequency crystal", "exotic plasma", "condensate")
 with sqlite3.connect(f"{Path(sys.argv[1]).resolve().as_uri()}?mode=ro", uri=True) as db:
     rows = db.execute("""
@@ -21,14 +21,26 @@ with sqlite3.connect(f"{Path(sys.argv[1]).resolve().as_uri()}?mode=ro", uri=True
         group by t.typeID order by t.typeID
     """)
     for ident, category, group, turret, launcher in rows:
-        if ident not in ids:
-            continue
         if category in (18, 87):
-            result["drone"].append(ident)
+            classes[ident] = "drone"
         elif turret or (category == 8 and any(name in group for name in turret_ammo)):
-            result["turret"].append(ident)
+            classes[ident] = "turret"
         elif launcher or (category == 8 and any(name in group for name in ("missile", "rocket", "torpedo"))):
-            result["missile"].append(ident)
+            classes[ident] = "missile"
+
+# Mirror item-types normalization. Omit a label if any catalog item gives it a
+# conflicting class, including unclassified items that use the same label.
+labels = {}
+for ident, english, chinese in catalog:
+    kind = classes.get(ident)
+    for name in (english, chinese):
+        if name:
+            key = name.strip().rstrip("*").strip().lower().translate(str.maketrans("‘’“”", "''\"\""))
+            labels.setdefault(key, set()).add(kind)
+result = {
+    kind: sorted(name for name, candidates in labels.items() if candidates == {kind})
+    for kind in ("turret", "missile", "drone")
+}
 Path(__file__).with_name("weapon-classes.json").write_text(
-    json.dumps(result, separators=(",", ":")) + "\n", encoding="utf-8"
+    json.dumps(result, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8"
 )
