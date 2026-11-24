@@ -52,6 +52,12 @@ it('keeps a logged pilot’s hit sample and rate in Hits, Compare and the drawer
     expect(readSample()).toEqual(expected)
     act(() => host.querySelector<HTMLButtonElement>('#empty-side')!.click())
     expect(readSample()).toEqual(expected)
+    expect.soft(hitRow()!.querySelector('th small')?.textContent).not.toContain('据我方日志')
+    const observed = host.querySelector('.hit-analysis tr[data-pilot-key="char:2120391968"] th small') // Kohera Hakomairos
+    expect.soft(observed?.textContent).toContain('我方 · 据我方日志')
+    const headers = [...host.querySelectorAll('.hit-card h3')].map((header) => header.textContent.trim())
+    expect.soft(headers).toContain('我方 据我方日志')
+    expect.soft(headers).toContain('敌方')
   } finally {
     act(() => root.unmount())
   }
