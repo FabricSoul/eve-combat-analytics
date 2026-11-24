@@ -120,6 +120,7 @@ export class BattleRoom extends ProductionRoom {
     page.on('pageerror', (error) => errors.push(error.message))
     await page.goto(origin + route + query)
     await page.getByRole('link', { name: /J125990/ }).waitFor()
+    assert.equal(await page.title(), 'EVE 舰队战复盘', 'browser tab title matches the product name in the top bar')
     return { context, page, frames, errors }
   }
 
