@@ -32,7 +32,7 @@
 .roster-row[data-dead] .roster-name > span:last-child { text-decoration: line-through; text-decoration-color: var(--color-text-3); }
 .roster-ship { display: inline-flex; align-items: center; gap: 4px; color: var(--color-text-3); font-size: 11px; white-space: nowrap; }
 .roster-more {
-  flex: none; width: 24px; height: var(--row); color: var(--color-text-3); cursor: pointer; opacity: 0;
+  flex: none; width: 24px; height: var(--row); color: var(--color-text-3); cursor: pointer; opacity: .45;
 }
 .roster-row:hover .roster-more, .roster-row:focus-within .roster-more, .roster-more[aria-expanded="true"] { opacity: 1; }
 .roster-note { padding: var(--space-3); color: var(--color-text-3); font-size: var(--fs-s); }
@@ -183,3 +183,12 @@
 .identity-text { display: flex; flex-direction: column; min-width: 0; }
 .identity-sub { color: var(--color-text-3); font-size: var(--fs-s); }
 .identity-close { align-self: flex-end; background: none; border: 0; color: var(--color-text-3); font: inherit; cursor: pointer; }
+
+.identity-item[data-active] { background: var(--color-raised); }
+.identity-item:disabled { cursor: progress; opacity: .6; }
+.identity-spinner {
+  flex: none; margin-inline-start: auto; width: 14px; height: 14px; border: 2px solid var(--color-hair);
+  border-top-color: var(--color-text); border-radius: 50%; animation: identity-spin .8s linear infinite;
+}
+@keyframes identity-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .identity-spinner { animation-duration: 3s; } }

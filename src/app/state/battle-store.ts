@@ -1,5 +1,5 @@
-import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from 'react'
-import type { Analysis, BattleSummary, ServerMessage } from '@/core/contract'
+import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import type { Analysis, BattleSummary, EntityKey, IdentityMerge, ServerMessage } from '@/core/contract'
 import { api, ApiFailure, battleApiPath } from '../api/client'
 
 export interface BattleView {
@@ -265,10 +265,35 @@ export type BattleProviderProps = {
   children: ReactNode
 } & ({ brId: string; static?: never } | { brId?: never; static: BattleData })
 
+type LocalIdentities = ReadonlyMap<EntityKey, IdentityMerge['to'] | null>
+/** Apply an identity merge (or its removal, to = null) locally until the server's list confirms; the returned function rolls it back. */
+const LocalIdentityContext = createContext<((from: EntityKey, to: IdentityMerge['to'] | null) => () => void) | null>(null)
+export const useLocalIdentity = () => useContext(LocalIdentityContext)
+
+function withLocal(summary: BattleSummary | null, local: LocalIdentities): BattleSummary | null {
+  if (!summary || local.size === 0) return summary
+  const merges = (summary.identityMerges ?? []).filter(({ from }) => !local.has(from))
+  for (const [from, to] of local) if (to) merges.push({ from, to, setAt: Date.now() })
+  return { ...summary, identityMerges: merges }
+}
+
 export function BattleProvider({ brId, static: data, children }: BattleProviderProps) {
   const battle = useBattle(brId ?? null)
-  const value: BattleView = data ? { ...initialBattle, ...data, analyzedSummary: data.summary, status: 'ready' } : battle
-  return createElement(BattleContext.Provider, { value }, children)
+  const [local, setLocal] = useState<LocalIdentities>(new Map())
+  const base: BattleView = data ? { ...initialBattle, ...data, analyzedSummary: data.summary, status: 'ready' } : battle
+  const serverMerges = base.summary?.identityMerges
+  // identities_set (or a rerender with new data) is the server's answer: drop what was applied locally.
+  useEffect(() => { setLocal(new Map()) }, [serverMerges])
+  const apply = useCallback((from: EntityKey, to: IdentityMerge['to'] | null) => {
+    setLocal((previous) => new Map(previous).set(from, to))
+    return () => setLocal((previous) => {
+      const next = new Map(previous)
+      next.delete(from)
+      return next
+    })
+  }, [])
+  const value = useMemo<BattleView>(() => ({ ...base, summary: withLocal(base.summary, local) }), [base, local])
+  return createElement(LocalIdentityContext.Provider, { value: apply }, createElement(BattleContext.Provider, { value }, children))
 }
 
 export function useBattleContext(): BattleView {

@@ -84,20 +84,76 @@ describe('IdentityPicker', () => {
     expect(picker()).toBeNull()
   })
 
-  it('is keyboard operable: arrows move through candidates, Enter picks, Escape closes', async () => {
+  it('is keyboard operable: arrows highlight a candidate, Enter picks it, Escape closes', async () => {
     mount()
     openPicker()
     const input = picker()!.querySelector<HTMLInputElement>('input')!
     expect(document.activeElement).toBe(input)
-    act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })) })
-    const second = [...picker()!.querySelectorAll<HTMLButtonElement>('[data-suggestion]')]
-    act(() => { (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })) })
-    expect(document.activeElement).toBe(second[1])
-    await act(async () => { second[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); second[1]!.click() })
-    expect(api.putIdentity).toHaveBeenCalledWith('tiny', 'name:Hidden', 'char:1')
+    const press = (key: string) => act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })) })
+    expect(picker()!.querySelector('[data-active]')).toBeNull()
+    press('ArrowDown')
+    expect(picker()!.querySelector('[data-active] .identity-name')?.textContent).toBe('Pilot2')
+    press('ArrowDown')
+    expect(picker()!.querySelector('[data-active] .identity-name')?.textContent).toBe('Pilot1')
+    press('ArrowUp')
+    press('ArrowUp')
+    expect(picker()!.querySelector('[data-active] .identity-name')?.textContent).toBe('Pilot1')
+    press('ArrowDown')
+    expect(input.getAttribute('aria-activedescendant')).toBe(picker()!.querySelector('[data-active]')!.id)
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+    expect(api.putIdentity).toHaveBeenCalledWith('tiny', 'name:Hidden', 'char:2')
+  })
+
+  it('Escape closes the picker without saving', () => {
+    mount()
     openPicker()
     act(() => { picker()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
     expect(picker()).toBeNull()
+    expect(api.putIdentity).not.toHaveBeenCalled()
+  })
+
+  it('pre-highlights the first search result so typing then Enter picks it', async () => {
+    mount()
+    openPicker()
+    const input = picker()!.querySelector<HTMLInputElement>('input')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'pilot6')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(picker()!.querySelector('[data-active] .identity-name')?.textContent).toBe('Pilot6')
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+    expect(api.putIdentity).toHaveBeenCalledWith('tiny', 'name:Hidden', 'char:6')
+  })
+
+  it('pending: disables the candidates with a spinner until the call settles, then closes', async () => {
+    let finish!: () => void
+    vi.spyOn(api, 'putIdentity').mockReturnValue(new Promise((resolve) => { finish = () => resolve({ from: 'name:Hidden', to: 'char:2', setAt: 1 }) }))
+    mount()
+    openPicker()
+    await act(async () => picker()!.querySelector<HTMLButtonElement>('[data-suggestion]')!.click())
+    const items = [...picker()!.querySelectorAll<HTMLButtonElement>('.identity-item')]
+    expect(items.every((b) => b.disabled)).toBe(true)
+    expect(picker()!.querySelector('[data-suggestion] .identity-spinner')).not.toBeNull()
+    expect(picker()!.querySelector('[aria-busy="true"]')).not.toBeNull()
+    await act(async () => finish())
+    expect(picker()).toBeNull()
+  })
+
+  it('applies the merge locally while saving and rolls it back when the call fails', async () => {
+    let fail!: () => void
+    vi.spyOn(api, 'putIdentity').mockReturnValue(new Promise((_, reject) => { fail = () => reject(new Error('x')) }))
+    const withHidden = { ...tinySummary }
+    mounted = mountApp(createElement(Roster), { summary: withHidden, analysis })
+    expect(row('Hidden')).toBeDefined()
+    act(() => row('Hidden').querySelector<HTMLButtonElement>('.roster-more')!.click())
+    act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === '这是谁…')!.click())
+    await act(async () => picker()!.querySelector<HTMLButtonElement>('[data-suggestion]')!.click())
+    expect(mounted.container.textContent).not.toContain('Hidden')
+    expect(row('Pilot2').querySelector('.app-tag')?.textContent).toBe('合并')
+    await act(async () => fail())
+    expect(row('Hidden')).toBeDefined()
+    expect(row('Pilot2').querySelector('.app-tag')).toBeNull()
+    expect(picker()!.querySelector('[role="alert"]')).not.toBeNull()
   })
 
   it('shows the failure and stays open when the call fails', async () => {
@@ -113,7 +169,7 @@ describe('IdentityPicker', () => {
     mount(merged, tinyAnalysis)
     const tag = row('Pilot2').querySelector('.app-tag')!
     expect(tag.textContent).toBe('合并')
-    expect(tag.getAttribute('title')).toContain('15:42')
+    expect(tag.getAttribute('title')).toBe('合并 · 2025-06-22 15:42 UTC 设')
     act(() => row('Pilot2').querySelector<HTMLButtonElement>('.roster-more')!.click())
     const undo = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent?.startsWith('取消合并'))!
     await act(async () => undo.click())
@@ -140,5 +196,14 @@ describe('IdentityPicker', () => {
     mount()
     expect(row('Pilot2').querySelector('.roster-dot')?.getAttribute('title')).toContain('据我方日志')
     expect(row('Pilot1').querySelector('.roster-dot')?.getAttribute('title')).toBeNull()
+  })
+})
+
+describe('menu entry points', () => {
+  it('keeps the row ⋯ faintly visible, not hover-only', async () => {
+    const { readFileSync } = await import('node:fs')
+    const css = readFileSync('src/app/battle/roster/roster.css', 'utf8')
+    const rule = /\n\.roster-more \{[^}]*\}/.exec(css)![0]
+    expect(rule).not.toMatch(/opacity:\s*0\s*;/)
   })
 })

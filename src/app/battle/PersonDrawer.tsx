@@ -9,6 +9,7 @@ import { Portrait } from '../ui/Portrait'
 import { Tabs, type TabOption } from '../ui/Tabs'
 import { Tag } from '../ui/Tag'
 import { TypeIcon } from '../ui/TypeIcon'
+import { usePilotMenu } from './roster/PilotActions'
 import { isObserved, observedHint, observedLabel, shipId, sideLabel, useCombatRows } from './compare/metrics'
 import { FitTab } from './FitTab'
 import { PersonStats, PointLog, pointSpans } from './person/PersonStats'
@@ -43,6 +44,7 @@ function PilotDrawer({ pilot, analysis }: { pilot: Entity; analysis: Analysis })
   const [expanded, setExpanded] = useState(false)
   const [eventPage, setEventPage] = useState(1)
   const id = useId()
+  const pilotMenu = usePilotMenu()
   const order = useMemo(() => sideOrder(analysis, oursSide), [analysis, oursSide])
   const bounds = useMemo(() => range ?? [
     analysis.timeline.start,
@@ -71,6 +73,9 @@ function PilotDrawer({ pilot, analysis }: { pilot: Entity; analysis: Analysis })
             {' · '}{pilot.shipTypes[0] ?? '未知舰船'}{' · '}{pilot.hasLog ? '有日志' : '无日志'}
           </div>
           {corporation && <div className="u7-person-meta">{corporation}</div>}
+          {pilot.charId === null && pilotMenu && (
+            <Button type="button" className="u7-identify" onClick={(event) => pilotMenu.identify(pilot.key, event.currentTarget)}>这是谁…</Button>
+          )}
           {pilot.sideSource === 'log' && <Tag>阵营据日志</Tag>}
           {rows.some((row) => row.entity.key === pilot.key && isObserved(row)) && <Tag title={observedHint}>{observedLabel}</Tag>}
         </div>

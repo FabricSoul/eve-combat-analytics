@@ -1,32 +1,37 @@
 import { useState } from 'react'
 import type { EntityKey, IdentityMerge } from '@/core/contract'
-import { useBattleUndo, visibleAfter } from '../undo'
+import { useLocalIdentity } from '../../state/battle-store'
+import { useBattleUndo } from '../undo'
 import { api, ApiFailure } from '../../api/client'
 
-/** Writes identity merges through PUT /identities. The new list arrives back as identities_set over the WebSocket. */
-export function useIdentity(brId: string, merges: readonly IdentityMerge[] = [], version = -1) {
+/**
+ * Writes identity merges through PUT /identities. The change shows in the roster at once (applied locally, rolled back
+ * if the call fails) until identities_set brings the server's list; the toast offers 撤销 once the call has succeeded,
+ * i.e. when the row change is visible and saved.
+ */
+export function useIdentity(brId: string, merges: readonly IdentityMerge[] = [], _version = -1) {
   const begin = useBattleUndo()
+  const applyLocal = useLocalIdentity()
   const [error, setError] = useState<string | null>(null)
+
+  async function write(from: EntityKey, to: IdentityMerge['to'] | null) {
+    const rollBack = applyLocal?.(from, to)
+    try {
+      await api.putIdentity(brId, from, to)
+    } catch (failure) {
+      rollBack?.()
+      throw failure
+    }
+  }
 
   async function put(from: EntityKey, to: IdentityMerge['to'] | null): Promise<boolean> {
     setError(null)
     const finish = begin()
     try {
       const previous = merges.find((merge) => merge.from === from)?.to ?? null
-      const saved = await api.putIdentity(brId, from, to)
+      await write(from, to)
       if (previous === to) finish()
-      else finish({
-        label: to ? '已合并身份' : '已取消合并',
-        visible: visibleAfter(version, (state) => 'removed' in saved
-          ? !state.identityMerges?.some((merge) => merge.from === from)
-          : !!state.identityMerges?.some((merge) => merge.from === from && merge.to === saved.to && merge.setAt === saved.setAt)),
-        revert: async (undoVersion) => {
-          const restored = await api.putIdentity(brId, from, previous)
-          return visibleAfter(undoVersion, (state) => 'removed' in restored
-            ? !state.identityMerges?.some((merge) => merge.from === from)
-            : !!state.identityMerges?.some((merge) => merge.from === from && merge.to === restored.to && merge.setAt === restored.setAt))
-        },
-      })
+      else finish({ label: to ? '已合并身份' : '已取消合并', revert: async () => { await write(from, previous) } })
       return true
     } catch (failure) {
       finish()

@@ -54,7 +54,7 @@ export function fullSideOrder(analysis: Analysis, oursSide: number): number[] {
 
 function tagOf(entity: Entity, charId: number, summary: BattleSummary, analysis: Analysis): RosterTag | null {
   const merges = (summary.identityMerges ?? []).filter(({ to }) => to === `char:${charId}`)
-  if (merges.length) return { kind: 'merge', title: `合并 · ${merges.map(({ setAt }) => fmtHms(setAt).slice(0, 5)).join('、')} 设` }
+  if (merges.length) return { kind: 'merge', title: `合并 · ${merges.map(({ setAt }) => new Date(setAt).toISOString().slice(0, 16).replace('T', ' ') + ' UTC').join('、')} 设` }
   if (entity.sideSource === 'log') {
     const override = analysis.sideOverrides.find(({ subject }) => subject === `char:${charId}`)
     return { kind: 'log', title: override?.reason ?? '据日志修正' }
@@ -132,8 +132,10 @@ export function buildRoster(
   const bySide = new Map<number, RosterRow[]>()
   const observed = new Set(analysis.stats.filter((entry) => entry.source === 'observed').map((entry) => entry.key))
 
+  const merged = new Set((summary.identityMerges ?? []).map(({ from }) => from))
   for (const entity of Object.values(analysis.entities)) {
     const { charId } = entity
+    if (merged.has(entity.key)) continue
     const state = charId === null ? null : stateAt(summary, analysis, entity, charId, at)
     const keyType = /^ship:(\d+):/.exec(entity.key)?.[1]
     const sighted = state?.shipTypeId ?? null

@@ -160,7 +160,7 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   }, [sidesOpen, closeSides, menuOpen, view.range, view.selected, view.select, view.clearRange, drawerOpen, moduleLayout, workspace, pilotMenu])
 
   function renderModule(id: ModuleId) {
-    if (id === 'roster') return <Roster search={search === id} alphabetical={rosterAlphabetical} />
+    if (id === 'roster') return <Roster search={search === id} alphabetical={rosterAlphabetical} onSearchClose={() => setSearch(null)} />
     if (id === 'feed') return <EventFeed search={search === id} showFilters={eventFilters} />
     if (id === 'kills') return <KillsList expanded={killsExpanded} onRestore={() => setKillsExpanded(false)} />
     const Module = modules[id]

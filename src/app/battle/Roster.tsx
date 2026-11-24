@@ -10,7 +10,7 @@ import { buildRoster, fullSideOrder, sideName } from './roster/model'
 import { PilotActions, PilotMore, usePilotMenu } from './roster/PilotActions'
 import './roster/roster.css'
 
-export interface RosterProps { search?: boolean; alphabetical?: boolean }
+export interface RosterProps { search?: boolean; alphabetical?: boolean; onSearchClose?: () => void }
 
 const tagLabel = { log: '据日志', manual: '手动', merge: '合并' } as const
 
@@ -19,7 +19,7 @@ export function Roster(props: RosterProps) {
   return menu ? <RosterContent {...props} /> : <PilotActions><RosterContent {...props} /></PilotActions>
 }
 
-function RosterContent({ search, alphabetical }: RosterProps) {
+function RosterContent({ search, alphabetical, onSearchClose }: RosterProps) {
   const { summary, analysis } = useBattleContext()
   const view = useView()
   const t = useCoarseTime()
@@ -43,7 +43,13 @@ function RosterContent({ search, alphabetical }: RosterProps) {
   return (
     <div className="roster">
       {search && <input autoFocus type="search" className="battle-module-search" aria-label="搜索名单"
-        placeholder="飞行员或舰船" value={query} onChange={(event) => setQuery(event.currentTarget.value)} />}
+        placeholder="飞行员或舰船" value={query} onChange={(event) => setQuery(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Escape') return
+          event.stopPropagation()
+          if (query) setQuery('')
+          else { event.currentTarget.blur(); onSearchClose?.() }
+        }} />}
       {needle && !groups.some(({ rows }) => rows.some(({ name, ship }) =>
         `${name} ${ship ?? ''}`.toLocaleLowerCase().includes(needle))) && <p className="module-empty">没有匹配的飞行员 · 试试其他名字或舰船。</p>}
       {groups.map(({ side, rows: allRows, withLog }) => {

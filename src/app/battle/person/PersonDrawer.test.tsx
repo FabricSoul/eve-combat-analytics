@@ -6,6 +6,7 @@ import { BattleProvider } from '../../state/battle-store'
 import { useView, ViewProvider } from '../../state/view-store'
 import { loadUiFixture } from '../../test/ui-fixture'
 import { PersonDrawer } from '../PersonDrawer'
+import { PilotActions } from '../roster/PilotActions'
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
@@ -192,3 +193,37 @@ it('describes the output median using only teammates with measured output', () =
     act(() => root.unmount())
   }
 })
+
+it('offers 这是谁… in the drawer of an unidentified entity and opens the picker', () => {
+  const base = loadUiFixture()
+  const hidden = { key: 'name:Hidden' as const, name: 'Hidden', charId: null, side: base.analysis.entities[Object.keys(base.analysis.entities)[0] as keyof typeof base.analysis.entities]!.side, sideSource: 'br' as const, shipTypes: ['Leshak'], hasLog: false }
+  const fixture = { ...base, analysis: { ...base.analysis, entities: { ...base.analysis.entities, [hidden.key]: hidden } } }
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  function Harness() {
+    const { select } = useView()
+    useEffect(() => { select(hidden.key) }, [])
+    return <PersonDrawer />
+  }
+  try {
+    act(() => root.render(<BattleProvider static={fixture}><ViewProvider syncUrl={false}><PilotActions><Harness /></PilotActions></ViewProvider></BattleProvider>))
+    const button = [...host.querySelectorAll('button')].find((b) => b.textContent === '这是谁…')!
+    expect(button).toBeDefined()
+    act(() => button.click())
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    const known = Object.values(base.analysis.entities).find((e) => e.charId !== null)!
+    act(() => root.render(<BattleProvider static={fixture}><ViewProvider syncUrl={false}><PilotActions><SelectKnown k={known.key} /></PilotActions></ViewProvider></BattleProvider>))
+    expect([...host.querySelectorAll('button')].some((b) => b.textContent === '这是谁…')).toBe(false)
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    document.querySelector('.identity-scrim')?.remove()
+  }
+})
+
+function SelectKnown({ k }: { k: Parameters<ReturnType<typeof useView>['select']>[0] }) {
+  const { select } = useView()
+  useEffect(() => { select(k) }, [])
+  return <PersonDrawer />
+}

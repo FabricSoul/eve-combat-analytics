@@ -99,8 +99,10 @@ describe('Roster', () => {
     act(() => row('Pilot2').querySelector<HTMLButtonElement>('.roster-more')!.click())
     const items = [...document.querySelectorAll<HTMLButtonElement>('[role="group"] > [role="menuitem"]')]
     expect(items.map((i) => i.textContent)).toEqual([
-      '移到敌方', '移到我方', '移到敌方',
+      '移到敌方', '移到敌方',
     ])
+    // Never offers the side he is already on, for the corporation and alliance moves too.
+    expect([...document.querySelectorAll('[role="menuitem"]')].map((i) => i.textContent)).not.toContain('移到我方')
     const headings = [...document.querySelectorAll('.side-menu-head')].map((h) => h.textContent)
     expect(headings).toEqual(['移到… · Pilot2', '整个军团一起移 · Alpha Corp'])
     await act(async () => items[0]!.click())
@@ -109,7 +111,7 @@ describe('Roster', () => {
     act(() => row('Pilot3').querySelector<HTMLButtonElement>('.roster-more')!.click())
     const alliance = [...document.querySelectorAll<HTMLElement>('[role="group"]')].find((g) => g.getAttribute('aria-label')?.startsWith('整个联盟'))!
     await act(async () => alliance.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click())
-    expect(putSide).toHaveBeenLastCalledWith('tiny', 'ally:20', 0)
+    expect(putSide).toHaveBeenLastCalledWith('tiny', 'ally:20', 1)
   })
 
   it('opens the same menu on right click and closes it with Escape', () => {
@@ -127,6 +129,22 @@ describe('Roster', () => {
     act(() => row('Pilot2').querySelector<HTMLButtonElement>('.roster-more')!.click())
     await act(async () => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click())
     expect(mounted.container.querySelector('[role="alert"]')?.textContent).toBe('无法移动')
+  })
+
+  it('Esc in the search clears the text first, then closes it', () => {
+    const close = vi.fn()
+    mounted = mountApp(createElement(Roster, { search: true, onSearchClose: close }))
+    const input = mounted.container.querySelector<HTMLInputElement>('input[type="search"]')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'pilot1')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(names()).toEqual(['Pilot1'])
+    act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    expect(input.value).toBe('')
+    expect(close).not.toHaveBeenCalled()
+    act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    expect(close).toHaveBeenCalledOnce()
   })
 
   it('waits for the analysis instead of showing an empty list', () => {

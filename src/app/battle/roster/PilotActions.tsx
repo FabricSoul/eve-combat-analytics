@@ -14,7 +14,7 @@ import { useSideMove } from './use-side-move'
 type Open = (key: EntityKey, event: MouseEvent, anchor?: boolean) => void
 type Target = { key: EntityKey; invoker: HTMLElement | null }
 type Menu = Target & { x: number; y: number; anchorTop: number }
-const PilotMenu = createContext<{ open: Open; active: EntityKey | null; closeMenu(): boolean; closePicker(): boolean } | null>(null)
+const PilotMenu = createContext<{ open: Open; active: EntityKey | null; closeMenu(): boolean; closePicker(): boolean; identify(key: EntityKey, invoker: HTMLElement | null): void } | null>(null)
 export const usePilotMenu = () => useContext(PilotMenu)
 
 export function PilotMore({ pilot, name, className }: { pilot: EntityKey; name: string; className?: string }) {
@@ -58,9 +58,9 @@ export function PilotActions({ children }: { children: ReactNode }) {
       const affiliation = affiliationOf(summary, pilot.charId)
       if (affiliation) {
         const { corpId, allyId } = affiliation
-        sections.push({ heading: `整个军团一起移 · ${summary.meta.names[corpId]?.name ?? corpId}`, subject: `corp:${corpId}` })
+        sections.push({ heading: `整个军团一起移 · ${summary.meta.names[corpId]?.name ?? corpId}`, subject: `corp:${corpId}`, current: pilot.side })
         if (allyId !== null) sections.push({
-          heading: `整个联盟一起移 · ${summary.meta.names[allyId]?.name ?? allyId}`, subject: `ally:${allyId}`,
+          heading: `整个联盟一起移 · ${summary.meta.names[allyId]?.name ?? allyId}`, subject: `ally:${allyId}`, current: pilot.side,
         })
       }
       for (const { from, to } of summary.identityMerges ?? []) {
@@ -80,6 +80,7 @@ export function PilotActions({ children }: { children: ReactNode }) {
   return <PilotMenu value={{ open, active: menu?.key ?? null,
     closeMenu: () => { if (!menu) return false; closeMenu(); return true },
     closePicker: () => { if (!picker) return false; setPicker(null); return true },
+    identify: (key, invoker) => setPicker({ key, invoker }),
   }}>
     {children}
     {menu && pilot && analysis && createPortal(
