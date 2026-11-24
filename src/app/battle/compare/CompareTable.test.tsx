@@ -152,12 +152,12 @@ it('shows hit rate and a quality distribution for two uploaders and recomputes b
   const header = [...host.querySelectorAll('thead th[scope="col"]')].find((el) => el.textContent.trim() === '命中率')!
   expect(header).toBeDefined()
   expect([...host.querySelectorAll('[scope="colgroup"]')].map((el) => el.textContent)).toContain('命中')
-  const cells = (name: string) => [...host.querySelectorAll('tbody tr')].find((row) => row.querySelector('th')?.textContent === name)!
-    .querySelector('td:last-child')!
+  const row = (name: string) => [...host.querySelectorAll('tbody tr')].find((row) => row.querySelector('th')?.textContent === name)!
+  const cells = (name: string) => row(name).querySelector('td[data-metric="hitRate"]')!
   const rate = (name: string) => cells(name).querySelector('.app-number')?.textContent
   expect(rate('Blanchard2213')).toBe('92%')
   expect(rate('Lucinda HIly')).toBe('98%')
-  const bar = () => cells('Blanchard2213').querySelector('.u7-hit-quality')!
+  const bar = () => row('Blanchard2213').querySelector('td[data-metric="hitQuality"] .u7-hit-quality')!
   expect(bar().getAttribute('title')).toContain('未命中 184')
   const widths = () => [...bar().querySelectorAll<HTMLElement>('[data-quality]')]
     .reduce((sum, segment) => sum + Number.parseFloat(segment.style.width), 0)
@@ -191,11 +191,11 @@ it('shows the measured rate and sample for an enemy firing on uploaders in J1259
     analysis: { ...fixture.analysis, stats: fixture.analysis.stats.map((s) => s.key === key ? { ...s, source: 'observed' as const } : s) },
   }, 1)
   const row = [...host.querySelectorAll('tbody tr')].find((el) => el.querySelector('th')?.textContent?.includes('Kohera Hakomairos'))
-  const hitCell = row?.querySelector('td:last-child')
+  const hitCell = row?.querySelector('td[data-metric="hitRate"]')
   expect(hitCell?.querySelector('.app-number')?.textContent).toBe('100%')
   expect(hitCell?.textContent).toContain('据我方日志')
   expect(hitCell?.textContent).toContain('35 发')
-  expect(hitCell?.querySelector('.u7-hit-quality')).not.toBeNull()
+  expect(row?.querySelector('td[data-metric="hitQuality"] .u7-hit-quality')).not.toBeNull()
 })
 
 it('counts identified pilots by default and appends unidentified entities in a separate group on request', () => {
@@ -218,4 +218,19 @@ it('counts identified pilots by default and appends unidentified entities in a s
   expect(host.querySelector('.u7-compare-note')?.textContent).toContain(`${countPilots} 人 · ${countUnknown} 项未识别`)
   act(() => toggle.click())
   expect(rows()).toHaveLength(countPilots)
+})
+
+it('labels the hit quality distribution in its own column and follows hit-rate visibility', () => {
+  render()
+  const quality = () => [...host.querySelectorAll('thead th[scope="col"]')].find((cell) => cell.textContent === '命中质量')
+  expect(quality()).toBeDefined()
+  const group = [...host.querySelectorAll('thead th[scope="colgroup"]')].find((cell) => cell.textContent === '命中')
+  expect(group?.getAttribute('colspan')).toBe('2')
+  const row = host.querySelector('tr[data-pilot-key="char:2121605780"]')!
+  expect(row.querySelector('td:last-child .u7-hit-quality')).not.toBeNull()
+  expect(row.querySelector('td:nth-last-child(2) .app-number')?.textContent).toBe('92%')
+  const toggle = [...host.querySelectorAll('.u7-column-options label')].find((label) => label.textContent?.trim() === '命中率')!
+    .querySelector('input')!
+  act(() => toggle.click())
+  expect(quality()).toBeUndefined()
 })

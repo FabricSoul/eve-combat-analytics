@@ -65,8 +65,10 @@ export function CompareTable(_props: CompareTableProps) {
   if (!analysis) return <p className="u7-compare-message" role="status">正在加载对比数据…</p>
   const sides = rows.some(({ entity }) => entity.side < 0) ? [...order, -1] : order
   const checked = sorted.filter(({ entity }) => pinned.has(entity.key))
+  const showHitQuality = visible.has('hitRate')
   const viewColumns = groups.map((group) => ({ group, columns: columns.filter(({ metric }) => metric.group === group) }))
     .filter((entry) => entry.columns.length)
+    .map((entry) => ({ ...entry, span: entry.columns.length + Number(entry.group === '命中' && showHitQuality) }))
   const activeCompact = visible.has(compactMetric) ? compactMetric : columns[0]?.metric.key
   const tableSections = [{ key: 'pilots', rows: sorted }, ...(extra.length ? [{ key: 'unidentified', rows: extra }] : [])]
   const firstInteraction = analysis.interactions[0]?.t
@@ -149,19 +151,19 @@ export function CompareTable(_props: CompareTableProps) {
           </optgroup>)}
         </select></label>
         <div className="u7-compare-scroll" tabIndex={0} aria-label="对比表">
-          <table><colgroup />{viewColumns.map(({ group, columns: entries }) => <colgroup key={group} span={entries.length} />)}<thead>
+          <table><colgroup />{viewColumns.map(({ group, span }) => <colgroup key={group} span={span} />)}<thead>
             <tr className="u7-compare-groups"><th rowSpan={2} scope="col">
               飞行员 <small>· 有日志 <span className="app-number">{shown.filter(({ entity }) => entity.hasLog).length}</span></small>
-            </th>{viewColumns.map(({ group, columns: entries }) => <th key={group} colSpan={entries.length} scope="colgroup">{group}</th>)}</tr>
+            </th>{viewColumns.map(({ group, span }) => <th key={group} colSpan={span} scope="colgroup">{group}</th>)}</tr>
             <tr><th className="u7-compact-pilot" scope="col">飞行员</th>{columns.map(({ metric }) => <th key={metric.key} scope="col" data-compact={metric.key === activeCompact}
               aria-sort={sort.key === metric.key ? sort.direction : undefined}>
               <button type="button" onClick={() => changeSort(metric.key)}><MetricLabel metric={metric} />
                 {metric.key === sort.key && <span aria-hidden="true">{sort.direction === 'descending' ? ' ↓' : ' ↑'}</span>}
               </button>
-            </th>)}</tr>
+            </th>)}{showHitQuality && <th scope="col" data-compact="false">命中质量</th>}</tr>
           </thead>{tableSections.map(({ key, rows }) => <tbody key={key} aria-label={key === 'unidentified' ? '未识别' : undefined}>
           {key === 'unidentified' && <tr className="u7-compare-unidentified">
-            <th scope="rowgroup" colSpan={columns.length + 1} data-compact="false">未识别 {fmtNum(rows.length)}</th>
+            <th scope="rowgroup" colSpan={columns.length + 1 + Number(showHitQuality)} data-compact="false">未识别 {fmtNum(rows.length)}</th>
             <th scope="rowgroup" colSpan={2} className="u7-compact-pilot">未识别 {fmtNum(rows.length)}</th>
           </tr>}
           {rows.map((row) => <tr key={row.entity.key} data-pilot-key={row.entity.key} data-pinned={key === 'pilots' && pinned.has(row.entity.key)}
@@ -170,12 +172,18 @@ export function CompareTable(_props: CompareTableProps) {
               checked={pinned.has(row.entity.key)} onChange={() => togglePin(row.entity.key)} /></label>}
               <PilotName row={row} onClick={() => select(row.entity.key)} />
               <PilotMore pilot={row.entity.key} name={row.entity.name} /></th>
-            {columns.map((column) => <td key={column.metric.key} data-compact={column.metric.key === activeCompact}>
+            {columns.map((column) => <td key={column.metric.key} data-metric={column.metric.key} data-compact={column.metric.key === activeCompact}>
               <MetricValue row={row} metric={column.metric} compactSample />
+              {column.metric.key === 'hitRate' && (row.entity.hasLog || row.observedHits) && <div className="u7-compact-quality">
+                <HitQualityBar stats={row.observedHits ?? row.stats} color={sideColor(row.entity.side, order)} />
+              </div>}
               <MetricBar value={metricValue(row, column.metric)} column={column} color={sideColor(row.entity.side, order)} />
-              {column.metric.key === 'hitRate' && (row.entity.hasLog || row.observedHits) &&
-                <HitQualityBar stats={row.observedHits ?? row.stats} color={sideColor(row.entity.side, order)} />}
             </td>)}
+            {showHitQuality && <td data-metric="hitQuality" data-compact="false">
+              {row.entity.hasLog || row.observedHits
+                ? <HitQualityBar stats={row.observedHits ?? row.stats} color={sideColor(row.entity.side, order)} />
+                : null}
+            </td>}
           </tr>)}</tbody>)}</table>
           {!sorted.length && !extra.length && <p className="u7-compare-message">没有符合筛选条件的飞行员 · 调整阵营或时间选段。</p>}
         </div>

@@ -617,6 +617,7 @@ export class BattleRoom extends ProductionRoom {
       row.textContent.includes(pilotName) && row.querySelector('[aria-label="有日志"]')),
   'Numala Airuta', { timeout: 30_000 })
   const density = []
+  const failures = []
   for (const width of [1280, 1630]) {
     const { context, page } = await open(width, 940, 'dark', 'no-preference', '?t=1750606982000')
     const hits = page.locator('[data-module="hits"] .hit-table-scroll')
@@ -628,6 +629,20 @@ export class BattleRoom extends ProductionRoom {
       const kohera = hits.getByRole('button', { name: 'Kohera Hakomairos', exact: true })
       assert.match(await kohera.getAttribute('title'), /Kohera Hakomairos.*据我方日志.*无命中质量/)
       await page.evaluate(() => document.fonts.ready)
+      for (const [name, selector] of [
+        ['名单', '[data-module="roster"] .roster-row'],
+        ['事件', '[data-module="feed"] .feed-row'],
+        ['命中', '[data-module="hits"] .hit-table-scroll tbody tr[data-pilot-key]'],
+      ]) {
+        const pitch = await page.locator(selector).evaluateAll((rows, selector) => rows.flatMap((row) => {
+          const next = row.nextElementSibling
+          return next?.matches(selector) ? [next.getBoundingClientRect().top - row.getBoundingClientRect().top] : []
+        }), selector)
+        const pitches = [...new Set(pitch)]
+        density.push({ width, table: name, pitches })
+        if (!pitch.length || pitches.some((px) => px !== 24)) failures.push({ width, table: name, pitches })
+      }
+
       const hitHeights = await tableHeights(hits)
       density.push({ width, table: '命中 module', max: Math.max(...hitHeights) })
 
@@ -636,6 +651,29 @@ export class BattleRoom extends ProductionRoom {
       await fullCompare.locator('tbody tr[data-pilot-key]').first().waitFor()
       assert.ok(await fullCompare.locator('tbody .u7-observed').count(), 'J125990 includes observed rows')
       assert.ok(await fullCompare.locator('tbody [title^="据我方日志 · "]').count(), 'observed sample counts have a tooltip')
+      const hasQualityHeader = await fullCompare.getByRole('columnheader', { name: '命中质量', exact: true }).count() === 1
+      if (!hasQualityHeader) failures.push({ width, table: 'full-page 对比', missing: '命中质量' })
+      else {
+        const headerFits = await fullCompare.getByRole('columnheader', { name: '命中质量', exact: true }).evaluate((cell) =>
+          cell.getBoundingClientRect().right <= cell.closest('.u7-compare-scroll').getBoundingClientRect().right)
+        if (!headerFits) failures.push({ width, table: 'full-page 对比', clipped: '命中质量' })
+      }
+      const remaining = await fullCompare.evaluate((el) => ({
+        below: window.innerHeight - el.getBoundingClientRect().bottom,
+        pad: parseFloat(getComputedStyle(el.parentElement).paddingBottom),
+        scrollable: el.scrollHeight > el.clientHeight,
+      }))
+      if (Math.abs(remaining.below - remaining.pad) > 1 || !remaining.scrollable) {
+        failures.push({ width, table: 'full-page 对比', ...remaining })
+      }
+      const lastRowReachable = await fullCompare.evaluate((el) => {
+        el.scrollTop = el.scrollHeight
+        const last = el.querySelector('tbody:last-child tr:last-child')
+        const reachable = last && last.getBoundingClientRect().bottom <= el.getBoundingClientRect().bottom
+        el.scrollTop = 0
+        return reachable
+      })
+      if (!lastRowReachable) failures.push({ width, table: 'full-page 对比', lastRowReachable })
       const compareHeights = await tableHeights(fullCompare)
       density.push({ width, table: 'full-page 对比', max: Math.max(...compareHeights) })
     } finally {
@@ -643,7 +681,8 @@ export class BattleRoom extends ProductionRoom {
     }
   }
   console.log('Table density:', JSON.stringify(density))
-  assert.deepEqual(density.filter(({ max }) => !Number.isFinite(max) || max > 26), [], 'table rows stay at or below 26 px')
+  failures.push(...density.filter(({ max }) => max !== undefined && (!Number.isFinite(max) || max > 26)))
+  assert.deepEqual(failures, [], 'desktop row pitch, heights and full-page Compare layout')
   const unresolved = b.page.locator('[data-module="roster"] [data-pilot-key^="ship:"]').first()
   const unresolvedKey = await unresolved.getAttribute('data-pilot-key')
   assert.ok(unresolvedKey)

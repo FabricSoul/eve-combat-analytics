@@ -13,7 +13,7 @@
 .side-letter { color: var(--color-text-3); font-family: var(--font-mono); }
 
 .roster-row {
-  position: relative; display: flex; align-items: center; min-height: var(--row); border-bottom: 1px solid var(--color-hair);
+  position: relative; display: flex; align-items: center; min-height: var(--row); box-shadow: inset 0 -1px var(--color-hair);
   font-size: var(--fs-s);
 }
 .roster-row:hover, .roster-row:focus-within { background: var(--color-raised); }
@@ -172,7 +172,7 @@
 /* One row on its own, as drawn on the c1-spec board; the gallery uses it for the state list. */
 .roster-bare { overflow: hidden; border: 1px solid var(--color-hair); border-radius: var(--radius-ctl); background: var(--color-surface); }
 .roster-bare .roster-head { display: none; }
-.roster-bare .roster-row { border-bottom: 0; }
+.roster-bare .roster-row { box-shadow: none; }
 .roster-bare[data-hover] .roster-row { background: var(--color-raised); }
 .roster-bare[data-hover] .roster-more { opacity: 1; }
 .roster-row .app-tag { font-size: 11px; line-height: 16px; }

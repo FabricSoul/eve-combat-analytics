@@ -49,6 +49,10 @@
 .u7-compare-note { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1) var(--space-4); padding: var(--space-2) var(--space-4); color: var(--color-text-2); font-size: var(--fs-s); }
 .u7-compare-body { --compare-padding: var(--space-4); min-height: 0; padding: 0 var(--compare-padding) var(--space-4); }
 .u7-compare-scroll { overflow: auto; max-height: 65dvh; border: 1px solid var(--color-hair); border-radius: var(--radius-card); }
+.u7-compare[data-expanded="true"] .u7-compare-body:has(> .u7-compare-scroll) {
+  display: flex; flex-direction: column; flex: 1;
+}
+.u7-compare[data-expanded="true"] .u7-compare-scroll { flex: 1; min-height: 0; max-height: none; }
 .u7-compare table { width: 100%; border-collapse: separate; border-spacing: 0; white-space: nowrap; font-size: var(--fs-compact-table); line-height: 16px; }
 .u7-compare tr { height: var(--row-compact); }
 .u7-compare td, .u7-compare th { border-bottom: 1px solid var(--color-hair); padding-inline: var(--space-2); }
@@ -65,7 +69,8 @@
 .u7-compare .u7-compare-unidentified th { background: var(--color-surface); color: var(--color-text-2); font-weight: 500; }
 .u7-compare tbody th > label { margin-inline-end: var(--space-2); }
 .u7-compare td { text-align: right; }
-.u7-compare td .u7-hit-quality { display: inline-flex; vertical-align: middle; width: 64px; margin-inline-start: var(--space-1); }
+.u7-compare td .u7-hit-quality { display: inline-flex; vertical-align: middle; width: 64px; }
+.u7-compact-quality { display: none; }
 .u7-compare-who { display: inline-flex; vertical-align: middle; align-items: center; gap: var(--space-1); min-width: 0; max-width: 185px; }
 .u7-ellipsis { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .u7-no-value { display: inline-block; vertical-align: middle; }
@@ -131,6 +136,10 @@
   .u7-compare td .u7-hit-quality { width: 40px; }
 }
 
+@container u7-compare (min-width: 760px) and (max-width: 1290px) {
+  .u7-compare[data-expanded="true"] :is(th, td) { padding-inline: 6px; }
+}
+
 @container u7-compare (max-width: 759px) {
   .u7-compare-header { padding-inline: var(--space-2); }
   .u7-compare-body { --compare-padding: var(--space-2); }
@@ -159,6 +168,7 @@
     display: block; width: min(100%, 28px); height: 4px; margin: 0 0 0 auto;
   }
   .u7-compare td .u7-hit-quality { width: min(100%, 28px); }
+  .u7-compact-quality { display: inline-flex; }
   .u7-distribution-strip { grid-template-columns: 1fr; }
 }
 
