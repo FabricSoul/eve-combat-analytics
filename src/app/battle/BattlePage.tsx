@@ -18,6 +18,7 @@ import { CompareTable } from './CompareTable'
 import { EmptyBattle } from './EmptyBattle'
 import { EventFeed } from './EventFeed'
 import { HitAnalysis } from './HitAnalysis'
+import { countPilots } from './pilot-count'
 import { KillsList } from './KillsList'
 import { PersonDrawer } from './PersonDrawer'
 import { ReplayCanvas } from './ReplayCanvas'
@@ -65,6 +66,12 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   const [eventFilters, setEventFilters] = useState(true)
   const [rosterAlphabetical, setRosterAlphabetical] = useState(false)
   const [killsExpanded, setKillsExpanded] = useState(false)
+  const includeCompareUnknown = view.includeUnidentified.has('compare')
+  const includeHitUnknown = view.includeUnidentified.has('hits')
+  const compareCount = useMemo(() => analysis
+    ? countPilots(analysis.stats.map(({ key }) => analysis.entities[key]), includeCompareUnknown) : '', [analysis, includeCompareUnknown])
+  const hitCount = useMemo(() => analysis
+    ? countPilots(Object.values(analysis.entities), includeHitUnknown) : '', [analysis, includeHitUnknown])
   const cancelDrag = useRef<(() => boolean) | null>(null)
 
   useEffect(() => {
@@ -243,9 +250,9 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
               layout={moduleLayout} dispatch={dispatchModule} dragCancel={cancelDrag}
               subtitles={{
                 feed: { merged: '合并同类', raw: '逐条', key: '只看关键' }[view.feedMode],
-                compare: analysis ? `${fmtNum(analysis.stats.length)} 人` : '',
+                compare: compareCount,
                 roster: analysis ? `我方 ${fmtNum(analysis.coverage.find(({ side }) => side === view.oursSide)?.known ?? 0)} · 其他 ${fmtNum(analysis.coverage.reduce((total, { side, known }) => total + (side === view.oursSide ? 0 : known), 0))}` : '',
-                kills: `${fmtNum(summary.meta.killmails.length)} 次击毁`, hits: '我方 · 敌方',
+                kills: `${fmtNum(summary.meta.killmails.length)} 次击毁`, hits: hitCount,
                 lanes: `${fmtNum(view.pinned.size)} 人`,
               }} content={renderModule} tools={moduleTools} />
           </div> : <>

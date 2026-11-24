@@ -197,3 +197,25 @@ it('shows the measured rate and sample for an enemy firing on uploaders in J1259
   expect(hitCell?.textContent).toContain('35 发')
   expect(hitCell?.querySelector('.u7-hit-quality')).not.toBeNull()
 })
+
+it('counts identified pilots by default and appends unidentified entities in a separate group on request', () => {
+  const unknown = Object.values(fixture.analysis.entities).filter(({ charId }) => charId === null).slice(0, 2)
+  // Synthetic stats for archived unidentified rows, which have no stored pilot stats.
+  const extra = unknown.map(({ key }) => ({ ...fixture.analysis.stats[0]!, key, damageOut: 0 }))
+  const countUnknown = extra.length
+  const countPilots = fixture.analysis.stats.length
+  expect(countUnknown).toBe(2)
+  render(<CompareTable />, { ...fixture, analysis: { ...fixture.analysis, stats: [...fixture.analysis.stats, ...extra] } })
+  const rows = () => [...host.querySelectorAll<HTMLTableRowElement>('tbody tr[data-pilot-key]')]
+  expect(rows()).toHaveLength(countPilots)
+  expect(rows().every((row) => row.dataset.pilotKey?.startsWith('char:'))).toBe(true)
+  const toggle = [...host.querySelectorAll('button')].find((button) => button.textContent === `含未识别 ${countUnknown}`)!
+  expect(toggle.getAttribute('aria-pressed')).toBe('false')
+  act(() => toggle.click())
+  const group = host.querySelector('tbody[aria-label="未识别"]')
+  expect(group?.querySelectorAll('tr[data-pilot-key]')).toHaveLength(countUnknown)
+  expect(group?.parentElement?.lastElementChild).toBe(group)
+  expect(host.querySelector('.u7-compare-note')?.textContent).toContain(`${countPilots} 人 · ${countUnknown} 项未识别`)
+  act(() => toggle.click())
+  expect(rows()).toHaveLength(countPilots)
+})

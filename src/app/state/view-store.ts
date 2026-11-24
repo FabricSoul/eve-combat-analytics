@@ -37,6 +37,8 @@ interface TransportState {
   range: TimeRange | null
 }
 
+type PilotModule = 'compare' | 'hits'
+
 interface ViewState {
   speed: PlaybackSpeed
   range: TimeRange | null
@@ -49,6 +51,7 @@ interface ViewState {
   feedMode: FeedMode
   drawerTab: DrawerTab
   panelTab: PanelTab
+  includeUnidentified: ReadonlySet<PilotModule>
   getTime(): number
   seek(t: number): void
   play(): void
@@ -66,6 +69,7 @@ interface ViewState {
   setFeedMode(mode: FeedMode): void
   setDrawerTab(tab: DrawerTab): void
   setPanelTab(tab: PanelTab): void
+  toggleUnidentified(module: PilotModule): void
 }
 
 function readInteger(value: string | null): number | null {
@@ -118,6 +122,7 @@ export function ViewProvider({
   const [feedMode, setFeedMode] = useState<FeedMode>('merged')
   const [drawerTab, setDrawerTab] = useState<DrawerTab>('stats')
   const [panelTab, setPanelTab] = useState<PanelTab>('roster')
+  const [includeUnidentified, setIncludeUnidentified] = useState<ReadonlySet<PilotModule>>(() => new Set())
   const lastUrlWrite = useRef(-Infinity)
   const t = time ?? initialTime
   const currentTime = useRef(t)
@@ -241,6 +246,12 @@ export function ViewProvider({
     else next.add(key)
     return next
   }), [])
+  const toggleUnidentified = useCallback((module: PilotModule) => setIncludeUnidentified((previous) => {
+    const next = new Set(previous)
+    if (next.has(module)) next.delete(module)
+    else next.add(module)
+    return next
+  }), [])
   const oursSide = side ?? defaultSide
   const focused = selected !== null && focusOnly
   const value = useMemo<ViewState>(() => ({
@@ -255,6 +266,7 @@ export function ViewProvider({
     feedMode,
     drawerTab,
     panelTab,
+    includeUnidentified,
     getTime,
     seek,
     play,
@@ -272,8 +284,9 @@ export function ViewProvider({
     setFeedMode,
     setDrawerTab,
     setPanelTab,
-  }), [speed, range, selected, pinned, focused, oursSide, layers, hiddenNoise, feedMode, drawerTab, panelTab,
-    getTime, seek, play, pause, setRange, clearRange, select, togglePin, setOursSide, toggleLayer, toggleNoiseFilter])
+    toggleUnidentified,
+  }), [speed, range, selected, pinned, focused, oursSide, layers, hiddenNoise, feedMode, drawerTab, panelTab, includeUnidentified,
+    getTime, seek, play, pause, setRange, clearRange, select, togglePin, setOursSide, toggleLayer, toggleNoiseFilter, toggleUnidentified])
   const playback = useMemo(() => ({ t, playing }), [t, playing])
   const coarseTime = playing ? Math.max(range?.[0] ?? 0, Math.floor(t / coarseInterval) * coarseInterval) : t
   const coarsePlayback = useMemo(() => ({ t: coarseTime, playing }), [coarseTime, playing])

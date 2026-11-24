@@ -20,8 +20,8 @@ export interface Column {
   median: ReturnType<typeof rowMedian>
 }
 
-export function makeColumn(metric: Metric, rows: readonly CompareRow[]): Column {
-  const values = rows.flatMap((row) => metricValue(row, metric) ?? [])
+export function makeColumn(metric: Metric, rows: readonly CompareRow[], unidentified: readonly CompareRow[] = []): Column {
+  const values = [...rows, ...unidentified].flatMap((row) => metricValue(row, metric) ?? [])
   const low = Math.min(0, ...values)
   return { metric, low, high: Math.max(low + 1, ...values), median: rowMedian(rows, metric) }
 }

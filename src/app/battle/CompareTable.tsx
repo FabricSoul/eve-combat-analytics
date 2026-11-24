@@ -1,15 +1,16 @@
 import { useId, useMemo, useState, type CSSProperties } from 'react'
-import { fmtHms } from '../lib/format'
+import { fmtHms, fmtNum } from '../lib/format'
 import { sideColor, sideLabel, sideOrder } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
 import { PilotMore, usePilotMenu } from './roster/PilotActions'
 import { useView } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { Tabs } from '../ui/Tabs'
-import { defaultColumns, metricValue, metrics, useCombatRows, type Metric } from './compare/metrics'
+import { defaultColumns, metricValue, metrics, useCombatRows, type CompareRow, type Metric } from './compare/metrics'
 import { Distribution, makeColumn, MetricBar, MetricLabel, MetricValue, PilotName, SideBySide } from './compare/CompareViews'
 import { HitQualityBar } from './compare/HitQualityBar'
 import { RangeChip } from './RangeChip'
+import { pilotCountLabel } from './pilot-count'
 import './compare/compare.css'
 
 export interface CompareTableProps {}
@@ -23,7 +24,7 @@ const initialSort = { key: 'damageOut', direction: 'descending' } as const
 
 export function CompareTable(_props: CompareTableProps) {
   const { analysis, summary } = useBattleContext()
-  const { oursSide, selected, select, range, clearRange, pinned, setPinned, togglePin } = useView()
+  const { oursSide, selected, select, range, clearRange, pinned, setPinned, togglePin, includeUnidentified, toggleUnidentified } = useView()
   const pilotMenu = usePilotMenu()
   const { rows } = useCombatRows()
   const [mode, setMode] = useState<CompareMode>('table')
@@ -35,12 +36,21 @@ export function CompareTable(_props: CompareTableProps) {
   const id = useId()
 
   const order = useMemo(() => analysis ? sideOrder(analysis, oursSide) : [], [analysis, oursSide])
-  const shown = useMemo(() => rows.filter(({ entity }) => !hiddenSides.has(entity.side)), [rows, hiddenSides])
-  const columns = useMemo(() => metrics.filter(({ key }) => visible.has(key)).map((metric) => makeColumn(metric, shown)), [shown, visible])
-  const sorted = useMemo(() => {
+  const { shown, unidentified } = useMemo(() => {
+    const shown: CompareRow[] = []
+    const unidentified: CompareRow[] = []
+    for (const row of rows) {
+      if (!hiddenSides.has(row.entity.side)) (row.entity.charId !== null ? shown : unidentified).push(row)
+    }
+    return { shown, unidentified }
+  }, [rows, hiddenSides])
+  const include = mode === 'table' && includeUnidentified.has('compare')
+  const columns = useMemo(() => metrics.filter(({ key }) => visible.has(key))
+    .map((metric) => makeColumn(metric, shown, include ? unidentified : undefined)), [shown, unidentified, visible, include])
+  const { sorted, extra } = useMemo(() => {
     const metric = metrics.find(({ key }) => key === sort.key)!
-    return [...shown].sort((a, b) => {
-      const pinOrder = Number(pinned.has(b.entity.key)) - Number(pinned.has(a.entity.key))
+    const sortRows = (rows: typeof shown, pin: boolean) => [...rows].sort((a, b) => {
+      const pinOrder = pin ? Number(pinned.has(b.entity.key)) - Number(pinned.has(a.entity.key)) : 0
       if (pinOrder) return pinOrder
       const first = metricValue(a, metric)
       const second = metricValue(b, metric)
@@ -49,7 +59,8 @@ export function CompareTable(_props: CompareTableProps) {
       if (second === null) return -1
       return sort.direction === 'ascending' ? first - second : second - first
     })
-  }, [shown, pinned, sort])
+    return { sorted: sortRows(shown, true), extra: include ? sortRows(unidentified, false) : [] }
+  }, [shown, unidentified, include, pinned, sort])
 
   if (!analysis) return <p className="u7-compare-message" role="status">正在加载对比数据…</p>
   const sides = rows.some(({ entity }) => entity.side < 0) ? [...order, -1] : order
@@ -57,6 +68,7 @@ export function CompareTable(_props: CompareTableProps) {
   const viewColumns = groups.map((group) => ({ group, columns: columns.filter(({ metric }) => metric.group === group) }))
     .filter((entry) => entry.columns.length)
   const activeCompact = visible.has(compactMetric) ? compactMetric : columns[0]?.metric.key
+  const tableSections = [{ key: 'pilots', rows: sorted }, ...(extra.length ? [{ key: 'unidentified', rows: extra }] : [])]
   const firstInteraction = analysis.interactions[0]?.t
   const lastInteraction = analysis.interactions.at(-1)?.t
   let fightStart = firstInteraction ?? Infinity
@@ -111,6 +123,9 @@ export function CompareTable(_props: CompareTableProps) {
       </div>
     </header>
     <div className="u7-compare-note">
+      <span>{pilotCountLabel(shown.length, extra.length)}</span>
+      {mode === 'table' && unidentified.length > 0 && <Button variant="ghost" aria-pressed={include}
+        onClick={() => toggleUnidentified('compare')}>含未识别 {fmtNum(unidentified.length)}</Button>}
       <span>{mode === 'table' ? '勾选的人置顶 · 竖线是中位数' : mode === 'side-by-side' ? '每项一组条形 · 竖线是中位数' : '每项一条轴 · 虚线是中位数'}</span>
       {pinned.size > 0 && <Button variant="ghost" onClick={() => setPinned(new Set())}>清除勾选</Button>}
       {range ? <RangeChip range={range} clearRange={clearRange} /> : bounds
@@ -144,10 +159,15 @@ export function CompareTable(_props: CompareTableProps) {
                 {metric.key === sort.key && <span aria-hidden="true">{sort.direction === 'descending' ? ' ↓' : ' ↑'}</span>}
               </button>
             </th>)}</tr>
-          </thead><tbody>{sorted.map((row) => <tr key={row.entity.key} data-pilot-key={row.entity.key} data-pinned={pinned.has(row.entity.key)}
+          </thead>{tableSections.map(({ key, rows }) => <tbody key={key} aria-label={key === 'unidentified' ? '未识别' : undefined}>
+          {key === 'unidentified' && <tr className="u7-compare-unidentified">
+            <th scope="rowgroup" colSpan={columns.length + 1} data-compact="false">未识别 {fmtNum(rows.length)}</th>
+            <th scope="rowgroup" colSpan={2} className="u7-compact-pilot">未识别 {fmtNum(rows.length)}</th>
+          </tr>}
+          {rows.map((row) => <tr key={row.entity.key} data-pilot-key={row.entity.key} data-pinned={key === 'pilots' && pinned.has(row.entity.key)}
             data-selected={selected === row.entity.key || undefined} onContextMenu={(event) => pilotMenu?.open(row.entity.key, event)}>
-            <th scope="row"><label><input type="checkbox" aria-label={`并排对比 ${row.entity.name}`}
-              checked={pinned.has(row.entity.key)} onChange={() => togglePin(row.entity.key)} /></label>
+            <th scope="row">{key === 'pilots' && <label><input type="checkbox" aria-label={`并排对比 ${row.entity.name}`}
+              checked={pinned.has(row.entity.key)} onChange={() => togglePin(row.entity.key)} /></label>}
               <PilotName row={row} onClick={() => select(row.entity.key)} />
               <PilotMore pilot={row.entity.key} name={row.entity.name} /></th>
             {columns.map((column) => <td key={column.metric.key} data-compact={column.metric.key === activeCompact}>
@@ -156,8 +176,8 @@ export function CompareTable(_props: CompareTableProps) {
               {column.metric.key === 'hitRate' && (row.entity.hasLog || row.observedHits) &&
                 <HitQualityBar stats={row.observedHits ?? row.stats} color={sideColor(row.entity.side, order)} />}
             </td>)}
-          </tr>)}</tbody></table>
-          {!sorted.length && <p className="u7-compare-message">没有符合筛选条件的飞行员 · 调整阵营或时间选段。</p>}
+          </tr>)}</tbody>)}</table>
+          {!sorted.length && !extra.length && <p className="u7-compare-message">没有符合筛选条件的飞行员 · 调整阵营或时间选段。</p>}
         </div>
       </>}
       {mode === 'side-by-side' && <SideBySide rows={checked} columns={columns} order={order} onSelect={select} selected={selected} />}

@@ -71,10 +71,12 @@ export function aggregateHits(
   range?: readonly [number, number] | null,
 ) {
   const pilots = new Map<EntityKey, PilotHits>()
+  const unidentified = new Map<EntityKey, PilotHits>()
   const sides = new Map<number, SideHits>()
   const classes = new Map<string, CatalogWeapon | 'other'>()
   for (const entity of Object.values(entities)) {
-    if (entity.charId !== null) pilots.set(entity.key, { entity, ...emptyCombat(), weapons: new Map() })
+    const observations = entity.charId === null ? unidentified : pilots
+    observations.set(entity.key, { entity, ...emptyCombat(), weapons: new Map() })
   }
   for (const event of interactions) {
     if (event.kind !== 'damage' && event.kind !== 'miss') continue
@@ -91,7 +93,7 @@ export function aggregateHits(
     record(side, outcome, event.amount)
     record(entry(side.classes, weaponClass, emptyCounts), outcome, event.amount)
     if (outcome !== null) record(entry(side.minutes, Math.floor(event.t / HIT_MINUTE) * HIT_MINUTE, emptyCounts), outcome, event.amount)
-    const pilot = pilots.get(source.key)
+    const pilot = pilots.get(source.key) ?? unidentified.get(source.key)
     if (!pilot) continue
     record(pilot, outcome, event.amount)
     record(entry(pilot.classes, weaponClass, emptyCounts), outcome, event.amount)
@@ -105,7 +107,7 @@ export function aggregateHits(
       metric,
     ))
   }
-  return { pilots, sides, ranking }
+  return { pilots, unidentified, sides, ranking }
 }
 
 const ratio = (shots: number, total: number) => total ? shots / total : null

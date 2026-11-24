@@ -49,6 +49,8 @@
 .hit-insufficient li { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: var(--space-2); padding: var(--space-1); align-items: baseline; }
 .hit-insufficient button { overflow-wrap: anywhere; }
 .hit-insufficient-coverage { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); color: var(--color-text-2); font-size: var(--fs-s); }
+.hit-unidentified { border-top: 1px solid var(--color-hair); margin-block-start: var(--space-2); padding-block-start: var(--space-2); }
+.hit-unidentified h4 { margin-block-end: var(--space-1); color: var(--color-text-2); }
 .hit-person-ranks { margin-block: var(--space-2); display: grid; gap: var(--space-1); }
 .hit-person-ranks > div { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: var(--space-2); align-items: baseline; }
 .hit-person-ranks small { display: block; color: var(--color-text-2); line-height: 1.2; }

@@ -135,3 +135,30 @@ it('keeps the full-fight rank and sample identical in the module and drawer for 
     act(() => root.unmount())
   }
 }, 60_000)
+
+it('shows unidentified hit observations only in their own group and preserves pilot ranks', () => {
+  const fixture = loadUiFixture({ fullPilotEvents: true })
+  const unidentified = Object.values(fixture.analysis.entities).filter(({ charId }) => charId === null)
+  const countPilots = Object.keys(fixture.analysis.entities).length - unidentified.length
+  expect(unidentified.length).toBeGreaterThan(0)
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    act(() => root.render(<BattleProvider static={fixture}><ViewProvider defaultSide={1} syncUrl={false}><HitAnalysis /></ViewProvider></BattleProvider>))
+    const ranked = () => [...host.querySelectorAll('.hit-analysis tbody tr')].map((row) => row.textContent)
+    const before = ranked()
+    expect(host.querySelector('.hit-pilot-ranks h3')?.textContent).toContain(`${countPilots} 人`)
+    expect(host.querySelector('[aria-label="未识别"]')).toBeNull()
+    const toggle = [...host.querySelectorAll('button')].find((button) => button.textContent === `含未识别 ${unidentified.length}`)!
+    act(() => toggle.click())
+    expect(ranked()).toEqual(before)
+    const group = host.querySelector('[aria-label="未识别"]')
+    expect(group?.querySelectorAll('li[data-pilot-key]')).toHaveLength(unidentified.length)
+    expect(group?.parentElement?.lastElementChild).toBe(group)
+    expect(host.querySelector('.hit-pilot-ranks h3')?.textContent).toContain(`${countPilots} 人 · ${unidentified.length} 项未识别`)
+    act(() => toggle.click())
+    expect(host.querySelector('[aria-label="未识别"]')).toBeNull()
+  } finally {
+    act(() => root.unmount())
+  }
+})

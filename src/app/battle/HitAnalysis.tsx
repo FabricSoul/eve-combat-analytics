@@ -14,11 +14,12 @@ import {
 } from './hits/analysis'
 import { useHitAnalysis } from './hits/use-hit-analysis'
 import { RangeChip } from './RangeChip'
+import { pilotCountLabel } from './pilot-count'
 import './hits/hits.css'
 
 export function HitAnalysis() {
   const { analysis, summary } = useBattleContext()
-  const { oursSide, range, clearRange, selected, select } = useView()
+  const { oursSide, range, clearRange, selected, select, includeUnidentified, toggleUnidentified } = useView()
   const pilotMenu = usePilotMenu()
   const hits = useHitAnalysis()
   const [expanded, setExpanded] = useState(false)
@@ -28,13 +29,16 @@ export function HitAnalysis() {
   const order = useMemo(() => analysis ? sideOrder(analysis, oursSide) : [], [analysis, oursSide])
   if (!hits || !analysis) return <p className="hit-secondary" role="status">正在加载命中数据…</p>
 
-  const sides = [...order, ...new Set([...hits.pilots.values()].map(({ entity }) => entity.side).filter((side) => !order.includes(side)))]
+  const include = includeUnidentified.has('hits')
+  const sides = [...order, ...new Set(Object.values(analysis.entities).map(({ side }) => side).filter((side) => !order.includes(side)))]
   const teams = sides.filter((side) => !hidden.has(side) && (side >= 0 || hits.sides.has(side)))
     .map((side) => ({ side, counts: hits.sides.get(side) }))
   const ranking = hits.ranking(metric)
   const rows = ranking.ranked.filter(({ pilot }) => !hidden.has(pilot.entity.side))
   if (reverse) rows.reverse()
   const insufficient = ranking.insufficient.filter(({ entity }) => !hidden.has(entity.side))
+  const unidentified = [...hits.unidentified.values()].filter(({ entity }) => !hidden.has(entity.side))
+    .sort((a, b) => b.shots - a.shots || a.entity.name.localeCompare(b.entity.name))
   const definition = hitMetrics[metric]
   const direction = reverse ? (definition.direction === 'ascending' ? 'descending' : 'ascending') : definition.direction
   let start = analysis.interactions[0]?.t ?? Infinity
@@ -76,6 +80,8 @@ export function HitAnalysis() {
         }}>
           {hitMetricKeys.map((key) => <option key={key} value={key}>{hitMetrics[key].label}</option>)}
         </select></label>
+        {unidentified.length > 0 && <Button variant="ghost" aria-pressed={include}
+          onClick={() => toggleUnidentified('hits')}>含未识别 {fmtNum(unidentified.length)}</Button>}
         {range ? <RangeChip range={range} clearRange={clearRange} /> : bounds
           && <span>全场 <span className="app-number">{fmtHms(bounds[0])}–{fmtHms(bounds[1])}</span></span>}
       </div>
@@ -95,7 +101,7 @@ export function HitAnalysis() {
       </div>
       {bounds && <HitTrend order={order} bounds={bounds} teams={teams.map(({ side, counts }) => ({ side, minutes: counts?.minutes }))} />}
       <section className="hit-pilot-ranks">
-        <h3>飞行员排名</h3>
+        <h3>飞行员排名 <small>{pilotCountLabel(rows.length + insufficient.length, include ? unidentified.length : 0)}</small></h3>
         {rows.length > 0 ? <div className="hit-table-scroll" role="region" aria-label="飞行员命中排名" tabIndex={0}>
           <table>
             <thead><tr><th scope="col">全场名次 / 样本</th><th scope="col">飞行员</th><th scope="col" aria-sort={direction}>
@@ -140,6 +146,25 @@ export function HitAnalysis() {
             </li>
           })}</ul>
         </details>
+        {include && unidentified.length > 0 && <section className="hit-insufficient hit-unidentified" aria-label="未识别">
+          <h4>未识别 {fmtNum(unidentified.length)}</h4>
+          <ul>{unidentified.map((pilot) => {
+            const { entity, shots, ungraded } = pilot
+            return <li key={entity.key} data-pilot-key={entity.key} data-selected={selected === entity.key || undefined}
+              onContextMenu={(event) => pilotMenu?.open(entity.key, event)}>
+              <div className="hit-pilot-cell">
+                <button type="button" onClick={() => select(entity.key)}>{entity.name}</button>
+                <PilotMore pilot={entity.key} name={entity.name} />
+              </div>
+              <small>{sideLabel(entity.side, order)}</small>
+              <span className="app-number">{fmtNum(shots)} 发</span>
+              <div className="hit-insufficient-coverage">
+                <span>命中率 <HitRateValue counts={pilot} /></span>
+                {ungraded > 0 && <UngradedShots count={ungraded} />}
+              </div>
+            </li>
+          })}</ul>
+        </section>}
       </section>
     </div>
   </section>
