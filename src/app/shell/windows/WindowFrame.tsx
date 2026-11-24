@@ -1,3 +1,4 @@
+import { WorkspaceAction, WorkspaceIcon } from '../../ui/icons/WorkspaceIcon'
 import {
   useEffect, useId, useRef, useState, type Dispatch, type KeyboardEvent,
   type PointerEvent, type ReactNode, type RefObject,
@@ -149,16 +150,16 @@ export function WindowFrame({ id, title, subtitle, kind: Surface, region, desk, 
         <div className="battle-window-titlebar" tabIndex={floating || module ? 0 : undefined} role="group"
           aria-label={`${title} 标题栏`} aria-keyshortcuts={module ? 'Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown' : floating ? 'ArrowLeft ArrowRight ArrowUp ArrowDown' : undefined}
           onPointerDown={(event) => !floating && module ? module.onPointerDown(event) : start(event, 'move')} onKeyDown={moveByKey} {...handlers}>
-          {module && <span className="battle-module-handle" aria-hidden="true" title="拖动移动模块">⠿</span>}
+          {module && <span className="battle-module-handle" aria-hidden="true" title="拖动移动模块"><WorkspaceIcon name="grip" /></span>}
           <span className="battle-window-heading">{title}
             {subtitle && <span className="battle-window-subtitle">{subtitle}</span>}
           </span>
           {module && <span className="battle-module-title-spacer" aria-hidden="true" />}
           {!minimized && module?.tools}
           <button type="button" aria-label={`${action} ${title}`} title={action}
-            onClick={() => floating ? dispatch({ type: 'dock', id }) : dispatch({ type: 'pop', id, viewport })}>{floating ? '×' : '⧉'}</button>
+            onClick={() => floating ? dispatch({ type: 'dock', id }) : dispatch({ type: 'pop', id, viewport })}><WorkspaceAction icon={floating ? 'close' : 'popout'}>{action}</WorkspaceAction></button>
           <button type="button" aria-label={`${size} ${title}`} title={size} aria-controls={body} aria-expanded={!minimized}
-            onClick={() => dispatch({ type: 'minimize', id })}>{minimized ? '+' : '–'}</button>
+            onClick={() => dispatch({ type: 'minimize', id })}><WorkspaceAction icon={minimized ? 'add' : 'collapse'}>{size}</WorkspaceAction></button>
         </div>
         <div id={body} className={`battle-window-body${!module && id === 'feed' ? ' battle-feed-content' : ''}`} hidden={minimized}>
           {children}

@@ -185,6 +185,19 @@ describe('replay keyboard navigation', () => {
     expectBracketAt(alpha.name)
   })
 
+  it('keeps focus on the replay toolbar when the drawer dismisses the selection', async () => {
+    const initial = analysis()
+    await render(initial, time, beta.key)
+    const toolbar = host.querySelector<HTMLElement>('[role="toolbar"]')!
+    await act(() => toolbar.focus())
+    await render(initial)
+    await refresh()
+    expect(document.activeElement).toBe(toolbar)
+    expect(host.querySelector('.replay-lock')).toBeNull()
+    await press('ArrowRight')
+    expect(document.activeElement?.classList.contains('replay-pilot')).toBe(true)
+  })
+
   it('moves focus to a present pilot when playback hides the focused ship', async () => {
     const initial = analysis()
     await render(initial)

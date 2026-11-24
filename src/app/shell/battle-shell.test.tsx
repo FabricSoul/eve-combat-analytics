@@ -115,13 +115,33 @@ describe('battle shell review', () => {
     escape()
     expect(button('清除选段测试')).toBeTruthy()
     expect(host.querySelector('.battle-drawer')).toBeNull()
-    expect(pilotButton().getAttribute('aria-pressed')).toBe('true')
+    expect(pilotButton().getAttribute('aria-pressed')).toBe('false')
     escape()
     expect(button('建立选段测试')).toBeTruthy()
-    expect(pilotButton().getAttribute('aria-pressed')).toBe('true')
-    escape()
-    expect(pilotButton().getAttribute('aria-pressed')).toBe('false')
   }, 12000)
+
+  it('labels the layout menu and restores the default layout with a confirmation', async () => {
+    await render()
+    const menu = host.querySelector<HTMLDetailsElement>('.battle-module-controls')!
+    const opener = menu.querySelector('summary')!
+    expect(opener.textContent).toContain('布局')
+    expect(opener.querySelector('svg')).not.toBeNull()
+    menu.open = true
+    click(button('恢复默认布局'))
+    expect(menu.open).toBe(false)
+    expect(document.activeElement).toBe(opener)
+    expect(host.textContent).toContain('已恢复默认布局')
+  })
+
+  it('shows SVG module tools and describes the stage grip', async () => {
+    await render()
+    for (const name of ['搜索事件', '筛选事件', '弹出 名单', '收起 名单', '整页查看命中', '命中排名指标', '对比列']) {
+      const control = button(name)
+      expect(control.querySelector('svg')).not.toBeNull()
+      expect(control.title).toBeTruthy()
+    }
+    expect(host.querySelector('[role="separator"]')?.getAttribute('title')).toBe('拖动调整高度，双击恢复')
+  })
 
   it('M3: shows a lost live connection in the top bar and clears it when the socket returns', async () => {
     await render()

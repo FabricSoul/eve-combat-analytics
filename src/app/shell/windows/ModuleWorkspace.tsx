@@ -1,23 +1,46 @@
 import { useEffect, useLayoutEffect, useRef, useState, type Dispatch, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
+import { WorkspaceIcon } from '../../ui/icons/WorkspaceIcon'
 import { WindowFrame } from './WindowFrame'
 import { windowDragClass, type Viewport, type WindowAction } from './layout'
 import { areaNames, clampStage, floatModule, keyboardDrop, moduleIds, moduleTitles, visibleArea, type ModuleAction, type ModuleId, type ModuleLayout } from './modules'
 
 type Move = Extract<ModuleAction, { type: 'move' }>
-type Drag = { id: ModuleId; pointer: number; bar: HTMLElement; target: Move | null }
+type Drag = {
+  id: ModuleId; pointer: number; bar: HTMLElement; target: Move | null
+  ghost: HTMLElement; offsetX: number; offsetY: number
+}
 
 export function ModuleControls({ layout, dispatch }: { layout: ModuleLayout; dispatch: Dispatch<ModuleAction> }) {
-  return <details className="battle-module-controls">
-    <summary aria-label="模块" title="模块">▦</summary>
+  const disclosure = useRef<HTMLDetailsElement>(null)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const [restored, setRestored] = useState(false)
+  useEffect(() => () => clearTimeout(timer.current), [])
+
+  function restore() {
+    dispatch({ type: 'reset' })
+    if (disclosure.current) {
+      disclosure.current.open = false
+      disclosure.current.querySelector('summary')?.focus({ preventScroll: true })
+    }
+    setRestored(true)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setRestored(false), 2400)
+  }
+
+  return <div className="battle-layout-tools">
+    <details ref={disclosure} className="battle-module-controls">
+      <summary title="布局"><WorkspaceIcon name="layout" />布局</summary>
     <div className="battle-module-menu" role="group" aria-label="显示模块">
       {moduleIds.map((id) => <label key={id}>
         <input type="checkbox" checked={!layout.modules[id].hidden} onChange={() => dispatch({ type: 'toggle', id })} />
         {moduleTitles[id]}
       </label>)}
-      <button type="button" onClick={() => dispatch({ type: 'reset' })}>恢复默认布局</button>
+      <button type="button" onClick={restore}>恢复默认布局</button>
     </div>
-  </details>
+    </details>
+    {restored && <div className="battle-layout-confirmation" role="status">已恢复默认布局</div>}
+  </div>
 }
 
 export function StageGrip({ height, viewportHeight, dispatch }: {
@@ -27,7 +50,7 @@ export function StageGrip({ height, viewportHeight, dispatch }: {
   function release(event: PointerEvent) {
     if (pointer.current?.id === event.pointerId) pointer.current = null
   }
-  return <div className="battle-stage-grip" role="separator" tabIndex={0} title="调整舞台高度，双击恢复默认"
+  return <div className="battle-stage-grip" role="separator" tabIndex={0} title="拖动调整高度，双击恢复"
     aria-label="调整舞台高度" aria-orientation="horizontal" aria-valuemin={300}
     aria-valuemax={Math.max(300, Math.floor(viewportHeight * 0.75))} aria-valuenow={height}
     onDoubleClick={() => dispatch({ type: 'stage', height: null })}
@@ -82,7 +105,10 @@ export function ModuleWorkspace({ desk, viewport, layout, dispatch, columns, dra
   useEffect(() => {
     dragCancel.current = () => finish(false) || (floatCancel.current?.() ?? false)
     return () => {
-      if (drag.current) document.body.classList.remove(windowDragClass)
+      if (drag.current) {
+        drag.current.ghost.remove()
+        document.body.classList.remove(windowDragClass)
+      }
       dragCancel.current = null
     }
   }, [dragCancel])
@@ -92,6 +118,7 @@ export function ModuleWorkspace({ desk, viewport, layout, dispatch, columns, dra
     if (!current || (pointer !== undefined && current.pointer !== pointer)) return false
     drag.current = null
     document.body.classList.remove(windowDragClass)
+    current.ghost.remove()
     if (current.bar.hasPointerCapture(current.pointer)) current.bar.releasePointerCapture(current.pointer)
     setPreview(null)
     if (commit && current.target) {
@@ -103,12 +130,27 @@ export function ModuleWorkspace({ desk, viewport, layout, dispatch, columns, dra
 
   function start(id: ModuleId, event: PointerEvent<HTMLElement>) {
     if (event.button !== 0 || (event.target as Element).closest('button, input, summary, a, .battle-window-heading') || drag.current) return
+    const frame = event.currentTarget.closest<HTMLElement>('[data-module]')
+    if (!frame) return
     event.preventDefault()
     event.currentTarget.focus({ preventScroll: true })
     event.currentTarget.setPointerCapture(event.pointerId)
     document.getSelection()?.removeAllRanges()
     document.body.classList.add(windowDragClass)
-    drag.current = { id, pointer: event.pointerId, bar: event.currentTarget, target: null }
+    const { x, y, width, height } = frame.getBoundingClientRect()
+    const ghost = frame.cloneNode(true) as HTMLElement
+    ghost.removeAttribute('data-module')
+    ghost.removeAttribute('data-window')
+    ghost.setAttribute('data-module-ghost', '')
+    ghost.setAttribute('aria-hidden', 'true')
+    ghost.inert = true
+    for (const element of ghost.querySelectorAll('[id]')) element.removeAttribute('id')
+    ghost.style.width = `${width}px`
+    ghost.style.height = `${height}px`
+    ghost.style.transform = `translate3d(${x}px, ${y}px, 0)`
+    document.body.appendChild(ghost)
+    drag.current = { id, pointer: event.pointerId, bar: event.currentTarget, target: null, ghost,
+      offsetX: event.clientX - x, offsetY: event.clientY - y }
     setPreview({ source: id, to: null })
   }
 
@@ -140,6 +182,7 @@ export function ModuleWorkspace({ desk, viewport, layout, dispatch, columns, dra
   function move(event: PointerEvent<HTMLDivElement>) {
     const current = drag.current
     if (!current || current.pointer !== event.pointerId) return
+    current.ghost.style.transform = `translate3d(${event.clientX - current.offsetX}px, ${event.clientY - current.offsetY}px, 0)`
     const to = targetAt(current.id, event)
     if (to?.area === current.target?.area && to?.index === current.target?.index) return
     current.target = to

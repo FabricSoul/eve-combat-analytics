@@ -134,6 +134,14 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
     </LayerChip>
   }
 
+  const hint = showHint && <div className="eca-timeline-hint">
+      <span>Shift+拖动可以只看一段</span>
+      <Button variant="ghost" aria-label="关闭时间轴提示" onClick={(event) => {
+        dismissHint()
+        if (event.detail === 0) chart.current?.focus({ preventScroll: true })
+      }}>×</Button>
+    </div>
+
   return <div className="eca-timeline" data-compact={compact}>
     <div className="eca-timeline-bar">
       <Controls view={view} next={next} canPlay={data.eventTimes.length > 0} compact={compact} draft={draft} />
@@ -150,13 +158,7 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
         <TimelineHelp />
       </div>
     </div>
-    {showHint && <div className="eca-timeline-hint">
-      <span>Shift+拖动可以只看一段</span>
-      <Button variant="ghost" aria-label="关闭时间轴提示" onClick={(event) => {
-        dismissHint()
-        if (event.detail === 0) chart.current?.focus({ preventScroll: true })
-      }}>×</Button>
-    </div>}
+    {separateLanes ? <div className="eca-timeline-hint-slot">{hint}</div> : hint}
     <div className="eca-timeline-plot">
       <svg ref={chart} data-timeline-chart="" data-domain-start={start} data-domain-end={end} data-range-draft={draft ? '' : undefined}
         width="100%" height={layout.height} viewBox={`0 0 ${width} ${layout.height}`}

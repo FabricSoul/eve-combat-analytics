@@ -33,7 +33,7 @@ export function useReplayKeyboard() {
     setTabStop(current)
 
     // A disappearing marker becomes inert, so keep focus inside the canvas if it held it.
-    if (previouslyFocused && toolbarElement?.contains(previouslyFocused)
+    if (previouslyFocused && previouslyFocused !== toolbarElement && toolbarElement?.contains(previouslyFocused)
       && !next.some(({ button }) => button === previouslyFocused)) {
       const fallback = current?.button ?? toolbarElement
       if (fallback !== previouslyFocused) fallback.focus({ preventScroll: true })

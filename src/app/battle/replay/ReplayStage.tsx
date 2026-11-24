@@ -120,6 +120,10 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, killm
   }, [])
 
   useLayoutEffect(() => {
+    if (!selected) inspect(null)
+  }, [selected])
+
+  useLayoutEffect(() => {
     const element = host.current
     if (!element) return
     function resize() {

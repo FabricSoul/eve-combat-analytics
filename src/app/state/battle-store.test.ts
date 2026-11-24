@@ -179,3 +179,25 @@ it('polls the summary every 15 seconds after three failed reconnects and stops w
   expect(battle).toMatchObject({ live: true, reconnecting: false, summary: { fits: [fit] } })
   expect(callsTo(battlePath)).toBe(3)
 })
+
+it('publishes an analyzed mutation snapshot only when the matching analysis arrives', async () => {
+  let deliver!: (response: Response) => void
+  fetcher.mockImplementation(async (url) => {
+    if (url === battlePath) return Response.json(initialSummary)
+    if (callsTo(`${battlePath}/analysis`) === 1) return Response.json(initialAnalysis, { headers: { ETag: '"v1"' } })
+    return new Promise((resolve) => { deliver = resolve })
+  })
+  await mount()
+  expect(battle.analyzedSummary).toEqual(initialSummary)
+  const merges = [{ from: 'ship:10:0', to: 'char:42', setAt: 2 }] as const
+  act(() => sockets[0]!.message({ type: 'identities_set', merges: [...merges] }))
+  expect(battle.summary?.identityMerges).toEqual(merges)
+  expect(battle.analyzedSummary?.identityMerges).toBeUndefined()
+  await act(async () => sockets[0]!.message({ type: 'analysis_ready', version: 2 }))
+  expect(battle.analyzedSummary?.analysisVersion).toBe(1)
+  const overrides = [{ subject: 'char:42', side: 1, setAt: 3, source: 'manual' }] as const
+  act(() => sockets[0]!.message({ type: 'sides_set', overrides: [...overrides] }))
+  await act(async () => deliver(Response.json(initialAnalysis, { headers: { ETag: '"v2"' } })))
+  expect(battle.analyzedSummary).toMatchObject({ analysisVersion: 2, identityMerges: merges, sideOverrides: [] })
+  expect(battle.summary?.sideOverrides).toEqual(overrides)
+})

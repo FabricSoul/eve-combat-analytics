@@ -143,7 +143,9 @@ html {
 .app-bracket i:nth-child(4) { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
 
 .app-shell { display: flex; flex-direction: column; min-height: 100dvh; }
-.app-shell--battle { height: 100dvh; }
+html:has(.app-shell--battle) { overflow: hidden; overscroll-behavior: none; }
+.app-shell--battle { height: 100dvh; overflow: hidden; }
+.app-shell--battle:has(+ [data-battle-toast]) { padding-block-end: calc(56px + env(safe-area-inset-bottom)); }
 .app-shell-body { flex: 1; min-height: 0; }
 .app-topbar {
   display: flex;

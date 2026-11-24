@@ -30,8 +30,8 @@ export function PilotActions({ children }: { children: ReactNode }) {
   const [menu, setMenu] = useState<Menu | null>(null)
   const [picker, setPicker] = useState<Target | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
-  const mover = useSideMove(summary?.meta.brId ?? '', summary?.sideOverrides)
-  const identity = useIdentity(summary?.meta.brId ?? '', summary?.identityMerges)
+  const mover = useSideMove(summary?.meta.brId ?? '', summary?.sideOverrides, summary?.analysisVersion)
+  const identity = useIdentity(summary?.meta.brId ?? '', summary?.identityMerges, summary?.analysisVersion)
 
   const open: Open = (key, event, anchor = false) => {
     if (!analysis?.entities[key]) return

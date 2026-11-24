@@ -5,6 +5,7 @@ import { api, ApiFailure, battleApiPath } from '../api/client'
 export interface BattleView {
   summary: BattleSummary | null
   analysis: Analysis | null
+  analyzedSummary: BattleSummary | null
   status: 'loading' | 'ready' | 'error'
   error: ApiFailure | null
   live: boolean
@@ -17,7 +18,7 @@ export interface BattleData {
 }
 
 const initialBattle: BattleView = {
-  summary: null, analysis: null, status: 'loading', error: null, live: false, reconnecting: false,
+  summary: null, analysis: null, analyzedSummary: null, status: 'loading', error: null, live: false, reconnecting: false,
 }
 const socketRetryStart = 1000
 const analysisRetryStart = 2000
@@ -75,6 +76,7 @@ export function useBattle(brId: string | null): BattleView {
     let etag: string | undefined
     let analysisVersion = -1
     let wantedVersion = 0
+    let publishedSummary: BattleSummary | null = null
     let fetching = false
 
     function update(patch: Partial<BattleView>) {
@@ -104,6 +106,7 @@ export function useBattle(brId: string | null): BattleView {
       if (!active || missing || fetching || analysisVersion >= wantedVersion) return
       fetching = true
       const requestedVersion = wantedVersion
+      const requestedSummary = publishedSummary
       try {
         const value = await api.getAnalysis(id, etag)
         if (!active) return
@@ -111,7 +114,10 @@ export function useBattle(brId: string | null): BattleView {
           etag = value.etag ?? undefined
           const published = /^"v(\d+)"$/.exec(etag ?? '')?.[1]
           analysisVersion = published ? Number(published) : requestedVersion
-          update({ analysis: value.analysis })
+          const analyzedSummary = publishedSummary && publishedSummary.analysisVersion <= analysisVersion
+            ? publishedSummary
+            : requestedSummary && requestedSummary.analysisVersion <= analysisVersion ? requestedSummary : current.analyzedSummary
+          update({ analysis: value.analysis, analyzedSummary })
         }
         if (analysisVersion >= requestedVersion) {
           analysisDelay = analysisRetryStart
@@ -133,7 +139,15 @@ export function useBattle(brId: string | null): BattleView {
       }
     }
 
+    function publishSummary(state: BattleSummary) {
+      if (publishedSummary && state.analysisVersion <= publishedSummary.analysisVersion) return
+      publishedSummary = state
+      // A newer ETag can arrive before the socket message that describes its snapshot.
+      if (state.analysisVersion === analysisVersion) update({ analyzedSummary: state })
+    }
+
     function applySnapshot(state: BattleSummary) {
+      publishSummary(state)
       update({ summary: state, status: 'ready', error: null })
       requestAnalysis(state.analysisVersion)
     }
@@ -148,8 +162,12 @@ export function useBattle(brId: string | null): BattleView {
       if (message?.type === 'snapshot') {
         applySnapshot(message.state)
       } else if (message && current.summary) {
-        update({ summary: applyMessage(current.summary, message) ?? current.summary })
-        if (message.type === 'analysis_ready') requestAnalysis(message.version)
+        const summary = applyMessage(current.summary, message) ?? current.summary
+        update({ summary })
+        if (message.type === 'analysis_ready') {
+          publishSummary(summary)
+          requestAnalysis(message.version)
+        }
       }
     }
 
@@ -249,7 +267,7 @@ export type BattleProviderProps = {
 
 export function BattleProvider({ brId, static: data, children }: BattleProviderProps) {
   const battle = useBattle(brId ?? null)
-  const value: BattleView = data ? { ...initialBattle, ...data, status: 'ready' } : battle
+  const value: BattleView = data ? { ...initialBattle, ...data, analyzedSummary: data.summary, status: 'ready' } : battle
   return createElement(BattleContext.Provider, { value }, children)
 }
 

@@ -1,3 +1,4 @@
+import { WorkspaceAction } from '../ui/icons/WorkspaceIcon'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { recordRecent } from '../home/recent'
 import { fmtNum } from '../lib/format'
@@ -36,7 +37,7 @@ const phonePanels = { roster: Roster, compare: CompareTable, hits: HitAnalysis, 
 
 const modules = { roster: Roster, compare: CompareTable, hits: HitAnalysis, kills: KillsList, feed: EventFeed, lanes: PilotTimelineModule }
 
-function BattleWorkspace() {
+function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElement | null) => void }) {
   const battle = useBattleContext()
   const { summary, analysis, status, error, live } = battle
   const reconnecting = 'reconnecting' in battle && battle.reconnecting === true
@@ -49,13 +50,7 @@ function BattleWorkspace() {
   const menuTrigger = useRef<HTMLButtonElement>(null)
   const sidesTrigger = useRef<HTMLButtonElement | null>(null)
   const desktopDrawer = useRef<HTMLElement>(null)
-  const [dismissedDrawer, setDismissedDrawer] = useState(false)
-  const [lastSelection, setLastSelection] = useState(view.selected)
-  if (lastSelection !== view.selected) {
-    setLastSelection(view.selected)
-    setDismissedDrawer(false)
-  }
-  const drawerOpen = Boolean(summary && view.selected && !dismissedDrawer)
+  const drawerOpen = Boolean(summary && view.selected)
   const desktopDrawerOpen = drawerOpen && layout !== 'phone'
   const pilotMenu = usePilotMenu()
   const picker = useRef<HTMLInputElement>(null)
@@ -64,7 +59,7 @@ function BattleWorkspace() {
   const workspace = layout !== 'phone'
   const [moduleLayout, dispatchModule] = useReducer(moduleLayoutReducer, undefined, () => loadModules())
   const viewport = useWindowViewport(desk, workspace && Boolean(summary))
-  const viewportHeight = viewport.height + 48
+  const viewportHeight = window.innerHeight
   const stageHeight = clampStage(moduleLayout.stageHeight ?? viewportHeight * 0.60, viewportHeight)
   const [search, setSearch] = useState<'feed' | 'roster' | null>(null)
   const [eventFilters, setEventFilters] = useState(true)
@@ -118,7 +113,9 @@ function BattleWorkspace() {
       ?.focus({ preventScroll: true })
     return () => {
       if (opener instanceof HTMLElement && opener.isConnected && opener !== document.body) {
-        opener.focus({ preventScroll: true })
+        const replayToolbar = opener.closest('.replay-pilot')?.closest<HTMLElement>('[role="toolbar"]')
+        const target = replayToolbar ?? opener
+        target.focus({ preventScroll: true })
       } else {
         desk.current?.querySelector<HTMLElement>('.battle-window-titlebar')
           ?.focus({ preventScroll: true })
@@ -150,10 +147,8 @@ function BattleWorkspace() {
         menuTrigger.current?.focus()
       } else if (pilotMenu?.closePicker()) { /* closed the identity picker */ }
       else if (sidesOpen) closeSides()
-      else if (drawerOpen) {
-        if (workspace) setDismissedDrawer(true)
-        else view.select(null)
-      } else if (expanded) expanded.click()
+      else if (drawerOpen) view.select(null)
+      else if (expanded) expanded.click()
       else if (lastFloat && workspace) dispatchModule({ type: 'dock', id: lastFloat })
       else if (view.range) view.clearRange()
       else if (view.selected) view.select(null)
@@ -174,26 +169,26 @@ function BattleWorkspace() {
 
   function moduleTools(id: ModuleId) {
     if (id === 'lanes') return <button title="将所选飞行员加入时间线" aria-label="将所选飞行员加入时间线" type="button"
-      disabled={!view.selected || view.pinned.has(view.selected)} onClick={() => { if (view.selected) view.togglePin(view.selected) }}>+</button>
+      disabled={!view.selected || view.pinned.has(view.selected)} onClick={() => { if (view.selected) view.togglePin(view.selected) }}><WorkspaceAction icon="add">加入</WorkspaceAction></button>
     if (id === 'feed' || id === 'roster') {
       const label = id === 'feed' ? '搜索事件' : '搜索名单'
       return <>
         {id === 'feed' ? <button type="button" title="筛选事件" aria-label="筛选事件" aria-pressed={eventFilters}
-          onClick={() => setEventFilters(!eventFilters)}>⧩</button>
+          onClick={() => setEventFilters(!eventFilters)}><WorkspaceAction icon="filter">筛选</WorkspaceAction></button>
           : <button type="button" title="按飞行员名称排序" aria-label="按飞行员名称排序" aria-pressed={rosterAlphabetical}
-            onClick={() => setRosterAlphabetical(!rosterAlphabetical)}>⇅</button>}
+            onClick={() => setRosterAlphabetical(!rosterAlphabetical)}><WorkspaceAction icon="sort">排序</WorkspaceAction></button>}
         <button type="button" title={label} aria-label={label} aria-pressed={search === id}
-          onClick={() => setSearch(search === id ? null : id)}>⌕</button>
+          onClick={() => setSearch(search === id ? null : id)}><WorkspaceAction icon="search">搜索</WorkspaceAction></button>
       </>
     }
     if (id === 'kills') return <button title="整页查看击毁" aria-label="整页查看击毁" type="button"
-      onClick={() => setKillsExpanded(true)}>⤢</button>
+      onClick={() => setKillsExpanded(true)}><WorkspaceAction icon="expand">整页</WorkspaceAction></button>
     return <>
       <button title={id === 'compare' ? '整页查看对比' : '整页查看命中'}
         aria-label={id === 'compare' ? '整页查看对比' : '整页查看命中'} type="button" onClick={(event) => {
         const root = event.currentTarget.closest('[data-module]')
         root?.querySelector<HTMLButtonElement>(id === 'compare' ? '.u7-compare-controls > .app-button' : '.hit-analysis-header > .app-button')?.click()
-      }}>⤢</button>
+      }}><WorkspaceAction icon="expand">整页</WorkspaceAction></button>
       <button title={id === 'hits' ? '命中排名指标' : '对比列'} aria-label={id === 'hits' ? '命中排名指标' : '对比列'} type="button"
         onClick={(event) => {
           const root = event.currentTarget.closest('[data-module]')
@@ -203,7 +198,7 @@ function BattleWorkspace() {
             try { control.showPicker() } catch { /* The focused select remains keyboard operable. */ }
           }
           else if (id === 'compare') control?.click()
-        }}>{id === 'hits' ? '⇅' : '▤'}</button>
+        }}><WorkspaceAction icon={id === 'hits' ? 'sort' : 'columns'}>{id === 'hits' ? '指标' : '列'}</WorkspaceAction></button>
     </>
   }
 
@@ -265,7 +260,7 @@ function BattleWorkspace() {
             </BottomSheet>
           )}
           {drawerOpen && (layout === 'phone'
-            ? <PhonePersonPage><PersonDrawer /></PhonePersonPage>
+            ? <PhonePersonPage setToastHost={setToastHost}><PersonDrawer /></PhonePersonPage>
             : <aside ref={desktopDrawer} tabIndex={-1} className="battle-drawer" aria-label="个人详情"><PersonDrawer /></aside>)}
           {sidesOpen && <div className="battle-sides"><SidesPanel onClose={closeSides} /></div>}
           <div className="battle-upload"><UploadDock pickerRef={picker} /></div>
@@ -280,13 +275,16 @@ function BattleWorkspace() {
 }
 
 function BattleViewRoot() {
-  const { summary, analysis } = useBattleContext()
+  const { summary, analysis, analyzedSummary } = useBattleContext()
+  const [toastHost, setToastHost] = useState<HTMLDialogElement | null>(null)
   const activity = useMemo(() => activityBounds(summary, analysis), [summary, analysis])
   const initialTime = activity?.[0] ?? summary?.meta.windows[0]?.start ?? 0
   const endTime = activity?.[1] ?? initialTime
   return (
     <ViewProvider initialTime={initialTime} endTime={endTime} defaultSide={summary ? defaultOursSide(summary) : 0}>
-      <BattleUndo><PilotActions><BattleWorkspace /></PilotActions></BattleUndo>
+      <BattleUndo analyzedSummary={analyzedSummary} publishedVersion={summary?.analysisVersion} host={toastHost}>
+        <PilotActions><BattleWorkspace setToastHost={setToastHost} /></PilotActions>
+      </BattleUndo>
     </ViewProvider>
   )
 }

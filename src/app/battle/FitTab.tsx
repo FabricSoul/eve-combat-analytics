@@ -5,7 +5,7 @@ import { parseEft, type EftModule, type ParsedEft } from '@/fit/eft'
 import { fmtHms, fmtNum } from '../lib/format'
 import { useBattleContext } from '../state/battle-store'
 import { api } from '../api/client'
-import { useBattleUndo } from './undo'
+import { useBattleUndo, visibleAfter } from './undo'
 import { useView } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { TypeIcon } from '../ui/TypeIcon'
@@ -59,7 +59,7 @@ function PilotFit({ pilot, charId, summary, interactions }: {
   pilot: Entity; charId: number; summary: BattleSummary; interactions: readonly Interaction[]
 }) {
   const services = useContext(FitServices)
-  const offerUndo = useBattleUndo()
+  const beginUndo = useBattleUndo()
   const remote = summary.fits.find((entry) => entry.charId === charId)
   const [saved, setSaved] = useState<FitEntry>()
   const [lastRemote, setLastRemote] = useState(remote)
@@ -138,21 +138,32 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     if (busy || tooLarge || !parsed) return
     setBusy('save')
     setError(undefined)
+    const finish = beginUndo()
     try {
       const brId = summary.meta.brId
       const entry = await services.save(brId, charId, text)
-      offerUndo('已保存配装', async () => {
-        if (fit) setSaved(await services.save(brId, charId, fit.eft))
-        else {
+      finish({
+        label: '已保存配装',
+        visible: visibleAfter(summary.analysisVersion, (state) =>
+          state.fits.some((item) => item.charId === charId && item.eft === entry.eft && item.setAt === entry.setAt)),
+        revert: async (undoVersion) => {
+          if (fit) {
+            const restored = await services.save(brId, charId, fit.eft)
+            setSaved(restored)
+            return visibleAfter(undoVersion, (state) =>
+              state.fits.some((item) => item.charId === charId && item.eft === restored.eft && item.setAt === restored.setAt))
+          }
           await api.deleteFit(brId, charId)
           setSaved(undefined)
-        }
+          return visibleAfter(undoVersion, (state) => !state.fits.some((item) => item.charId === charId))
+        },
       })
       setSaved(entry)
       setSavedImport(importDetails ? { result: importDetails, setAt: entry.setAt } : undefined)
       setDraft(null)
       setDraftImport(undefined)
     } catch {
+      finish()
       setError('无法保存配装，请检查 EFT 文本后重试。')
     } finally {
       setBusy(null)

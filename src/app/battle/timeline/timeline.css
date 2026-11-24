@@ -280,3 +280,8 @@
   font: 11px var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+
+.eca-timeline-hint-slot {
+  display: flow-root;
+  min-block-size: calc(var(--space-6) + var(--space-1));
+}
