@@ -134,8 +134,10 @@
   .u7-compare colgroup, .u7-compare .u7-compare-groups, .u7-compare [data-compact="false"] { display: none; }
   .u7-compare .u7-compact-pilot { display: table-cell; text-align: left; }
   .u7-compare [data-compact="true"] { width: 1%; padding-inline-start: var(--space-1); }
+  .u7-compare thead [data-compact="true"] { position: relative; }
   .u7-compare thead [data-compact="true"] button {
-    width: 0; min-width: 100%; text-align: end; white-space: normal; overflow-wrap: anywhere;
+    position: absolute; inset-inline-end: var(--space-2); inset-block-start: 50%;
+    transform: translateY(-50%); white-space: nowrap;
   }
   .u7-compare tbody th { --pin-size: 12px; padding-inline: var(--space-1); }
   .u7-compare tbody th > label { margin-inline-end: var(--space-1); }

@@ -387,6 +387,10 @@ export class BattleRoom extends ProductionRoom {
       await picker.hover()
       await longName.focus()
       assert.equal(await nameWrap(), 'normal', 'focus reveals a long pilot name')
+      await picker.selectOption('hitRate')
+      const hitHeader = compare.getByRole('button', { name: '命中率', exact: true })
+      assert.equal(await hitHeader.evaluate((node) => getComputedStyle(node).whiteSpace), 'nowrap',
+        'the compact hit-rate heading fits on one line')
       await picker.selectOption('damageIn')
       const cell = firstRow.locator('td:visible')
       assert.equal(await cell.count(), 1)
