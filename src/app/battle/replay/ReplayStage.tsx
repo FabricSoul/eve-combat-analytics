@@ -195,7 +195,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     const effectsCanvas = over.current?.getContext('2d')
     if (!element || !lineCanvas || !effectsCanvas) return
     const previous = previousLayout.current
-    const continued = previous?.width === width && previous.height === height && previous.ours === layout.ours
+    const continued = previous?.width === width && previous.height === height
+      && previous.ours === layout.ours && previous.split === layout.split
     if (continued && previous !== layout) layout.inheritPositions(previous)
     previousLayout.current = layout
     lineCanvas.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -363,18 +364,34 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         labelKey = nextLabelKey
         const occupied = [...overlayRects]
         if (tooltipRect) occupied.push(tooltipRect)
+        // Keep compact overview labels out of the other fleet. The empty space
+        // between fleets can hold labels from either side.
+        const split = camera.scale === 1 ? layout.split : null
+        const span = split === 'x' ? 'width' : 'height'
+        const min = split ? bounds[split] : 0
+        const max = min + bounds[span]
+        let ourEdge = min
+        let enemyEdge = max
         for (const { node, center: { x, y } } of labels) {
           const inset = node.radius + 2
-          occupied.push(
-            { x: x - inset, y: y - inset, width: inset * 2 + (node.letter ? 7 : 0), height: inset * 2 },
-            { x: x - node.radius - 6, y: y + node.radius - 12, width: 18, height: 18 },
-          )
+          const ring = { x: x - inset, y: y - inset, width: inset * 2 + (node.letter ? 7 : 0), height: inset * 2 }
+          const badge = { x: x - node.radius - 6, y: y + node.radius - 12, width: 18, height: 18 }
+          occupied.push(ring, badge)
+          if (!split || node.entity.side < 0) continue
+          if (node.entity.side === layout.ours) {
+            ourEdge = Math.max(ourEdge, ring[split] + ring[span], badge[split] + badge[span])
+          } else {
+            enemyEdge = Math.min(enemyEdge, ring[split], badge[split])
+          }
         }
+        const ourBounds = { ...bounds, [span]: enemyEdge - min }
+        const enemyBounds = split ? { ...bounds, [split]: ourEdge, [span]: max - ourEdge } : bounds
         for (const { element } of labels) {
           if (!labelSizes.has(element)) labelSizes.set(element, { width: element.offsetWidth, height: element.offsetHeight })
         }
         for (const { element, node, center, required } of labels.sort((a, b) => b.priority - a.priority)) {
-          const rect = placePilotLabel(center, node.radius, labelSizes.get(element)!, bounds, occupied, required)
+          const labelBounds = !split || node.entity.side < 0 ? bounds : node.entity.side === layout.ours ? ourBounds : enemyBounds
+          const rect = placePilotLabel(center, node.radius, labelSizes.get(element)!, labelBounds, occupied, required)
           element.toggleAttribute('data-positioned', rect !== null)
           if (!rect) continue
           element.style.transform = `translate(${rect.x}px, ${rect.y}px)`

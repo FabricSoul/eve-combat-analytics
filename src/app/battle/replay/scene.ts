@@ -106,6 +106,15 @@ interface CombatLink extends SimulationLinkDatum<ReplayNode> {
 export function makeLayout(pilots: readonly ReplayPilot[], order: readonly number[], width: number, height: number) {
   const anchors = sideAnchors(order, width, height)
   const compact = height < 420
+  // Match the compact controls breakpoint. Use the longer axis for the two fleets.
+  const split: 'x' | 'y' | null = width <= 430 && order.length === 2 ? (width >= height ? 'x' : 'y') : null
+  if (split === 'x') {
+    anchors.get(order[0]!)!.x = width * 0.16
+    anchors.get(order[1]!)!.x = width * 0.84
+  } else if (split === 'y') {
+    anchors.set(order[0]!, { x: width / 2, y: height * 0.32 })
+    anchors.set(order[1]!, { x: width / 2, y: height * 0.72 })
+  }
   const nodes = pilots.map((pilot, index): ReplayNode => {
     const { hasLog, side } = pilot.entity
     const anchor = anchors.get(side) ?? anchors.get(-1)!
@@ -127,17 +136,38 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   const unassigned = nodes.filter(({ entity }) => entity.side === -1).map((node) => ({ node, radius: node.radius }))
   const bottomInset = unassigned.length ? 41 : 0
   const anchorFor = ({ entity }: ReplayNode) => anchors.get(entity.side) ?? anchors.get(-1)!
+
+  function confine(node: ReplayNode, x: number, y: number) {
+    const inset = node.radius + 5
+    const ours = node.entity.side === order[0]
+    const minX = split === 'x' && !ours ? width / 2 + inset : inset
+    const maxX = split === 'x' && ours ? width / 2 - inset : width - inset
+    const minY = split === 'y' && !ours ? height / 2 + inset : (split ? 57 : 42) + inset
+    const floor = height - inset - Math.max(bottomInset, node.labeled ? 20 : 8)
+    const maxY = split === 'y' && ours ? Math.min(floor, height / 2 - inset) : floor
+    return { x: Math.max(minX, Math.min(maxX, x)), y: Math.max(minY, Math.min(maxY, y)) }
+  }
+
+  const velocityDecay = 0.35
+  const velocityFactor = 1 - velocityDecay
   const links = forceLink<ReplayNode, CombatLink>()
     .distance(({ source, target }) => source.entity.side === target.entity.side ? 70 : Math.min(width * 0.5, 420))
     .strength(({ count }) => Math.min(0.12, 0.02 * count))
   const simulation = forceSimulation<ReplayNode>([]).stop()
     .force('x', forceX<ReplayNode>((node) => anchorFor(node).x).strength(0.09))
-    .force('y', forceY<ReplayNode>((node) => anchorFor(node).y).strength(order.length < 3 ? 0.025 : 0.10))
-    .force('collide', forceCollide<ReplayNode>(({ radius, labeled }) => radius + (labeled ? 26 : 8)).strength(0.9))
+    .force('y', forceY<ReplayNode>((node) => anchorFor(node).y).strength(split === 'y' || order.length >= 3 ? 0.10 : 0.025))
+    .force('collide', forceCollide<ReplayNode>(({ radius, labeled }) => radius + (split ? 3 : labeled ? 26 : 8)).strength(0.9))
     .force('charge', forceManyBody().strength(-30).distanceMax(160))
     .force('link', links)
+    .force('bounds', split ? () => {
+      for (const node of activeNodes) {
+        const position = confine(node, node.x + node.vx! * velocityFactor, node.y + node.vy! * velocityFactor)
+        node.vx = (position.x - node.x) / velocityFactor
+        node.vy = (position.y - node.y) / velocityFactor
+      }
+    } : null)
     .alphaDecay(0.032)
-    .velocityDecay(0.35)
+    .velocityDecay(velocityDecay)
 
   function placeVisible(visible: ReadonlySet<EntityKey>, live: readonly ReplayEdge[]) {
     const next = assigned.filter(({ entity }) => visible.has(entity.key))
@@ -157,7 +187,10 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
       node.fx = node.x
       node.fy = node.y
     }
-    for (const node of entrants) node.vx = node.vy = 0
+    for (const node of entrants) {
+      if (split) Object.assign(node, confine(node, node.x, node.y))
+      node.vx = node.vy = 0
+    }
 
     const pairs = new Map<string, CombatLink>()
     for (const { from, to } of live) {
@@ -175,9 +208,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     simulation.alpha(0.2).tick(pinned.length ? 70 : 145).alpha(0)
     for (const node of pinned) node.fx = node.fy = null
     for (const node of entrants) {
-      const inset = node.radius + 5
-      node.x = Math.max(inset, Math.min(width - inset, node.x))
-      node.y = Math.max(42 + inset, Math.min(height - inset - Math.max(bottomInset, node.labeled ? 20 : 8), node.y))
+      Object.assign(node, confine(node, node.x, node.y))
       node.vx = node.vy = 0
       placed.add(node.entity.key)
     }
@@ -194,7 +225,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     for (const node of nodes) {
       const prior = previous.byKey.get(node.entity.key)
       node.ordinal = prior?.ordinal ?? ordinal++
-      if (prior && (prior.entity.side === -1) === (node.entity.side === -1)) {
+      if (prior && (split ? prior.entity.side === node.entity.side : (prior.entity.side === -1) === (node.entity.side === -1))) {
         node.x = prior.x
         node.y = prior.y
         if (previous.placed.has(node.entity.key)) placed.add(node.entity.key)
@@ -241,7 +272,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     }
   }
 
-  return { nodes, byKey, row, placed, width, height, ours: order[0], placeVisible, placeUnassigned, inheritPositions }
+  return { nodes, byKey, row, placed, width, height, split, ours: order[0], placeVisible, placeUnassigned, inheritPositions }
 }
 
 export type ReplayLayout = ReturnType<typeof makeLayout>

@@ -53,6 +53,27 @@ describe('replay presence in the complete J125990 fight', () => {
     expect(scene.visibleAt(kill + 30_000, victim.entity.key).has(victim.entity.key)).toBe(true)
   })
 
+  it.each([
+    { width: 390, height: 300, axis: 'x', boundary: 195 },
+    { width: 300, height: 390, axis: 'y', boundary: 195 },
+  ] as const)('keeps the fleets separated and their ship rings clear at $width × $height', ({ width, height, axis, boundary }) => {
+    const layout = makeLayout(scene.pilots, order, width, height)
+    const t = at('15:43:02')
+    const visible = scene.visibleAt(t, null)
+    layout.placeVisible(visible, scene.edges.filter((edge) => t - 3_000 <= edge.t && edge.t <= t))
+    const active = layout.nodes.filter(({ entity }) => entity.side >= 0 && visible.has(entity.key))
+    expect(active.some(({ entity }) => entity.side === ours)).toBe(true)
+    expect(active.some(({ entity }) => entity.side !== ours)).toBe(true)
+    expect(active.filter((node) => {
+      const ring = node.radius + 2
+      return node.entity.side === ours ? node[axis] + ring > boundary : node[axis] - ring < boundary
+    }).map(({ entity }) => entity.name)).toEqual([])
+    const overlaps = active.flatMap((node, index) => active.slice(0, index).filter((other) =>
+      Math.hypot(node.x - other.x, node.y - other.y) < node.radius + other.radius + 4 - 0.01,
+    ).map((other) => [node.entity.name, other.entity.name]))
+    expect(overlaps).toEqual([])
+  })
+
   it('keeps the positions of ships that persist through a membership change', () => {
     const layout = makeLayout(scene.pilots, order, 660, 580)
     const first = scene.visibleAt(at('15:43:02'), null)

@@ -333,6 +333,7 @@
 @container (max-width: 430px) {
   .replay-header { --replay-legend-gutter: var(--space-3); }
   .replay-legend-detail { display: none; }
+  .replay-pilot-label { max-width: 72px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
