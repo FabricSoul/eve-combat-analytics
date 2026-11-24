@@ -242,6 +242,8 @@ body.battle-window-dragging * {
 }
 .battle-undo[data-battle-toast] { bottom: calc(var(--space-2) + env(safe-area-inset-bottom)); }
 .battle-undo button { color: var(--color-accent); cursor: pointer; min-height: var(--row); }
+/* With the button the toast is taller; trim its padding so it still sits below the module rows. */
+.battle-undo:has(button) { padding-block: var(--space-1); }
 .battle-person-page:has([data-battle-toast]) { display: flex; flex-direction: column; overflow: hidden; }
 .battle-person-page:has([data-battle-toast]) > .u7-person { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .battle-person-page > [data-battle-toast] { position: static; flex: none; translate: none; margin: var(--space-2) auto; }

@@ -326,7 +326,7 @@ export class BattleRoom extends ProductionRoom {
   await notice.getByRole('button', { name: '撤销' }).waitFor()
   const scrollBounds = await b.page.locator('.battle-module-scroll').boundingBox()
   const toastBounds = await notice.boundingBox()
-  assert.ok(scrollBounds.y + scrollBounds.height <= toastBounds.y, 'toast does not cover module rows')
+  assert.ok(scrollBounds.y + scrollBounds.height <= toastBounds.y, `toast does not cover module rows: scroll ends ${scrollBounds.y + scrollBounds.height}, toast starts ${toastBounds.y}`)
   await b.page.screenshot({ path: join(output, 'walk-undo-applying.png') })
   releaseAnalysis()
   await notice.getByText('已合并身份', { exact: true }).waitFor()
