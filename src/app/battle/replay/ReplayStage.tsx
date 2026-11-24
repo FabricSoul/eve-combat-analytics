@@ -108,7 +108,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, killm
   const layout = useMemo(() => (
     width && height ? makeLayout(scene.pilots, order, width, height) : null
   ), [scene, order, width, height])
-  const lockedKey = selected ?? focused
+  const lockedKey = focused ?? selected
   const detailKey = inspected ?? focused ?? selected
   const detail = detailKey ? layout?.byKey.get(detailKey) : undefined
   const frame = useRef({ t, playing, selected, focusOnly, detailKey, lockedKey, camera })
