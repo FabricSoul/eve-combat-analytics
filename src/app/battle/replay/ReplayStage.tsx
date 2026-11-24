@@ -90,7 +90,7 @@ function ReplayLegend({ analysis, order }: Pick<ReplayStageProps, 'analysis' | '
       </span>
       {order.length === 2 ? (
         <span className="replay-legend-enemy">
-          <span>敌方 <span className="replay-legend-detail">· 来自我方日志和击毁报告</span></span>
+          <span>敌方 <span className="replay-legend-detail">· 来自已上传日志和击毁报告</span></span>
           <i style={{ background: sideColor(order[1]!, order) }} />
         </span>
       ) : order.slice(1).map((side, index) => (
