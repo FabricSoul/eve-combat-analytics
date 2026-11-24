@@ -102,17 +102,18 @@ describe('miss and paused-shot encoding', () => {
 
   it('marks a miss endpoint with × and makes the dashed trace and marker hoverable', () => {
     const result = draw({ ...edge, kind: 'miss', amount: 0 })
-    const marker = result.over.fillText.mock.calls.find(([text]) => text === '×')!
-    expect(marker).toBeDefined()
-    expect(marker.slice(1)).toEqual([265, 180])
+    expect(result.over.moveTo).toHaveBeenCalledWith(261, 176)
+    expect(result.over.lineTo).toHaveBeenCalledWith(269, 184)
+    expect(result.over.moveTo).toHaveBeenCalledWith(269, 176)
+    expect(result.over.lineTo).toHaveBeenCalledWith(261, 184)
     expect(result.under.setLineDash).toHaveBeenCalledWith([2, 4])
     expect(missedTracerAt(result.misses, { x: 140, y: 184 })).toBe(true)
     expect(missedTracerAt(result.misses, { x: 267, y: 180 })).toBe(true)
     expect(missedTracerAt(result.misses, { x: 300, y: 180 })).toBe(false)
     expect(missedTracerAt(result.misses, { x: 140, y: 200 })).toBe(false)
-    result.over.fillText.mockClear()
+    result.over.lineTo.mockClear()
     result.painter.paintSample('miss', 90, 34, 250, false)
-    expect(result.over.fillText.mock.calls.some(([text]) => text === '×')).toBe(true)
+    expect(result.over.lineTo).toHaveBeenCalledTimes(2)
   })
 
   it('keeps a paused hit mid-flight on a solid trace without a miss marker or an impact', () => {
@@ -122,6 +123,7 @@ describe('miss and paused-shot encoding', () => {
     expect(head).toBeGreaterThan(100)
     expect(head).toBeLessThan(350)
     expect(result.over.arc).toHaveBeenCalled()
+    expect(result.over.lineTo).not.toHaveBeenCalled()
     expect(result.over.fillText).not.toHaveBeenCalled()
     expect(result.misses).toEqual([])
   })

@@ -196,16 +196,18 @@ export function makePainter(
     }
   }
 
-  function drawMissMark({ stop, color: tone, opacity }: MissTracer & { color: string; opacity: number }) {
-    over.font = `600 13px ${font}`
-    over.textAlign = 'center'
-    over.textBaseline = 'middle'
-    over.strokeStyle = color('bg')
-    over.fillStyle = tone
-    over.lineWidth = 2
+  function drawMissMark({ stop: { x, y }, color: tone, opacity }: MissTracer & { color: string; opacity: number }) {
+    const arm = 4
+    over.beginPath()
+    over.moveTo(x - arm, y - arm)
+    over.lineTo(x + arm, y + arm)
+    over.moveTo(x + arm, y - arm)
+    over.lineTo(x - arm, y + arm)
+    over.strokeStyle = tone
+    over.lineCap = 'round'
+    over.lineWidth = 1.75
     over.globalAlpha = opacity
-    over.strokeText('×', stop.x, stop.y)
-    over.fillText('×', stop.x, stop.y)
+    over.stroke()
   }
 
   function drawProjectile(

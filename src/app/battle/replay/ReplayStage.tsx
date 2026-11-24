@@ -34,13 +34,12 @@ interface ReplayStageProps extends Omit<ReplayFrame, 'reducedMotion' | 'pausedEl
 interface PilotMarkerProps {
   node: ReplayNode
   selected: boolean
-  inspected: boolean
   register: (key: EntityKey, element: HTMLDivElement | null) => void
   onInspect: (key: EntityKey | null) => void
   onSelect: (key: EntityKey) => void
 }
 
-const PilotMarker = memo(function PilotMarker({ node, selected, inspected, register, onInspect, onSelect }: PilotMarkerProps) {
+const PilotMarker = memo(function PilotMarker({ node, selected, register, onInspect, onSelect }: PilotMarkerProps) {
   const menu = usePilotMenu()
   const { entity: { key, name, charId, hasLog, side }, color, radius, ship, shipId, letter } = node
   const label = charId === null ? ship ?? name : name
@@ -65,9 +64,6 @@ const PilotMarker = memo(function PilotMarker({ node, selected, inspected, regis
             onError={(event) => { event.currentTarget.hidden = true }} />}
         </span>
       </button>
-      <span key={selected ? 'selected' : 'plain'} className="replay-pilot-label" data-inspected={inspected || undefined} aria-hidden="true">
-        <span>{label}</span>
-      </span>
     </div>
   )
 })
@@ -104,6 +100,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
   const missTracers = useRef<readonly MissTracer[]>([])
   const pointer = useRef<Point | null>(null)
   const markers = useRef(new Map<EntityKey, HTMLDivElement>())
+  const labelElements = useRef(new Map<EntityKey, HTMLSpanElement>())
   const previousLayout = useRef<ReplayLayout | null>(null)
   const invalidate = useRef<() => void>(() => {})
   const [playback] = useState(createProjectilePlayback)
@@ -194,8 +191,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     let tooltipWidth = 0
     let tooltipHeight = 0
     let labelSizes = new WeakMap<HTMLElement, Pick<Rect, 'width' | 'height'>>()
-    let labelPositions = new Map<HTMLElement, Rect>()
     let labelKey = ''
+    const markerPositions = new WeakMap<HTMLElement, Point>()
 
     function schedule() {
       if (!disposed && animation === null) animation = requestAnimationFrame(draw)
@@ -266,7 +263,11 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
           marker.toggleAttribute('data-present', Boolean(position))
           marker.inert = !position
         }
-        if (!position) continue
+        const label = labelElements.current.get(key)
+        if (!position) {
+          label?.removeAttribute('data-positioned')
+          continue
+        }
         if (firstFrame || visibilityChanged) {
           for (const image of marker.querySelectorAll<HTMLImageElement>('img[data-src]:not([src])')) {
             if (image.dataset.src) image.src = image.dataset.src
@@ -278,8 +279,11 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         const { x, y } = position
         const lastLoss = deathAt(node.deaths, t)
         const keep = selected === null || selected === key || related.has(key)
-        const transform = `translate3d(${x}px, ${y}px, 0px)`
-        if (marker.style.transform !== transform) marker.style.transform = transform
+        const previous = markerPositions.get(marker)
+        if (x !== previous?.x || y !== previous.y) {
+          marker.style.transform = `translate3d(${x}px, ${y}px, 0)`
+          markerPositions.set(marker, position)
+        }
         if (side === -1) marker.style.setProperty('--replay-diameter', `${node.radius * 2}px`)
         marker.toggleAttribute('data-dead', lastLoss !== undefined)
         marker.toggleAttribute('data-dim', !keep)
@@ -295,8 +299,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
             bracket.current.setAttribute('data-positioned', '')
           }
         }
-        const label = marker.querySelector<HTMLElement>('.replay-pilot-label')
         if (label) {
+          label.toggleAttribute('data-dim', !keep)
           const inset = node.radius + 2
           const inView = x + inset > 0 && x - inset < width && y + inset > 0 && y - inset < height
           if (inView) {
@@ -329,7 +333,6 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       // Stable ship coordinates keep the label layout out of the transient effect draw.
       if (nextLabelKey !== labelKey) {
         labelKey = nextLabelKey
-        labelPositions = new Map()
         const occupied: Rect[] = tooltipRect ? [tooltipRect] : []
         for (const { node, center: { x, y } } of labels) {
           const inset = node.radius + 2
@@ -345,16 +348,9 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
           const rect = placePilotLabel(center, node.radius, labelSizes.get(element)!, bounds, occupied, required)
           element.toggleAttribute('data-positioned', rect !== null)
           if (!rect) continue
-          labelPositions.set(element, rect)
+          element.style.transform = `translate3d(${rect.x}px, ${rect.y}px, 0)`
           occupied.push(rect)
         }
-      }
-      for (const { element, node } of labels) {
-        const rect = labelPositions.get(element)
-        if (!rect) continue
-        const center = positions.get(node)!
-        const transform = `translate3d(${rect.x - center.x}px, ${rect.y - center.y}px, 0px)`
-        if (element.style.transform !== transform) element.style.transform = transform
       }
       firstFrame = false
       if (!reducedMotion && !playing && (animating || bursting)) schedule()
@@ -375,6 +371,21 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     invalidate.current()
   }, [t, playing, selected, focusOnly, detailKey, lockedKey, camera])
 
+  const pilotMarkers = useMemo(() => layout?.nodes.map((node) => (
+    <PilotMarker key={node.entity.key} node={node} selected={selected === node.entity.key}
+      register={register} onInspect={inspect} onSelect={select} />
+  )), [layout, register, select, selected])
+  const pilotLabels = useMemo(() => layout?.nodes.map(({ entity: { key, name, charId }, ship }) => (
+    <span key={`${key}:${key === selected}`} className="replay-pilot-label" data-pilot-label={key}
+      data-selected={key === selected || undefined} data-inspected={key === detailKey || undefined}
+      ref={(element) => {
+        if (element) labelElements.current.set(key, element)
+        else labelElements.current.delete(key)
+      }}>
+      <span>{charId === null ? ship ?? name : name}</span>
+    </span>
+  )), [detailKey, layout, selected])
+
   const locked = lockedKey ? layout?.byKey.get(lockedKey) : undefined
 
   const zoomControls = <div className="replay-zoom" role="group" aria-label="回放缩放">
@@ -389,11 +400,9 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       <canvas ref={under} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer" aria-hidden="true" />
       <div ref={toolbar} role="toolbar" aria-label="回放飞行员" tabIndex={-1}
         onFocus={onFocus} onBlur={onBlur} onKeyDown={onKeyDown}>
-        {layout?.nodes.map((node) => (
-          <PilotMarker key={node.entity.key} node={node} selected={selected === node.entity.key} inspected={detailKey === node.entity.key}
-            register={register} onInspect={inspect} onSelect={select} />
-        ))}
+        {pilotMarkers}
       </div>
+      <div className="replay-name-layer" aria-hidden="true">{pilotLabels}</div>
       <canvas ref={over} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer replay-effects" aria-hidden="true" />
       <div ref={missTooltip} className="replay-miss-tooltip" role="tooltip">未命中</div>
       {locked && (

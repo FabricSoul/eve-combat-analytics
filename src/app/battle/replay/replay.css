@@ -115,6 +115,13 @@
 .replay-pilot-portrait img[hidden],
 .replay-pilot-portrait img:not([src]) { display: none; }
 
+.replay-name-layer {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  pointer-events: none;
+}
+
 .replay-pilot-label {
   position: absolute;
   inset: 0 auto auto 0;
@@ -133,10 +140,11 @@
     -1px -1px var(--color-bg), 1px -1px var(--color-bg);
 }
 
-.replay-pilot-label[data-positioned] { visibility: inherit; }
+.replay-pilot-label[data-positioned] { visibility: visible; }
+.replay-pilot-label[data-dim] { opacity: .3; }
 .replay-pilot-label > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 .replay-pilot-label[data-inspected="true"] { color: var(--color-text); }
-.replay-marker[data-selected="true"] .replay-pilot-label { max-width: 160px; color: var(--color-text); }
+.replay-pilot-label[data-selected="true"] { max-width: 160px; color: var(--color-text); }
 
 .replay-effects { z-index: 2; }
 

@@ -49,6 +49,6 @@ it('paints a short miss trace with dashes while leaving the target still', () =>
       { t, selected: null, focusOnly: false, reducedMotion: false, playing: true }, 660, 560)
     expect(positions.get(target!)).toEqual({ x: target!.x, y: target!.y })
   }
-  expect(strokeDashes).toEqual([[2, 4], [2, 4], [2, 4]])
+  expect(strokeDashes.filter((line) => line.length)).toEqual([[2, 4], [2, 4], [2, 4]])
   expect(ends.every(({ x }) => x > source!.x && x < target!.x - target!.radius)).toBe(true)
 })

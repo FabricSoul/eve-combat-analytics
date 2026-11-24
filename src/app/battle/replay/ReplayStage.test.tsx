@@ -235,13 +235,13 @@ it('shows a portrait badge and label on each visible pilot when zoomed', async (
   const unknown = host.querySelector('[data-pilot-key="char:3"]')!
   expect(unknown.querySelector('.replay-pilot-portrait img')).toBeNull()
   expect(unknown.querySelector('.replay-pilot-portrait')).not.toBeNull()
-  expect(unknown.querySelector('.replay-pilot-label')?.textContent).toBe('Rifter')
+  expect(host.querySelector('[data-pilot-label="char:3"]')?.textContent).toBe('Rifter')
   const stage = host.querySelector('.replay-stage')!
   await act(() => stage.dispatchEvent(new WheelEvent('wheel', {
     deltaY: -250, clientX: 300, clientY: 490, bubbles: true, cancelable: true,
   })))
   await refresh()
-  expect(host.querySelectorAll('.replay-marker[data-present] .replay-pilot-label[data-positioned]')).toHaveLength(3)
+  expect(host.querySelectorAll('.replay-pilot-label[data-positioned]')).toHaveLength(3)
 })
 
 it('positions every present uploader label in the 1280 × 800 desktop canvas', async () => {
@@ -257,7 +257,7 @@ it('positions every present uploader label in the 1280 × 800 desktop canvas', a
   await render(fixture.analysis, Date.UTC(2025, 5, 22, 15, 43, 2), null, { killmails: fixture.summary.meta.killmails, order: [1, 0] })
   const uploaders = [...host.querySelectorAll('.replay-marker[data-present] [data-log="true"]')]
   expect(uploaders).toHaveLength(17)
-  expect(uploaders.filter((pilot) => !pilot.parentElement?.querySelector('.replay-pilot-label[data-positioned]'))
+  expect(uploaders.filter((pilot) => !host.querySelector(`[data-pilot-label="${pilot.parentElement?.dataset.pilotKey}"][data-positioned]`))
     .map((pilot) => pilot.getAttribute('aria-label'))).toEqual([])
 })
 
