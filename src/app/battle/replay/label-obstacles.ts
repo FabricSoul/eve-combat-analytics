@@ -17,17 +17,22 @@ export function watchLabelObstacles(stage: HTMLElement, changed: () => void) {
       const panel = id && document.getElementById(id)
       return panel ? [panel] : []
     })
-    obstacles = [...controls, ...panels]
+    obstacles = [...controls, ...panels, ...stage.querySelectorAll('.replay-legend > span')]
     for (const element of obstacles) resize?.observe(element)
     // Floating windows move using inline styles, which need not resize the window.
     for (const panel of panels) panelStyles.observe(panel, { attributes: true, attributeFilter: ['style'] })
   }
 
-  const headerChanges = new MutationObserver(() => {
+  const obstacleChanges = new MutationObserver(() => {
     watch()
     changed()
   })
-  if (header) headerChanges.observe(header, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-controls'] })
+  if (header) obstacleChanges.observe(header, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-controls'] })
+  // Portals can replace a window without changing its trigger's aria-controls.
+  obstacleChanges.observe(document.body, { childList: true })
+  for (const layer of stage.closest('.battle-layout')?.querySelectorAll('.battle-replay-layer, .battle-replay-popover-layer') ?? []) {
+    obstacleChanges.observe(layer, { childList: true })
+  }
   watch()
   window.addEventListener('scroll', changed, true)
 
@@ -42,7 +47,7 @@ export function watchLabelObstacles(stage: HTMLElement, changed: () => void) {
     disconnect() {
       resize?.disconnect()
       panelStyles.disconnect()
-      headerChanges.disconnect()
+      obstacleChanges.disconnect()
       window.removeEventListener('scroll', changed, true)
     },
   }

@@ -111,7 +111,7 @@ try {
     assert.ok(best >= 38, `full workspace at 4× paints at least 38 fps, measured ${best.toFixed(1)}`)
   }
 
-  async function assertReplayNames(page, size) {
+  async function assertReplayNames(page, size, zoom) {
     const stage = page.locator('.replay-stage')
     await stage.locator('.replay-marker[data-present] .replay-pilot[data-log="true"]').first().waitFor()
     if (size) {
@@ -124,9 +124,23 @@ try {
       await page.waitForFunction(([width, height]) =>
         Boolean(document.querySelector(`.replay-layer[width="${width}"][height="${height}"]`)), size)
     }
-    const result = await stage.evaluate(async (node) => {
+    if (zoom) {
+      await stage.getByRole('button', { name: '适应全部', exact: true }).click()
+      await stage.evaluate((node, scale) => {
+        const rect = node.getBoundingClientRect()
+        node.dispatchEvent(new WheelEvent('wheel', {
+          clientX: rect.left + node.clientWidth / 2,
+          clientY: rect.top + node.clientHeight / 2,
+          deltaY: -Math.log(scale) / 0.002,
+          bubbles: true, cancelable: true,
+        }))
+      }, zoom)
+      await stage.locator('.replay-zoom').getByText(`${Math.round(zoom * 100)}%`, { exact: true }).waitFor()
+    }
+    const result = await stage.evaluate(async (node, zoom) => {
       await document.fonts.ready
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      // The zoom moves ships, then the automatic fight window, then its label obstacles.
+      for (let frame = 0; frame < (zoom ? 5 : 2); frame++) await new Promise(requestAnimationFrame)
       const markers = [...node.querySelectorAll('.replay-marker[data-present]')]
       const labels = [...node.querySelectorAll('[data-pilot-label][data-positioned]')]
       const boxes = labels.map((label) => label.getBoundingClientRect())
@@ -135,23 +149,35 @@ try {
           && box.bottom + 1.9 > other.top && other.bottom + 1.9 > box.top
           ? [[labels[index].textContent, labels[before].textContent]] : []))
       const visible = new Map(labels.map((label, index) => [label.dataset.pilotLabel, boxes[index]]))
-      const names = markers.flatMap((marker) => {
+      const view = node.getBoundingClientRect()
+      const pilots = markers.flatMap((marker) => {
         const pilot = marker.querySelector('.replay-pilot')
+        const ring = pilot.getBoundingClientRect()
+        if (zoom && (ring.right <= view.left || ring.left >= view.right || ring.bottom <= view.top || ring.top >= view.bottom)) return []
+        return [{ marker, pilot, ring }]
+      })
+      const names = pilots.flatMap(({ marker, pilot, ring }) => {
         const box = visible.get(marker.dataset.pilotKey)
         const name = pilot.getAttribute('aria-label')
-        if (!box) return pilot.dataset.log === 'true' ? [name] : []
-        const ring = pilot.getBoundingClientRect()
+        if (!box) return zoom || pilot.dataset.log === 'true' ? [name] : []
         const x = ring.left + ring.width / 2
         const y = ring.top + ring.height / 2
         const distance = Math.hypot(Math.max(0, box.left - x, x - box.right), Math.max(0, box.top - y, y - box.bottom))
-        return distance > 40.1 ? [name] : []
+        const ringRadius = zoom ? ring.width / 2 : 0
+        return distance > 40.1 + ringRadius ? [name] : []
       })
-      return { touching, names, uploaders: markers.filter((marker) => marker.querySelector('[data-log="true"]')).length }
-    })
+
+      return { touching, names, inView: pilots.length, uploaders: markers.filter((marker) => marker.querySelector('[data-log="true"]')).length }
+    }, zoom ?? null)
     assert.ok(result.uploaders >= 17, 'the label check uses the complete real fight')
     assert.deepEqual(result.touching, [], 'replay names have 6 px horizontal or 2 px vertical clearance')
-    if (size) {
-      assert.deepEqual(result.names, [], `each uploader is labeled within 40 px at ${size.join(' × ')} and all labels stay near their ships`)
+    if (zoom) {
+      assert.ok(result.inView >= 10, `the real fight has visible pilots at ${zoom}×`)
+      assert.deepEqual(result.names, [], `each in-view pilot has a visible label within 40 px at ${zoom}×`)
+      console.log(`Replay names: all ${result.inView} in-view pilots labeled within 40 px at ${zoom}×`)
+    }
+    if (size || zoom) {
+      if (size) assert.deepEqual(result.names, [], `each uploader is labeled within 40 px at ${size.join(' × ')} and all labels stay near their ships`)
       await assertClearPilotLabels(page)
     }
   }
@@ -849,6 +875,10 @@ try {
     const phoneStage = await open(size[0], 844, 'dark', 'reduce', `?t=${screenshotTime - 420}`)
     try { await assertReplayNames(phoneStage.page, size) } finally { await phoneStage.context.close() }
   }
+  const zoomed = await open(1630, 940, 'dark', 'reduce', `?t=${screenshotTime - 420}`)
+  try {
+    for (const scale of [1.5, 2]) await assertReplayNames(zoomed.page, undefined, scale)
+  } finally { await zoomed.context.close() }
   for (const [width, height, theme, motion] of [
     [1280, 800, 'dark'], [1280, 800, 'light'], [1630, 940, 'dark'], [900, 800, 'dark'], [900, 800, 'light'],
     [390, 844, 'dark'], [390, 844, 'light'], [390, 844, 'dark', 'reduce'],

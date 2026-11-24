@@ -372,6 +372,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         if (tooltipRect) occupied.push(tooltipRect)
         // Keep compact overview labels out of the other fleet. The empty space
         // between fleets can hold labels from either side.
+        const showAll = camera.scale >= 1.5
+        const labelFrame = showAll ? { ...bounds, y: 0, height: bounds.y + bounds.height } : bounds
         const split = camera.scale === 1 ? layout.split : null
         const span = split === 'x' ? 'width' : 'height'
         const min = split ? bounds[split] : 0
@@ -400,10 +402,10 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
             size = { width: element.offsetWidth, height: element.offsetHeight }
             labelSizes.set(element, size)
           }
-          const labelBounds = !split || node.entity.side < 0 ? bounds : node.entity.side === layout.ours ? ourBounds : enemyBounds
+          const labelBounds = !split || node.entity.side < 0 ? labelFrame : node.entity.side === layout.ours ? ourBounds : enemyBounds
           return { ...label, size, bounds: labelBounds, radius: node.radius, uploader: node.entity.hasLog }
         })
-        const placed = placeReplayLabels(names, occupied, bounds)
+        const placed = placeReplayLabels(names, occupied, labelFrame, showAll)
         const leaders = []
         for (const label of names) {
           const { element, center, radius, uploader } = label
@@ -412,7 +414,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
           if (!rect) continue
           element.style.width = `${rect.width}px`
           element.style.transform = `translate(${rect.x}px, ${rect.y}px)`
-          if (!uploader) continue
+          if (!uploader && !showAll) continue
           const end = closestPoint(center, rect)
           const dx = end.x - center.x
           const dy = end.y - center.y

@@ -158,22 +158,26 @@ interface PilotLabel {
   required: boolean
 }
 
-export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], obstacles: readonly Rect[], stage: Rect) {
-  const uploaders = labels.filter((label) => label.uploader)
-  const options = (label: T, occupied: readonly Rect[], width: number, bounds = label.bounds, reach = maxLabelDistance) =>
+export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], obstacles: readonly Rect[], stage: Rect, showAll = false) {
+  const mandatory = showAll ? labels : labels.filter((label) => label.uploader)
+  const reachFromCenter = (label: T) => maxLabelDistance + (showAll ? label.radius + 2 : 0)
+  const options = (label: T, occupied: readonly Rect[], width: number, bounds = label.bounds, reach = reachFromCenter(label)) =>
     placePilotLabel(label.center, label.radius, { ...label.size, width }, bounds, occupied, true, reach)
 
-  function pack(limit: number, first?: ReadonlySet<T>) {
+  function pack(limit: number, first?: ReadonlySet<T>, fromEdge = false) {
     const occupied = [...obstacles]
     const placed = new Map<T, Rect>()
     // Put pilots with little nearby room first, so pilots at the edge can use the gaps left over.
-    const order = uploaders.map((label) => {
+    const order = mandatory.map((label) => {
       const slot = options(label, obstacles, Math.min(limit, label.size.width))
       const nearest = slot && closestPoint(label.center, slot)
       const distance = nearest ? Math.hypot(nearest.x - label.center.x, nearest.y - label.center.y) : Infinity
-      return { label, distance }
+      const { x, y } = label.center
+      const edge = Math.min(x - stage.x, y - stage.y, stage.x + stage.width - x, stage.y + stage.height - y)
+      return { label, distance, edge }
     }).sort((a, b) =>
-      Number(first?.has(b.label) ?? false) - Number(first?.has(a.label) ?? false) || b.distance - a.distance)
+      Number(first?.has(b.label) ?? false) - Number(first?.has(a.label) ?? false)
+      || (fromEdge ? a.edge - b.edge : b.distance - a.distance))
     for (const { label } of order) {
       const slot = options(label, occupied, Math.min(limit, label.size.width))
       if (!slot) continue
@@ -184,22 +188,61 @@ export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], ob
   }
 
   let positions = pack(Infinity)
+  if (showAll && positions.size < mandatory.length) {
+    const missing = new Set(mandatory.filter((label) => !positions.has(label)))
+    const rebalanced = pack(Infinity, missing)
+    if (rebalanced.size > positions.size) positions = rebalanced
+    const edgeFirst = pack(Infinity, undefined, true)
+    if (edgeFirst.size > positions.size) positions = edgeFirst
+
+    // Move a neighbor if its chosen slot is the only nearby one left for this label.
+    for (const label of mandatory) {
+      if (positions.has(label)) continue
+      for (const [neighbor, rect] of positions) {
+        const near = closestPoint(label.center, rect)
+        if (Math.hypot(near.x - label.center.x, near.y - label.center.y) > reachFromCenter(label) + gap + 4) continue
+        const occupied = [...obstacles]
+        for (const [other, slot] of positions) if (other !== neighbor) occupied.push(labelObstacle(slot))
+        const found = options(label, occupied, label.size.width)
+        if (!found) continue
+        const moved = options(neighbor, [...occupied, labelObstacle(found)], neighbor.size.width)
+        if (!moved) continue
+        positions.set(neighbor, moved)
+        positions.set(label, found)
+        break
+      }
+    }
+  }
+  if (showAll) {
+    const occupied = [...obstacles, ...Array.from(positions.values(), labelObstacle)]
+    for (const label of mandatory) {
+      if (positions.has(label)) continue
+      const fallbackSize = { width: Math.min(label.size.width, stage.width), height: Math.min(label.size.height, stage.height) }
+      const fallback = { ...fallbackSize, x: label.center.x - fallbackSize.width / 2, y: label.center.y + label.radius + 5 }
+      const slot = options(label, occupied, fallbackSize.width, stage, Infinity)
+        ?? placeAnnotation([fallback], stage, occupied, true)!
+      positions.set(label, slot)
+      occupied.push(labelObstacle(slot))
+    }
+    return positions
+  }
+
   const smallerWidths = [64, 54, 46, 38, 32, 26, 24]
   for (const width of smallerWidths) {
-    if (positions.size === uploaders.length) break
+    if (positions.size === mandatory.length) break
     const retry = pack(width)
     if (retry.size > positions.size) positions = retry
-    if (width <= 32 && retry.size < uploaders.length) {
+    if (width <= 32 && retry.size < mandatory.length) {
       // A pilot with a short path can still have only one free slot. Let omitted
       // pilots claim a slot first, then try fitting their neighbors around them.
-      const missing = new Set(uploaders.filter((label) => !retry.has(label)))
+      const missing = new Set(mandatory.filter((label) => !retry.has(label)))
       const rebalanced = pack(width, missing)
       if (rebalanced.size > positions.size) positions = rebalanced
     }
   }
 
   // Reclaim space for longer names without taking an already placed uploader's slot.
-  for (const label of uploaders) {
+  for (const label of mandatory) {
     const slot = positions.get(label)
     if (slot?.width === label.size.width) continue
     const occupied = [...obstacles]
@@ -215,7 +258,7 @@ export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], ob
   }
 
   const occupied = [...obstacles, ...[...positions.values()].map(labelObstacle)]
-  for (const label of uploaders) {
+  for (const label of mandatory) {
     if (positions.has(label)) continue
     const width = Math.min(46, label.size.width)
     const compactWidth = Math.min(24, width)
