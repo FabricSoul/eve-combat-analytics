@@ -41,6 +41,8 @@ export interface FeedInput {
   t: number
   oursSide: number
   kinds?: readonly FeedKind[]
+  /** In merged and raw modes, keep only hits that dealt damage. */
+  damageDealtOnly?: boolean
   /** Only events with this entity on either end (key mode: kills, switches and hits that involve it). */
   focus?: EntityKey | null
   /** The Shift-drag range: nothing outside it is shown, and the window never runs past its end. */
@@ -151,13 +153,13 @@ function markCurrent(rows: FeedRow[]): FeedRow[] {
 
 /** What the event feed shows at playback time t. */
 export function buildFeed(input: FeedInput): FeedRow[] {
-  const { analysis, mode, t, kinds = defaultFeedKinds, focus, range } = input
+  const { analysis, mode, t, kinds = defaultFeedKinds, damageDealtOnly = false, focus, range } = input
   if (mode === 'key') return markCurrent(keyRows(input))
   const { interactions } = analysis
   const [from, to] = bounds(t, range)
   const low = Math.max(boundary(interactions, eventTime, to - windowMs, true), boundary(interactions, eventTime, from, false))
   const high = boundary(interactions, eventTime, to, true)
-  const key = `${mode}|${low}|${high}|${kinds.join()}|${focus ?? ''}`
+  const key = `${mode}|${low}|${high}|${kinds.join()}|${damageDealtOnly}|${focus ?? ''}`
   const cached = results.get(analysis)
   if (cached?.key === key) return cached.rows
 
@@ -166,6 +168,7 @@ export function buildFeed(input: FeedInput): FeedRow[] {
   for (let n = low; n < high; n++) {
     const i = interactions[n]!
     if (!wanted.has(feedKind(i.kind))) continue
+    if (damageDealtOnly && (i.kind !== 'damage' || i.amount <= 0)) continue
     if (focus && i.from !== focus && i.to !== focus) continue
     list.push(i)
   }

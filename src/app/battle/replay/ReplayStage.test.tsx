@@ -232,6 +232,29 @@ it('keeps paused nodes still and keeps them still during quiet playback', async 
   }
 })
 
+it('shows only damage dealt in the current fight before applying the row limit', async () => {
+  const { summary } = loadUiFixture()
+  const emptyTargets = Array.from({ length: 18 }, (_, i): Entity => ({
+    ...beta, key: `char:${i + 10}`, charId: i + 10, name: `Zero ${i}`,
+  }))
+  const result = analysis([alpha, beta, neutral, ...emptyTargets], [
+    { ...observation(beta.key), t: time - 3000, amount: 872 },
+    { ...observation(neutral.key), t: time - 2500, amount: 111 },
+    ...emptyTargets.map(({ key }, i): Interaction => ({
+      ...observation(key), t: time - 1000 + i, amount: 0, kind: i % 2 ? 'miss' : 'damage',
+    })),
+  ])
+  await act(() => root.render(
+    <BattleProvider static={{ summary, analysis: result }}><ViewProvider initialTime={time} syncUrl={false}>
+      <ReplayCanvas stage /><EventFeed />
+    </ViewProvider></BattleProvider>,
+  ))
+  await refresh()
+  const amounts = host.querySelectorAll('.replay-close-fights tbody td:last-child')
+  expect([...amounts].map((element) => element.textContent)).toEqual(['111', '872'])
+  expect(host.querySelector('.feed-row[data-kind="miss"]')).not.toBeNull()
+})
+
 it('shares URL-backed drone, smartbomb, small-hit and miss filters between the canvas and feed', async () => {
   const originalUrl = window.location.href
   window.history.replaceState(null, '', '?hide=drones')
@@ -249,11 +272,15 @@ it('shares URL-backed drone, smartbomb, small-hit and miss filters between the c
   try {
     await act(() => root.render(
       <BattleProvider static={{ summary, analysis: result }}><ViewProvider initialTime={time}>
-        <ReplayCanvas /><EventFeed />
+        <ReplayCanvas stage /><EventFeed />
       </ViewProvider></BattleProvider>,
     ))
     await act(async () => { await vi.dynamicImportSettled() })
     await refresh()
+    const filter = host.querySelector<HTMLDetailsElement>('.replay-noise')!
+    await act(() => filter.querySelector('summary')!.click())
+    expect(filter.open).toBe(true)
+    expect(filter.querySelector('.replay-popover')?.textContent).toContain('影响回放、此刻交火和事件')
     const toggle = async (label: string) => {
       const input = [...host.querySelectorAll('label')].find((item) => item.textContent === label)?.querySelector('input')
       expect(input).toBeInstanceOf(HTMLInputElement)

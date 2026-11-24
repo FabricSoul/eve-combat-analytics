@@ -16,7 +16,7 @@ function CloseFights({ analysis, order }: { analysis: NonNullable<ReturnType<typ
   const { oursSide, selected } = useView()
   const t = useCoarseTime()
   const rows = useMemo(() => summary ? buildFeed({
-    analysis, summary, mode: 'merged', t, oursSide, kinds: ['damage'], focus: null, range: null,
+    analysis, summary, mode: 'merged', t, oursSide, kinds: ['damage'], damageDealtOnly: true, focus: null, range: null,
   }).slice(0, 4) : [], [summary, analysis, t, oursSide])
   if (!summary) return null
   return <details open className="replay-close-fights">

@@ -57,6 +57,7 @@ export function ReplayNoiseControls() {
     <details name="replay-controls" className="replay-menu replay-noise">
       <summary>伤害过滤{hiddenNoise.size > 0 && <span className="replay-number"> · {hiddenNoise.size}</span>}</summary>
       <div className="replay-popover">
+        <p className="replay-noise-scope">影响回放、此刻交火和事件</p>
         {options.map(([filter, label]) => (
           <label key={filter}>
             <input type="checkbox" checked={hiddenNoise.has(filter)} onChange={() => toggleNoiseFilter(filter)} />
