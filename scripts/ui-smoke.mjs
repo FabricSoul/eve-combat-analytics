@@ -102,8 +102,8 @@ export class BattleRoom extends ProductionRoom {
   assert.deepEqual(await seed.json(), { brId })
 
   browser = await chromium.launch({ executablePath, headless: true })
-  async function open(width, height, colorScheme, reducedMotion = 'no-preference', query = '') {
-    const context = await browser.newContext({ viewport: { width, height }, colorScheme, reducedMotion, serviceWorkers: 'block' })
+  async function open(width, height, colorScheme, reducedMotion = 'no-preference', query = '', hasTouch = false) {
+    const context = await browser.newContext({ viewport: { width, height }, colorScheme, reducedMotion, hasTouch, serviceWorkers: 'block' })
     await context.route('**/*', async (request) => {
       // CCP image and Google font availability must have no influence on this gate.
       if (new URL(request.request().url()).origin === origin) await request.continue()
@@ -577,6 +577,49 @@ export class BattleRoom extends ProductionRoom {
     const perf = await open(1280, 800, 'dark', undefined, `?t=${screenshotTime}`)
     try { await checkReplayCadence(perf.page) } finally { await perf.context.close() }
   }
+  for (const width of [900, 760]) {
+    const tablet = await open(width, 800, 'dark', undefined, `?t=${screenshotTime}`)
+    try {
+      const group = tablet.page.getByRole('group', { name: '时间轴图层', exact: true })
+      await group.getByRole('button', { name: '击毁用舰船图标', exact: true }).waitFor()
+      const result = await group.evaluate((node) => {
+        const edge = node.getBoundingClientRect()
+        const buttons = [...node.querySelectorAll('button')]
+        return {
+          labels: buttons.map((button) => button.textContent.trim()),
+          clipped: buttons.filter((button) => {
+            const rect = button.getBoundingClientRect()
+            return rect.left < edge.left - 1 || rect.right > edge.right + 1 || rect.right > innerWidth
+              || !button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+          }).map((button) => button.textContent.trim()),
+        }
+      })
+      for (const label of ['点人', '击毁', '击毁用舰船图标']) assert.ok(result.labels.includes(label))
+      assert.deepEqual(result.clipped, [], `timeline layer controls at ${width}px are visible and hit-testable`)
+    } finally { await tablet.context.close() }
+  }
+  const touch = await open(390, 844, 'light', undefined, `?t=${screenshotTime}`, true)
+  try {
+    const page = touch.page
+    assert.ok(await page.evaluate(() => matchMedia('(pointer: coarse)').matches))
+    const bar = page.getByRole('group', { name: '回放控制' })
+    const startRange = bar.getByRole('button', { name: '选段', exact: true })
+    await startRange.waitFor()
+    assert.equal(await page.locator('.eca-timeline-hint').count(), 0)
+    const helpButton = await page.getByRole('button', { name: '时间轴用法' }).boundingBox()
+    const rangeButton = await startRange.boundingBox()
+    assert.ok(helpButton && rangeButton && Math.abs(helpButton.y - rangeButton.y) <= 2,
+      'the touch range trigger and help share the playback row')
+    await startRange.tap()
+    const edit = page.getByRole('dialog', { name: '编辑选段' })
+    await edit.getByRole('textbox', { name: '开始' }).fill('15:42:00')
+    await edit.getByRole('textbox', { name: '结束' }).fill('15:44:00')
+    await edit.getByRole('button', { name: '应用', exact: true }).tap()
+    await bar.getByText('选段 15:42:00–15:44:00', { exact: true }).waitFor()
+    assert.equal(await page.getByRole('slider', { name: '回放时间' }).getAttribute('aria-valuetext'), '15:42:00')
+    assert.deepEqual(touch.errors, [])
+  } finally { await touch.context.close() }
+  console.log('Timeline: layer buttons visible at 900 and 760px, touch range created without a keyboard modifier')
   for (const [width, height, theme, motion] of [
     [1280, 800, 'dark'], [1280, 800, 'light'], [1630, 940, 'dark'], [900, 800, 'dark'], [900, 800, 'light'],
     [390, 844, 'dark'], [390, 844, 'light'], [390, 844, 'dark', 'reduce'],

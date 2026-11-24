@@ -76,6 +76,35 @@ afterEach(async () => {
 })
 
 describe('timeline', () => {
+  it('offers a touch range editor from an unselected timeline and omits the Shift hint', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(pointer: coarse)', addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    }))
+    await render()
+    expect(host.textContent).not.toContain('Shift+拖动可以只看一段')
+    await click('选段')
+    const form = host.querySelector<HTMLFormElement>('form[aria-label="编辑选段"]')!
+    const fields = [...form.querySelectorAll<HTMLInputElement>('input')]
+    expect(fields.map((field) => field.value)).toEqual([fmtHms(start), fmtHms(start + 60_000)])
+    fields[0]!.value = fmtHms(start + 15_000)
+    fields[1]!.value = fmtHms(start + 45_000)
+    await act(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(view.range).toEqual([start + 15_000, start + 45_000])
+    expect(view.t).toBe(start + 15_000)
+    expect(chart().querySelector('[stroke-dasharray="3 3"]')).not.toBeNull()
+    await click(`取消选段 ${fmtHms(start + 15_000)}–${fmtHms(start + 45_000)}`)
+    expect(view.range).toBeNull()
+    expect(button('选段')).toBeDefined()
+    await click('时间轴用法')
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain('点「选段」输入开始和结束时间')
+  })
+
+  it('offers the range editor rather than the keyboard hint in compact mode', async () => {
+    await render(true)
+    expect(button('选段')).toBeDefined()
+    expect(host.textContent).not.toContain('Shift+拖动可以只看一段')
+  })
+
   it('snaps Shift-drag to one second, snaps long drags to ten seconds, and bypasses snapping with Alt', async () => {
     await render()
     const drag = async (from: number, to: number, alt = false) => {

@@ -187,7 +187,13 @@
 }
 
 .eca-timeline[data-compact="true"] { padding-inline: var(--space-2); }
-.eca-timeline[data-compact="true"] .eca-timeline-controls { margin-inline: var(--space-2); }
+.eca-timeline[data-compact="true"] .eca-timeline-bar { flex-wrap: nowrap; align-items: flex-start; }
+.eca-timeline[data-compact="true"] .eca-timeline-controls {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  margin-inline-start: var(--space-2);
+}
 .eca-timeline[data-compact="true"] .eca-timeline-controls .app-button { min-height: 36px; }
 
 .eca-pilot-lanes {
@@ -284,18 +290,11 @@
 .eca-timeline[data-workspace] { padding-block-start: var(--space-1); }
 .eca-timeline[data-workspace] .eca-timeline-bar {
   --row: calc(var(--row-compact) + var(--space-1));
-  flex-wrap: nowrap;
   gap: var(--space-2);
   margin-bottom: 2px;
 }
-.eca-timeline[data-workspace] .eca-timeline-controls { flex-wrap: nowrap; }
 .eca-timeline[data-workspace] .eca-timeline-options { min-width: 0; }
-.eca-timeline[data-workspace] .eca-timeline-layers {
-  min-width: 0;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
+.eca-timeline[data-workspace] .eca-timeline-layers { min-width: 0; }
 .eca-timeline[data-workspace] .eca-timeline-layers > button { flex: none; }
 .eca-timeline[data-workspace] .eca-timeline-hint {
   flex: none;
@@ -307,6 +306,7 @@
 }
 
 .eca-timeline-range { position: relative; }
+.eca-timeline-range .eca-timeline-range-start { min-height: 44px; }
 
 .eca-timeline-range .eca-timeline-range-chip {
   gap: 0;
@@ -365,5 +365,4 @@
   gap: var(--space-2);
 }
 
-.eca-timeline[data-compact="true"] .eca-timeline-controls { position: relative; }
 .eca-timeline[data-compact="true"] .eca-timeline-range { position: static; }

@@ -12,6 +12,18 @@ const helpItems = [
 ]
 
 const hintKey = 'eve-combat-analytics:timeline-hint-dismissed'
+const coarsePointer = '(pointer: coarse)'
+
+export function useCoarsePointer() {
+  const [matches, setMatches] = useState(() => window.matchMedia?.(coarsePointer).matches ?? false)
+  useEffect(() => {
+    const media = window.matchMedia?.(coarsePointer)
+    const onChange = (event: MediaQueryListEvent) => setMatches(event.matches)
+    media?.addEventListener('change', onChange)
+    return () => media?.removeEventListener('change', onChange)
+  }, [])
+  return matches
+}
 
 export function useTimelineHint() {
   const [showHint, setShowHint] = useState(() => {
@@ -35,7 +47,7 @@ export function useTimelineHint() {
   return { showHint, dismissHint }
 }
 
-export function TimelineHelp() {
+export function TimelineHelp({ touchRange }: { touchRange: boolean }) {
   const id = useId()
   const [open, setOpen] = useState(false)
   const help = useRef<HTMLDivElement>(null)
@@ -68,7 +80,10 @@ export function TimelineHelp() {
       onClick={() => setOpen(!open)}>?</Button>
     <div ref={panel} id={id} role="dialog" aria-label="时间轴用法" tabIndex={-1} hidden={!open}
       className="eca-timeline-help-popover">
-      <ul>{helpItems.map((item) => <li key={item}>{item}</li>)}</ul>
+      <ul>
+        {touchRange && <li>点「选段」输入开始和结束时间</li>}
+        {helpItems.map((item) => <li key={item}>{item}</li>)}
+      </ul>
     </div>
   </div>
 }
