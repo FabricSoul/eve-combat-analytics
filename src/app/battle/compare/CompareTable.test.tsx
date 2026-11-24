@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
+import { resolve } from 'node:path'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
+import { runnerImport } from 'vite'
 import { afterEach, beforeEach, expect, it } from 'vitest'
+import { analyze } from '@/core/analysis/analyze'
 import { statsForRange } from '@/core/analysis/range'
+import type { BattleState } from '@/core/contract'
 import { BattleProvider } from '../../state/battle-store'
 import { useView, ViewProvider } from '../../state/view-store'
 import { loadUiFixture } from '../../test/ui-fixture'
@@ -23,9 +27,11 @@ afterEach(() => {
   host.remove()
 })
 
-function render(children = <CompareTable />, data = fixture, defaultSide = 0) {
+function render(children = <CompareTable />, data = fixture, defaultSide = 0, initialTime?: number) {
   act(() => root.render(
-    <BattleProvider static={data}><ViewProvider defaultSide={defaultSide} syncUrl={false}>{children}</ViewProvider></BattleProvider>,
+    <BattleProvider static={data}>
+      <ViewProvider defaultSide={defaultSide} initialTime={initialTime} syncUrl={false}>{children}</ViewProvider>
+    </BattleProvider>,
   ))
 }
 
@@ -63,6 +69,33 @@ it('uses every numeric repair output cell in the real fight median', () => {
     .toBe(`有数据的 ${values.length} 人的中位 · ${Math.round(center).toLocaleString('en-US')}`)
 })
 
+it('shows a reason and omits log provenance for J125990 pilots known only from the BR', () => {
+  render(<CompareTable />, fullFixtureWithObservedStats(), 1)
+  for (const name of ['zethixx', 'Xafen Katapi', 'Crafty Beaver']) {
+    const row = [...host.querySelectorAll('tbody tr')].find((candidate) =>
+      candidate.querySelector('th button')?.getAttribute('aria-label') === name)!
+    const keys = ['damageOut', 'damageIn', 'repairOut', 'pointSeconds']
+    expect.soft(row.querySelector('.u7-observed'), name).toBeNull()
+    expect.soft(keys.map((metric) => {
+      const missing = row.querySelector(`[data-metric="${metric}"] .u7-no-value summary`)
+      return [missing?.firstChild?.textContent?.trim(), missing?.getAttribute('title')]
+    }), name).toEqual(keys.map(() => ['—', '没有上传他的战斗日志']))
+  }
+})
+
+it('reports incoming damage median 20,722 over 120 measured J125990 pilots at the audit cursor', async () => {
+  const { module } = await runnerImport<{ realBattleStateWithBr(): BattleState }>(
+    resolve('fixtures/real/j125990-20250622/load.ts'), { configFile: false },
+  )
+  const analysis = analyze(module.realBattleStateWithBr())
+  render(<CompareTable />, { summary: fixture.summary, analysis }, 1, 1_750_606_982_420)
+  const cells = [...host.querySelectorAll('tbody td[data-metric="damageIn"]')]
+  const measured = cells.flatMap((cell) => cell.querySelector('span.app-number')?.textContent ?? [])
+  expect.soft(measured).toHaveLength(120)
+  expect.soft(measured).toContain('0')
+  expect(cells[0]?.querySelector('.u7-compare-median')?.getAttribute('title')).toBe('有数据的 120 人的中位 · 20,722')
+})
+
 it('shows observed incoming damage types and explains the unknown type in Compare and the drawer', () => {
   const data = fullFixtureWithObservedStats()
   const key = 'char:2113835664' // J125990: Kylo Kingdom, with no uploaded log.
@@ -74,11 +107,11 @@ it('shows observed incoming damage types and explains the unknown type in Compar
   }
   const row = host.querySelector(`tr[data-pilot-key="${key}"]`)!
   const amount = (kind: string) => row.querySelector(`td[data-metric="${kind}"] .app-number:not(summary)`)?.textContent
-  expect(row.textContent).toContain('据我方日志')
+  expect(row.textContent).toContain('据他人日志')
   expect.soft(amount('em')).toBe('34,926')
   expect.soft(amount('unknown')).toBe('34,080')
   act(() => row.querySelector<HTMLButtonElement>('th button')!.click())
-  expect(host.querySelector('.u7-person-header')?.textContent).toContain('据我方日志')
+  expect(host.querySelector('.u7-person-header')?.textContent).toContain('据他人日志')
   expect.soft(host.querySelector('.u7-person-damage')?.textContent ?? '').toContain('电磁34,926')
   expect.soft(host.querySelector('.u7-person-damage dt[title]')?.getAttribute('title') ?? '').toContain('弹药')
 })
@@ -214,13 +247,13 @@ it('shows hit rate and a quality distribution for two uploaders and recomputes b
   expect(widths()).toBeCloseTo(100)
 })
 
-it('tags observed pilots 据我方日志 in the compare rows', () => {
-  const pilot = Object.values(fixture.analysis.entities).find((e) => e.charId !== null && !e.hasLog)!
+it('tags observed pilots 据他人日志 in the compare rows', () => {
+  const pilot = fixture.analysis.entities['char:2120391968']! // Kohera has recorded shots in the replay excerpt.
   render(<CompareTable />, {
     ...fixture,
     analysis: { ...fixture.analysis, stats: fixture.analysis.stats.map((s) => s.key === pilot.key ? { ...s, source: 'observed' as const } : s) },
   })
-  const rows = [...host.querySelectorAll('tbody tr')].filter((r) => r.textContent?.includes('据我方日志'))
+  const rows = [...host.querySelectorAll('tbody tr')].filter((r) => r.textContent?.includes('据他人日志'))
   expect(rows.length).toBe(1)
   expect(rows[0]!.textContent).toContain(pilot.name)
 })
@@ -235,7 +268,7 @@ it('shows the measured rate and sample for an enemy firing on uploaders in J1259
   const row = [...host.querySelectorAll('tbody tr')].find((el) => el.querySelector('th')?.textContent?.includes('Kohera Hakomairos'))
   const hitCell = row?.querySelector('td[data-metric="hitRate"]')
   expect(hitCell?.querySelector('.app-number')?.textContent).toBe('100%')
-  expect(hitCell?.textContent).toContain('据我方日志')
+  expect(hitCell?.textContent).toContain('据他人日志')
   expect(hitCell?.textContent).toContain('35 发')
   expect(row?.querySelector('td[data-metric="hitQuality"] .u7-hit-quality')).not.toBeNull()
 })

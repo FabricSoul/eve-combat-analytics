@@ -9,6 +9,7 @@ import { useView } from '../../state/view-store'
 import { classifyWeapon, isUngradedWeapon, type ShotCounts } from '../hits/analysis'
 import { useHitAnalysis } from '../hits/use-hit-analysis'
 import { hitRate, noHitQualityReason } from './hit-quality'
+import { observedPilots } from './observations'
 import damageTypes from './damage-types.json'
 import em from './em_small.png'
 import explosive from './explosive_small.png'
@@ -87,6 +88,7 @@ export const defaultColumns = [
 export interface CompareRow {
   entity: Entity
   stats: PilotStats
+  hasObservation: boolean
   damage?: DamageBreakdown
   observedHits?: ShotCounts
 }
@@ -96,9 +98,10 @@ function isDamageKind(key: Metric['key']): key is DamageKind {
 }
 
 /** No log of his own, but uploaders' logs saw him: the numbers are a lower bound. */
-export const observedLabel = '据我方日志'
-export const observedHint = '他没有上传日志；数字只来自我方日志里看到的部分，实际只多不少'
-export const isObserved = (row: CompareRow) => !row.entity.hasLog && row.stats.source === 'observed'
+export const observedLabel = '据他人日志'
+export const observedHint = '他没有上传日志；数字只来自其他飞行员上传的日志里看到的部分，实际只多不少'
+export const noPilotLogReason = '没有上传他的战斗日志'
+export const isObserved = (row: CompareRow) => !row.entity.hasLog && row.stats.source === 'observed' && row.hasObservation
 
 export function metricValue(row: CompareRow, metric: Metric): number | null {
   if (!row.entity.hasLog && !metric.battleReport && (!isObserved(row) || metric.ownLog)) return null
@@ -119,8 +122,8 @@ export function missingReason(row: CompareRow, metric: Metric): string {
   if (metric.battleReport) return '这段时间没有他的击毁报告'
   if (metric.key === 'hitRate' && isObserved(row)) return noHitQualityReason
   if (isDamageKind(metric.key) && isObserved(row)) return '这段时间没有可用的承伤记录'
-  if (isObserved(row) && metric.ownLog) return '需要他自己的战斗日志，我方日志看不到'
-  if (!row.entity.hasLog) return '没有上传他的战斗日志'
+  if (isObserved(row) && metric.ownLog) return '需要他自己的战斗日志，他人日志看不到'
+  if (!row.entity.hasLog) return noPilotLogReason
   if (metric.key === 'primaryShare') return '这段时间没有输出'
   return metric.reason ?? '这段时间没有可用数据'
 }
@@ -150,6 +153,7 @@ export function useCombatRows() {
     const interactions = range
       ? analysis.interactions.filter(({ t }) => t >= range[0] && t <= range[1])
       : analysis.interactions
+    const observed = observedPilots(interactions, analysis.ewarSpans, range ?? undefined)
     const stats = range ? statsForRange(analysis, summary.meta.killmails, ...range) : analysis.stats
     const ammo = new Map<EntityKey, Map<string, Set<string | undefined>>>()
     for (const { charId, eft } of summary.fits) {
@@ -192,8 +196,8 @@ export function useCombatRows() {
     const rows = stats.flatMap((entry): CompareRow[] => {
       const entity = analysis.entities[entry.key]
       if (!entity) return []
-      const row = {
-        entity, stats: entry,
+      const row: CompareRow = {
+        entity, stats: entry, hasObservation: observed.has(entry.key),
         damage: entity.hasLog || entry.source === 'observed' ? damage.get(entry.key) : undefined,
       }
       if (isObserved(row)) return [{ ...row, observedHits: hits?.pilots.get(entry.key) }]

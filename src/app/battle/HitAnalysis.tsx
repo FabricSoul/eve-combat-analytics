@@ -7,6 +7,7 @@ import { useView } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { Portrait } from '../ui/Portrait'
 import { HitQualityBar } from './compare/HitQualityBar'
+import { observedLabel } from './compare/metrics'
 import { HitTrend } from './hits/HitTrend'
 import { HitRateValue, UngradedShots, WeaponClasses, WeaponClassSummary } from './hits/WeaponClasses'
 import {
@@ -95,7 +96,7 @@ export function HitAnalysis() {
       {!empty && <div className="hit-team-grid" aria-label="阵营命中对比">
         {teams.map(({ side, counts }) => <section className="hit-card" key={side}>
           <h3><span className="hit-side-dot" style={{ background: sideColor(side, order) }} aria-hidden="true" />
-            {sideLabel(side, order)} {!Object.values(analysis.entities).some((entity) => entity.side === side && entity.hasLog) && <small>据我方日志</small>}
+            {sideLabel(side, order)} {!Object.values(analysis.entities).some((entity) => entity.side === side && entity.hasLog) && <small>{observedLabel}</small>}
           </h3>
           <div className="hit-team-summary">
             <span>命中率 <strong><HitRateValue counts={counts} /></strong></span>
@@ -118,7 +119,7 @@ export function HitAnalysis() {
             </th><th scope="col">命中质量</th><th scope="col">出手最多的武器</th><th scope="col" title="武器类别、出手数和命中率">武器类别</th></tr></thead>
             <tbody>{rows.map(({ pilot, value, rank }) => {
               const { entity } = pilot
-              const details = `${sideLabel(entity.side, order)}${entity.hasLog ? '' : ' · 据我方日志'} · 无命中质量 ${fmtNum(pilot.ungraded)} 发`
+              const details = `${sideLabel(entity.side, order)}${entity.hasLog ? '' : ` · ${observedLabel}`} · 无命中质量 ${fmtNum(pilot.ungraded)} 发`
               const weapon = weaponRows(pilot)[0]?.[0] ?? '—'
               return <tr key={entity.key} data-pilot-key={entity.key} data-selected={selected === entity.key || undefined} onContextMenu={(event) => pilotMenu?.open(entity.key, event)}>
                 <td className="app-number">{fmtNum(rank)} · {fmtNum(pilot.shots)} 发</td>

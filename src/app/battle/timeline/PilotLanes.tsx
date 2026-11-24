@@ -3,6 +3,8 @@ import type { Analysis, BattleSummary, EntityKey } from '@/core/contract'
 import { fmtNum } from '@/app/lib/format'
 import { sideColor } from '@/app/lib/sides'
 import { useView } from '@/app/state/view-store'
+import { noPilotLogReason, observedHint, observedLabel } from '../compare/metrics'
+import { observedPilots } from '../compare/observations'
 import { PilotMore, usePilotMenu } from '../roster/PilotActions'
 import { Portrait } from '@/app/ui/Portrait'
 import { Curve } from './Plot'
@@ -49,17 +51,13 @@ const PilotTrace = memo(function PilotTrace({ geometry, bucketStart, color, seri
   </>
 })
 
-export function PilotLanes({ analysis, logs, oursSide, sideOrder, pinned, onRemove, cursorX, brush, width, left, right, start, end }: PilotLanesProps) {
+export function PilotLanes({ analysis, logs, sideOrder, pinned, onRemove, cursorX, brush, width, left, right, start, end }: PilotLanesProps) {
   const { selected, select } = useView()
   const menu = usePilotMenu()
   const [metric, setMetric] = useState<PilotMetric>('damageOut')
   const geometry = useMemo(() => ({ width, left, right, start, end }), [width, left, right, start, end])
-  const seriesFor = useMemo(() => {
-    if (!analysis) return null
-    const oursLogIds = new Set(logs.filter((log) =>
-      (analysis.entities[`char:${log.charId}`]?.side ?? log.side) === oursSide).map(({ id }) => id))
-    return createPilotSeries(analysis, oursLogIds)
-  }, [analysis, logs, oursSide])
+  const seriesFor = useMemo(() => analysis && createPilotSeries(analysis, new Set(logs.map(({ id }) => id))), [analysis, logs])
+  const observed = useMemo(() => analysis && observedPilots(analysis.interactions, analysis.ewarSpans), [analysis])
   const series = useMemo(() => seriesFor?.([...pinned], metric), [seriesFor, pinned, metric])
 
   return <section className="eca-pilot-lanes" aria-label="按人对比">
@@ -75,7 +73,9 @@ export function PilotLanes({ analysis, logs, oursSide, sideOrder, pinned, onRemo
         const pilot = analysis.entities[key]
         if (!pilot) return null
         const color = metric === 'repairOut' ? 'var(--color-repair)' : sideColor(pilot.side, sideOrder)
-        const peak = `峰值 ${fmtNum(Math.round(data.peak))}/秒`
+        const hasObservation = !pilot.hasLog && observed?.has(key)
+        const hasMeasurement = pilot.hasLog || hasObservation
+        const peak = hasMeasurement ? `峰值 ${fmtNum(Math.round(data.peak))}/秒` : '峰值 —'
         return <div key={key} data-pilot-lane={key} className="eca-pilot-lane" style={{ width }}
           data-selected={selected === key || undefined} onContextMenu={(event) => menu?.open(key, event)}>
           <div className="eca-pilot-cell" style={{ width: left }}>
@@ -85,11 +85,13 @@ export function PilotLanes({ analysis, logs, oursSide, sideOrder, pinned, onRemo
             </button>
             {menu ? <PilotMore pilot={key} name={pilot.name} /> : <button type="button" className="eca-pilot-remove" aria-label={`移除 ${pilot.name} 的时间轴对比`}
               onClick={() => onRemove(key)}>×</button>}
-            {!pilot.hasLog && <span className="eca-pilot-observed">据我方日志</span>}
+            {hasObservation && <span className="eca-pilot-observed" title={observedHint}>{observedLabel}</span>}
           </div>
           <svg className="eca-pilot-chart" width={width} height={height} viewBox={`0 0 ${width} ${height}`}
             role="img" aria-label={`${pilot.name} · ${peak}`}>
-            <PilotTrace geometry={geometry} bucketStart={analysis.timeline.start} color={color} series={data} />
+            {hasMeasurement
+              ? <PilotTrace geometry={geometry} bucketStart={analysis.timeline.start} color={color} series={data} />
+              : <title>{noPilotLogReason}</title>}
             {brush && <rect x={brush.x} y="1" width={brush.width} height={height - 2}
               fill="var(--color-sel)" stroke="var(--color-accent-line)" strokeDasharray="3 3" />}
             {cursorX !== null && <line x1={cursorX} x2={cursorX} y1="0" y2={height}

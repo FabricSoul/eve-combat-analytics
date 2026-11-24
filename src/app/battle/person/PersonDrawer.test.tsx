@@ -116,9 +116,10 @@ it('shows hit rate, team median, quality counts, and observed weapon breakdown f
   }
 })
 
-it('labels observed pilots 据我方日志 and shows their numbers instead of —', () => {
-  const base = loadUiFixture()
-  const pilot = Object.values(base.analysis.entities).find((e) => e.charId !== null && !e.hasLog)!
+it('labels observed pilots 据他人日志 and shows their numbers instead of —', () => {
+  const base = loadUiFixture({ fullPilotEvents: true })
+  const pilot = Object.values(base.analysis.entities).find(({ name }) => name === 'Neomen')!
+  // Replace the archived total with a synthetic value to isolate the drawer's metric rendering.
   const fixture = {
     ...base,
     analysis: { ...base.analysis, stats: base.analysis.stats.map((s) => s.key === pilot.key ? { ...s, source: 'observed' as const, damageOut: 12_345 } : s) },
@@ -132,7 +133,7 @@ it('labels observed pilots 据我方日志 and shows their numbers instead of �
   }
   try {
     act(() => root.render(<BattleProvider static={fixture}><ViewProvider syncUrl={false}><Harness /></ViewProvider></BattleProvider>))
-    expect(host.querySelector('.u7-person-header')?.textContent).toContain('据我方日志')
+    expect(host.querySelector('.u7-person-header')?.textContent).toContain('据他人日志')
     const tiles = [...host.querySelectorAll('.u7-stat-tile')].map((t) => t.textContent)
     expect(tiles[0]).toContain('12,345')
     // 维修反应 needs his own log: still —, with the reason on hover.
@@ -165,10 +166,10 @@ it('labels the observed enemy hit sample in the tile, breakdown and ranks', () =
     act(() => root.render(<BattleProvider static={fixture}><ViewProvider defaultSide={1} syncUrl={false}><Harness /></ViewProvider></BattleProvider>))
     const tile = [...host.querySelectorAll('.u7-stat-tile')].find((el) => el.querySelector('h3')?.textContent === '命中率')
     expect(tile?.querySelector('.app-number')?.textContent).toBe('100%')
-    expect(tile?.textContent).toContain('据我方日志')
+    expect(tile?.textContent).toContain('据他人日志')
     expect(tile?.textContent).toContain('35 发')
     const breakdown = [...host.querySelectorAll('.u7-person-card')].find((el) => el.querySelector('h3')?.textContent === '命中质量')
-    expect(breakdown?.textContent).toContain('据我方日志')
+    expect(breakdown?.textContent).toContain('据他人日志')
     expect(breakdown?.querySelector('.hit-classes')?.textContent).toContain('35 发 · 100%')
     expect(breakdown?.querySelector('.u7-hit-weapon')?.textContent).toContain('Veles Supratidal Entropic Disintegrator')
     expect(breakdown?.querySelector('[aria-label="命中排名"]')?.textContent).toContain('35 发')

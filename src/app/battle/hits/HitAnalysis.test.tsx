@@ -52,11 +52,11 @@ it('keeps a logged pilot’s hit sample and rate in Hits, Compare and the drawer
     expect(readSample()).toEqual(expected)
     act(() => host.querySelector<HTMLButtonElement>('#empty-side')!.click())
     expect(readSample()).toEqual(expected)
-    expect.soft(hitRow()!.querySelector('th small')?.textContent).not.toContain('据我方日志')
+    expect.soft(hitRow()!.querySelector('th small')?.textContent).not.toContain('据他人日志')
     const observed = host.querySelector('.hit-analysis tr[data-pilot-key="char:2120391968"] th small') // Kohera Hakomairos
-    expect.soft(observed?.textContent).toContain('我方 · 据我方日志')
+    expect.soft(observed?.textContent).toContain('我方 · 据他人日志')
     const headers = [...host.querySelectorAll('.hit-card h3')].map((header) => header.textContent.trim())
-    expect.soft(headers).toContain('我方 据我方日志')
+    expect.soft(headers).toContain('我方 据他人日志')
     expect.soft(headers).toContain('敌方')
   } finally {
     act(() => root.unmount())
@@ -75,7 +75,7 @@ it('shows ranked samples, measured enemy coverage, filters sides and recomputes 
   try {
     act(() => root.render(<BattleProvider static={fixture}><ViewProvider defaultSide={1} syncUrl={false}><Harness /></ViewProvider></BattleProvider>))
     const view = host.querySelector('.hit-analysis')!
-    expect(view.querySelector('.hit-card:nth-child(2)')?.textContent).toContain('据我方日志')
+    expect(view.querySelector('.hit-card:nth-child(2)')?.textContent).toContain('据他人日志')
     expect(view.querySelector('.hit-trend svg')).not.toBeNull()
     expect(view.querySelector('.hit-insufficient')?.textContent).toContain('少于 30 发')
     const row = () => [...view.querySelectorAll<HTMLTableRowElement>('tbody tr')].find((el) => el.querySelector('th button')?.textContent === 'Blanchard2213')!
@@ -89,7 +89,7 @@ it('shows ranked samples, measured enemy coverage, filters sides and recomputes 
     const enemyFilter = [...view.querySelectorAll('.hit-analysis-controls details label')].find((label) => label.textContent?.trim() === '敌方')!
     act(() => enemyFilter.querySelector<HTMLInputElement>('input')!.click())
     expect([...view.querySelectorAll('.hit-card h3')].map((heading) => heading.textContent?.trim()))
-      .not.toContain('敌方 据我方日志')
+      .not.toContain('敌方 据他人日志')
     expect(row().cells[0]?.textContent).toBe(previousRank)
     expect([...view.querySelectorAll('tbody th small')].some((label) => label.textContent?.includes('敌方'))).toBe(false)
   } finally {

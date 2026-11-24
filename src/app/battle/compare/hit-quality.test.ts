@@ -8,7 +8,7 @@ it('derives hit rate with reported hits and misses, excluding ungraded damage', 
   const entity = analysis.entities[stats.key]!
   const metric = metrics.find(({ key }) => key === 'hitRate')!
   expect(metric).toBeDefined()
-  const row = { entity, stats: { ...stats, hitQuality: { Hits: 3, none: 100 }, misses: 1 } }
+  const row = { entity, hasObservation: true, stats: { ...stats, hitQuality: { Hits: 3, none: 100 }, misses: 1 } }
   expect(metricValue(row, metric)).toBe(.75)
   expect(metricValue({ ...row, stats: { ...row.stats, hitQuality: {}, misses: 3 } }, metric)).toBe(0)
   const noShots = { ...row, stats: { ...row.stats, hitQuality: { none: 100 }, misses: 0 } }

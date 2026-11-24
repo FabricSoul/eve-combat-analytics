@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
+import { resolve } from 'node:path'
 import { act, useEffect, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { runnerImport } from 'vite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { analyze } from '@/core/analysis/analyze'
+import type { BattleState } from '@/core/contract'
 import { BattleProvider } from '@/app/state/battle-store'
 import { ViewProvider, usePlayback, useView } from '@/app/state/view-store'
 import { fmtHms, fmtNum } from '@/app/lib/format'
@@ -9,6 +13,7 @@ import { loadUiFixture } from '@/app/test/ui-fixture'
 import { CompareTable } from '../CompareTable'
 import { EventFeed } from '../EventFeed'
 import { HitAnalysis } from '../HitAnalysis'
+import { PersonDrawer } from '../PersonDrawer'
 import { Roster } from '../Roster'
 import { Timeline } from '../Timeline'
 import { Plot } from './Plot'
@@ -233,7 +238,7 @@ describe('timeline', () => {
   it('uses the same cursor and brush coordinates after zoom and switches lane metrics', async () => {
     await render()
     const pilot = Object.values(fixture.analysis.entities).find(({ hasLog }) => hasLog)!
-    const observed = Object.values(fixture.analysis.entities).find(({ hasLog, charId }) => !hasLog && charId !== null)!
+    const observed = fixture.analysis.entities['char:2120391968']! // Kohera has recorded shots in the replay excerpt.
     const time = start + 60_000
     await act(() => {
       view.setPinned(new Set([pilot.key, observed.key]))
@@ -260,7 +265,7 @@ describe('timeline', () => {
     await click('维修输出')
     expect(curve()?.getAttribute('stroke')).toBe('var(--color-repair)')
     expect(lane().textContent).toContain('峰值')
-    expect(host.querySelectorAll('[data-pilot-lane]')[1]?.textContent).toContain('据我方日志')
+    expect(host.querySelectorAll('[data-pilot-lane]')[1]?.textContent).toContain('据他人日志')
   })
 
   it('shares roster menu pins, compare checkboxes, and the lane remove button', async () => {
@@ -283,6 +288,43 @@ describe('timeline', () => {
     await click(`${pilot.name} 的操作`)
     await click('移出时间轴对比')
     expect(checkbox().checked).toBe(false)
+  })
+
+  it('keeps Neomen’s observed output in Compare, the drawer, and his lane after switching to No Vacancies', async () => {
+    const { module } = await runnerImport<{ realBattleStateWithBr(): BattleState }>(
+      resolve('fixtures/real/j125990-20250622/load.ts'), { configFile: false },
+    )
+    const state = module.realBattleStateWithBr()
+    const analysis = analyze(state)
+    const logs = state.logs.map(({ parsed, ...log }) => ({ ...log, events: parsed.events.length }))
+    await render(false, { analysis, summary: { ...fixture.summary, logs } }, <><CompareTable /><PersonDrawer /></>)
+    const neomen = Object.values(analysis.entities).find(({ name }) => name === 'Neomen')!
+    expect(neomen.hasLog).toBe(false)
+    expect(analysis.coverage.find(({ side }) => side === 0)?.withLog).toBe(0)
+    const row = host.querySelector(`tr[data-pilot-key="${neomen.key}"]`)!
+    await act(() => row.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click())
+    await act(() => row.querySelector<HTMLButtonElement>('th button')!.click())
+    const equivalent = () => ({
+      compare: row.querySelector('[data-metric="damageOut"] .app-number')?.textContent,
+      drawer: [...host.querySelectorAll('.u7-stat-tile')].find((tile) => tile.querySelector('h3')?.textContent === '输出')
+        ?.querySelector('.app-number')?.textContent,
+      lane: host.querySelector(`[data-pilot-lane="${neomen.key}"] .eca-pilot-peak`)?.textContent,
+    })
+    const expected = { compare: '95,014', drawer: '95,014', lane: '峰值 433/秒' }
+    expect(equivalent()).toEqual(expected)
+    await act(() => view.setOursSide(0))
+    expect(equivalent()).toEqual(expected)
+  })
+
+  it('shows a reason and omits provenance on the lane for a J125990 pilot known only from the BR', async () => {
+    const data = loadUiFixture({ fullPilotEvents: true })
+    const pilot = Object.values(data.analysis.entities).find(({ name }) => name === 'zethixx')!
+    await render(false, data)
+    await act(() => view.setPinned(new Set([pilot.key])))
+    const lane = host.querySelector(`[data-pilot-lane="${pilot.key}"]`)!
+    expect.soft(lane.querySelector('.eca-pilot-observed')).toBeNull()
+    expect.soft(lane.querySelector('.eca-pilot-peak')?.textContent).toBe('峰值 —')
+    expect(lane.querySelector('svg title')?.textContent).toBe('没有上传他的战斗日志')
   })
 
   it('opens the usage list from a focusable help button and returns focus on Escape', async () => {

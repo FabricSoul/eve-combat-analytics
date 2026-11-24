@@ -212,9 +212,13 @@ describe('IdentityPicker', () => {
     expect(tag.getAttribute('title')).toBe('据日志：伤害了 敌方 12 次')
   })
 
-  it('observed pilots get a hover that says the numbers come from our logs', () => {
-    mount()
-    expect(row('Pilot2').querySelector('.roster-dot')?.getAttribute('title')).toContain('据我方日志')
+  it('gives observed pilots a hover and omits it for BR-only pilots', () => {
+    // Synthetic BR-only stat row for Pilot5, who has no interaction in this fixture.
+    const data: Analysis = { ...analysis, stats: analysis.stats.map((entry) =>
+      entry.key === 'char:5' ? { ...stats(5, 0), source: 'observed', killmailCount: 1 } : entry) }
+    mount(tinySummary, data)
+    expect.soft(row('Pilot5').querySelector('.roster-dot')?.getAttribute('title')).toBeNull()
+    expect.soft(row('Pilot2').querySelector('.roster-dot')?.getAttribute('title')).toBe('没有日志 · 数据据他人日志')
     expect(row('Pilot1').querySelector('.roster-dot')?.getAttribute('title')).toBeNull()
   })
 })

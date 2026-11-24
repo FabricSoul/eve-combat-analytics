@@ -6,6 +6,8 @@ import { useCoarseTime, useView } from '../state/view-store'
 import { Portrait } from '../ui/Portrait'
 import { Tag } from '../ui/Tag'
 import { TypeIcon } from '../ui/TypeIcon'
+import { observedLabel } from './compare/metrics'
+import { observedPilots } from './compare/observations'
 import { buildRoster, fullSideOrder, sideName } from './roster/model'
 import { hidePartialRosterRow, revealInList } from './roster/reveal'
 import { PilotActions, PilotMore, usePilotMenu } from './roster/PilotActions'
@@ -45,6 +47,7 @@ function RosterContent({ search, alphabetical, onSearchClose }: RosterProps) {
     () => summary && analysis ? buildRoster(summary, analysis, view.oursSide, at, rangeStats) : [],
     [summary, analysis, view.oursSide, at, rangeStats],
   )
+  const observed = useMemo(() => analysis && observedPilots(analysis.interactions, analysis.ewarSpans), [analysis])
   useLayoutEffect(() => {
     if (root.current) return hidePartialRosterRow(root.current)
   }, [groups, needle, alphabetical, search])
@@ -66,7 +69,7 @@ function RosterContent({ search, alphabetical, onSearchClose }: RosterProps) {
           <Portrait charId={row.charId} size={20} />
           <span className="roster-name">
             <i className="roster-dot" role="img" aria-label={row.hasLog ? '有日志' : '没有日志'}
-              title={row.observed ? '没有日志 · 数据据我方日志' : undefined} />
+              title={row.observed && observed?.has(row.key) ? `没有日志 · 数据${observedLabel}` : undefined} />
             <span>{row.name}</span>
           </span>
           {row.tag ? <Tag title={row.tag.title} data-kind={row.tag.kind}>{tagLabel[row.tag.kind]}</Tag> : <span />}

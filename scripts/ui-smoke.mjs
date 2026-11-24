@@ -692,7 +692,7 @@ try {
     try {
       await hits.locator('tbody tr[data-pilot-key]').first().waitFor()
       const kohera = hits.getByRole('button', { name: 'Kohera Hakomairos', exact: true })
-      assert.match(await kohera.getAttribute('title'), /Kohera Hakomairos.*据我方日志.*无命中质量/)
+      assert.match(await kohera.getAttribute('title'), /Kohera Hakomairos.*据他人日志.*无命中质量/)
       await page.evaluate(() => document.fonts.ready)
       for (const [name, selector] of [
         ['名单', '[data-module="roster"] .roster-row'],
@@ -734,7 +734,7 @@ try {
       const fullCompare = compare.locator('.u7-compare[data-expanded="true"] .u7-compare-scroll')
       await fullCompare.locator('tbody tr[data-pilot-key]').first().waitFor()
       assert.ok(await fullCompare.locator('tbody .u7-observed').count(), 'J125990 includes observed rows')
-      assert.ok(await fullCompare.locator('tbody [title^="据我方日志 · "]').count(), 'observed sample counts have a tooltip')
+      assert.ok(await fullCompare.locator('tbody [title^="据他人日志 · "]').count(), 'observed sample counts have a tooltip')
       const hasQualityHeader = await fullCompare.getByRole('columnheader', { name: '命中质量', exact: true }).count() === 1
       if (!hasQualityHeader) failures.push({ width, table: 'full-page 对比', missing: '命中质量' })
       else {
