@@ -5,6 +5,7 @@ import type { BattleSummary } from '@/core/contract'
 import { api } from '../api/client'
 import { SidesPanel } from './SidesPanel'
 import { mountApp, tinyAnalysis, tinySummary } from './roster/testing'
+import { BattleUndo } from './undo'
 
 let mounted: ReturnType<typeof mountApp>
 let putSide: ReturnType<typeof vi.spyOn>
@@ -153,7 +154,7 @@ describe('SidesPanel', () => {
     expect(putSide).toHaveBeenCalledWith('tiny', 'corp:11', 1)
   })
 
-  it('keeps 未分边 read-only for drops and provides a keyboard-focusable per-subject removal', async () => {
+  it('keeps 未分边 read-only when the dragged subject has an override', async () => {
     const summary: BattleSummary = {
       ...tinySummary, sideOverrides: [{ subject: 'corp:10', side: 0, source: 'manual', setAt: 2 }],
     }
@@ -163,13 +164,64 @@ describe('SidesPanel', () => {
     expect(column('-1').hasAttribute('data-drop')).toBe(false)
     await act(async () => { column('-1').dispatchEvent(new Event('drop', { bubbles: true, cancelable: true })) })
     expect(putSide).not.toHaveBeenCalled()
+  })
 
-    const remove = group('0', 'corp:10').querySelector<HTMLButtonElement>('button[aria-label="Alpha Corp：移除手动排边"]')!
-    expect(remove.tabIndex).toBe(0)
-    remove.focus()
+  it('uses one row action button and lets the menu remove and undo a manual override', async () => {
+    const summary: BattleSummary = {
+      ...tinySummary, sideOverrides: [
+        { subject: 'corp:10', side: 0, source: 'manual', setAt: 2 },
+        { subject: 'char:2', side: 0, source: 'manual', setAt: 3 },
+      ],
+    }
+    const panel = (analyzedSummary: BattleSummary) =>
+      createElement(BattleUndo, { analyzedSummary, children: createElement(SidesPanel) })
+    mounted = mountApp(panel(summary), { summary, analysis: tinyAnalysis })
+    const corp = group('0', 'corp:10')
+    act(() => corp.querySelector<HTMLButtonElement>('[aria-expanded]')!.click())
+    for (const row of mounted.container.querySelectorAll('.sides-row')) {
+      expect([...row.querySelectorAll('button:not([aria-expanded])')].map((button) => button.textContent)).toEqual(['⋯'])
+    }
+
+    const opener = corp.querySelector<HTMLButtonElement>('.sides-more')!
+    opener.focus()
+    act(() => opener.click())
+    const items = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    const remove = items.find((button) => button.textContent === '移除手动划分')!
+    expect(remove).toBeDefined()
+    act(() => items[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })))
     expect(document.activeElement).toBe(remove)
+    putSide.mockResolvedValueOnce({ subject: 'corp:10', side: -1, source: 'manual', setAt: 4 })
     await act(async () => remove.click())
     expect(putSide).toHaveBeenCalledWith('tiny', 'corp:10', -1)
+    expect(document.activeElement).toBe(opener)
+
+    const published = { ...summary, analysisVersion: summary.analysisVersion + 1, sideOverrides: summary.sideOverrides.slice(1) }
+    mounted.rerender(panel(published), { summary: published, analysis: tinyAnalysis })
+    const toast = mounted.container.querySelector('[data-battle-toast]')!
+    expect(toast.textContent).toContain('已恢复报告阵营')
+    const undo = toast.querySelector('button')!
+    expect(undo.textContent).toBe('撤销')
+    await act(async () => undo.click())
+    expect(putSide).toHaveBeenLastCalledWith('tiny', 'corp:10', 0)
+  })
+
+  it('offers removal through the right-click menu only for rows with their own override', () => {
+    const summary: BattleSummary = {
+      ...tinySummary, sideOverrides: [{ subject: 'corp:10', side: 0, source: 'manual', setAt: 2 }],
+    }
+    mounted = mountApp(createElement(SidesPanel), { summary, analysis: tinyAnalysis })
+    const corp = group('0', 'corp:10')
+    const mouse = new MouseEvent('contextmenu', { clientX: 80, clientY: 120, bubbles: true, cancelable: true })
+    act(() => corp.dispatchEvent(mouse))
+    expect(mouse.defaultPrevented).toBe(true)
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain('移除手动划分')
+    act(() => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    expect(document.activeElement).toBe(corp.querySelector('.sides-more'))
+
+    act(() => corp.querySelector<HTMLButtonElement>('[aria-expanded]')!.click())
+    fire(group('0', 'char:2'), 'contextmenu')
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
+    expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('移除手动划分')
   })
 
   it('focuses the dialog when opened and restores focus to its opener when closed', () => {

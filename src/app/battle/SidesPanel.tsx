@@ -16,7 +16,7 @@ export interface SidesPanelProps {
 }
 
 interface Drag { subject: SideSubject; from: number; spansSides: boolean }
-interface OpenMenu { sections: SideMenuSection[]; x: number; y: number }
+interface OpenMenu { section: SideMenuSection; anchor: HTMLButtonElement; x: number; y: number; anchorTop: number }
 
 function Logo({ group }: { group: SideGroup }) {
   if (group.kind === 'char') return <Portrait charId={group.id} size={20} />
@@ -144,37 +144,40 @@ export function SidesPanel({ onClose }: SidesPanelProps) {
     })
   }
 
-  function openMenu(event: MouseEvent, heading: string, subject: SideSubject, current?: number) {
-    const box = event.currentTarget.getBoundingClientRect()
-    setMenu({ sections: [{ heading, subject, current }], x: box.left, y: box.bottom })
+  function openMenu(section: SideMenuSection, anchor: HTMLButtonElement, point?: { x: number; y: number }) {
+    const box = anchor.getBoundingClientRect()
+    setMenu({ section, anchor, x: point?.x ?? box.left, y: point?.y ?? box.bottom, anchorTop: point?.y ?? box.top })
   }
 
-  const rowProps = (subject: SideSubject, side: number, spansSides = false) => ({
-    draggable: true,
-    'data-subject': subject,
-    'data-dragging': drag?.subject === subject && drag.from === side ? '' : undefined,
-    onDragStart: (event: DragEvent) => startDrag(event, subject, side, spansSides),
-    onDragEnd: () => { setDrag(null); setDropOn(null) },
-  })
+  function rowProps(section: SideMenuSection, side: number, spansSides = false) {
+    const { subject } = section
+    return {
+      draggable: true,
+      'data-subject': subject,
+      'data-dragging': drag?.subject === subject && drag.from === side ? '' : undefined,
+      onDragStart: (event: DragEvent) => startDrag(event, subject, side, spansSides),
+      onDragEnd: () => { setDrag(null); setDropOn(null) },
+      onContextMenu: (event: MouseEvent<HTMLDivElement>) => {
+        event.preventDefault()
+        const anchor = event.currentTarget.querySelector<HTMLButtonElement>('.sides-more')
+        const { clientX, clientY } = event
+        if (anchor) openMenu(section, anchor, clientX || clientY ? { x: clientX, y: clientY } : undefined)
+      },
+    }
+  }
 
-  function actions(subject: SideSubject, name: string, current?: number, scope?: string) {
-    return <span style={{ display: 'flex', gap: 'var(--space-1)', alignItems: 'center' }}>
-      {manual.has(subject) && <button type="button" className="sides-more" disabled={mover.busy}
-        aria-label={`${name}：移除手动排边`} title="移除手动排边"
-        onClick={() => void mover.move(subject, -1)}>移除</button>}
-      <button type="button" className="sides-more" aria-label={`${name} 的操作`} aria-haspopup="menu"
-        onClick={(event) => openMenu(event, `移到… · ${name}${scope ? `（${scope}）` : ''}`, subject, current)}>⋯</button>
-    </span>
+  function menuButton(section: SideMenuSection, name: string) {
+    return <button type="button" className="sides-more" aria-label={`${name} 的操作`} aria-haspopup="menu"
+      onClick={(event) => openMenu(section, event.currentTarget)}>⋯</button>
   }
 
   function renderPilot(pilot: CharRow, side: number) {
-    const subject = `char:${pilot.charId}` as const
-    return <div key={pilot.key} className="sides-row sides-pilot" {...rowProps(subject, side)}
-      style={manual.has(subject) ? { gridTemplateColumns: '20px minmax(0, 1fr) auto auto' } : undefined}>
+    const section: SideMenuSection = { heading: `移到… · ${pilot.name}`, subject: `char:${pilot.charId}`, current: side }
+    return <div key={pilot.key} className="sides-row sides-pilot" {...rowProps(section, side)}>
       <Portrait charId={pilot.charId} size={20} />
       <span className="sides-name">{pilot.name}</span>
       <span className="roster-count">{pilot.hasLog ? '有日志' : ''}</span>
-      {actions(subject, pilot.name, side)}
+      {menuButton(section, pilot.name)}
     </div>
   }
 
@@ -182,12 +185,14 @@ export function SidesPanel({ onClose }: SidesPanelProps) {
     const id = `${side}:${parent ?? ''}:${group.subject}`
     const open = expanded.has(id)
     const scope = group.spansSides ? `${group.kind === 'ally' ? '全联盟' : '全军团'} · ${group.scopeCount} 人` : undefined
+    const section: SideMenuSection = {
+      heading: `移到… · ${group.name}${scope ? `（${scope}）` : ''}`,
+      subject: group.subject,
+      current: group.spansSides ? undefined : side,
+    }
     return <div key={group.subject} className={parent ? undefined : 'sides-group'}>
-      <div className="sides-row" {...rowProps(group.subject, side, group.spansSides)}
-        style={{
-          paddingInlineStart: parent ? 'calc(var(--space-3) + 16px)' : undefined,
-          gridTemplateColumns: manual.has(group.subject) ? '16px 20px minmax(0, 1fr) auto auto' : undefined,
-        }}>
+      <div className="sides-row" {...rowProps(section, side, group.spansSides)}
+        style={{ paddingInlineStart: parent ? 'calc(var(--space-3) + 16px)' : undefined }}>
         <span className="grip" aria-hidden="true">⋮⋮</span>
         <Logo group={group} />
         <span className="sides-name">
@@ -198,7 +203,7 @@ export function SidesPanel({ onClose }: SidesPanelProps) {
           {scope && <span className="roster-count" style={{ display: 'block' }} title={scope}>{scope}</span>}
         </span>
         <span className="roster-count">{group.pilots.length} 人</span>
-        {actions(group.subject, group.name, group.spansSides ? undefined : side, scope)}
+        {menuButton(section, group.name)}
       </div>
       {open && (group.corporations
         ? group.corporations.map((corp) => renderGroup(corp, side, group.subject))
@@ -256,7 +261,11 @@ export function SidesPanel({ onClose }: SidesPanelProps) {
       </SideColumns>
       <div className="roster-note">改动立刻对所有正在看这场的人生效，分析会重算。人数是这场击毁报告和日志里出现的飞行员。</div>
       {menu && (
-        <SideMenu x={menu.x} y={menu.y} sections={menu.sections} order={order}
+        <SideMenu x={menu.x} y={menu.y} anchorTop={menu.anchorTop} returnFocus={menu.anchor}
+          ariaLabel="排边操作" sections={[menu.section]} order={order}
+          actions={manual.has(menu.section.subject) && !mover.busy
+            ? [{ label: '移除手动划分', run: () => void mover.move(menu.section.subject, -1) }]
+            : undefined}
           newSide={created} onMove={(subject, side) => void mover.move(subject, side === created ? 'new' : side)} onClose={closeMenu} />
       )}
     </div>

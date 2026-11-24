@@ -18,6 +18,7 @@ export interface SideMenuProps {
   anchorTop?: number
   /** Where focus goes when the menu closes; defaults to whatever had focus when it opened. */
   returnFocus?: HTMLElement | null
+  ariaLabel?: string
   sections: readonly SideMenuSection[]
   /** sideOrder(): every side a subject can move to. */
   order: readonly number[]
@@ -33,7 +34,7 @@ export interface SideMenuProps {
 /** Row menu: the keyboard and right-click way to do what dragging does. */
 const edge = 8
 
-export function SideMenu({ x, y, anchorTop = y, returnFocus, sections, order, newSide, pinAction, actions = [], onMove, onClose }: SideMenuProps) {
+export function SideMenu({ x, y, anchorTop = y, returnFocus, ariaLabel, sections, order, newSide, pinAction, actions = [], onMove, onClose }: SideMenuProps) {
   const root = useRef<HTMLDivElement>(null)
   const [invoker] = useState(() => returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null))
   const [place, setPlace] = useState({ left: x, top: y, maxHeight: window.innerHeight - 2 * edge })
@@ -49,7 +50,7 @@ export function SideMenu({ x, y, anchorTop = y, returnFocus, sections, order, ne
       : height <= anchorTop - edge ? anchorTop - height
         : Math.max(edge, window.innerHeight - edge - height)
     setPlace({ left: Math.max(edge, Math.min(x, window.innerWidth - width - edge)), top, maxHeight })
-  }, [x, y, anchorTop, sections.length])
+  }, [x, y, anchorTop, sections.length, actions.length])
 
   useEffect(() => () => { if (invoker?.isConnected) invoker.focus() }, [invoker])
 
@@ -81,7 +82,7 @@ export function SideMenu({ x, y, anchorTop = y, returnFocus, sections, order, ne
   }
 
   return (
-    <div ref={root} className="side-menu" role="menu" aria-label={pinAction || actions.length ? '飞行员操作' : '移到…'} onKeyDown={keys}
+    <div ref={root} className="side-menu" role="menu" aria-label={ariaLabel ?? (pinAction || actions.length ? '飞行员操作' : '移到…')} onKeyDown={keys}
       style={{ left: place.left, top: place.top, maxHeight: place.maxHeight, overflowY: 'auto' }}>
       {sections.map(({ heading, subject, current }) => (
         <div key={subject} role="group" aria-label={heading}>
