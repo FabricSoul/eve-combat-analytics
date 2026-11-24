@@ -38,6 +38,10 @@ const phonePanels = { roster: Roster, compare: CompareTable, hits: HitAnalysis, 
 
 const modules = { roster: Roster, compare: CompareTable, hits: HitAnalysis, kills: KillsList, feed: EventFeed, lanes: PilotTimelineModule }
 
+function clearTextSelection() {
+  document.getSelection()?.removeAllRanges()
+}
+
 function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElement | null) => void }) {
   const battle = useBattleContext()
   const { summary, analysis, status, error, live } = battle
@@ -58,6 +62,7 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   const openPicker = () => picker.current?.click()
   const desk = useRef<HTMLDivElement>(null)
   const workspace = layout !== 'phone'
+  const moduleColumns = layout === 'desktop' ? 3 : 2
   const [moduleLayout, dispatchModule] = useReducer(moduleLayoutReducer, undefined, () => loadModules())
   const viewport = useWindowViewport(desk, workspace && Boolean(summary))
   const viewportHeight = window.innerHeight
@@ -231,7 +236,7 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
       menuOpen,
       onMenuOpenChange: setMenuOpen,
       menuTrigger,
-      windowControls: workspace && summary ? <ModuleControls layout={moduleLayout} dispatch={dispatchModule} /> : undefined,
+      windowControls: workspace && summary ? <ModuleControls layout={moduleLayout} dispatch={dispatchModule} columns={moduleColumns} /> : undefined,
       oursSide: view.oursSide,
       onOursSideChange: view.setOursSide,
       onUpload: summary ? openPicker : undefined,
@@ -240,28 +245,30 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
     }}>
       {summary ? (
         <div ref={desk} className="battle-layout" data-layout={layout} data-density={workspace ? 'compact' : undefined}>
-          {workspace ? <div className="battle-module-scroll">
-            <section className="battle-stage" aria-label="回放舞台" style={{ height: stageHeight }}>
+          {workspace ? <>
+            <section className="battle-stage" aria-label="回放舞台" style={{ height: stageHeight }} onPointerDownCapture={clearTextSelection}>
               <section className="battle-replay" aria-label="回放">
                 {summary.logs.length === 0 ? <EmptyBattle onUpload={openPicker} /> : <ReplayCanvas stage />}
               </section>
               <section className="battle-timeline" aria-label="时间轴"><Timeline separateLanes /></section>
               <StageGrip height={stageHeight} viewportHeight={viewportHeight} dispatch={dispatchModule} />
             </section>
-            <ModuleWorkspace desk={desk} viewport={viewport} columns={layout === 'desktop' ? 3 : 2}
-              layout={moduleLayout} dispatch={dispatchModule} dragCancel={cancelDrag}
-              subtitles={{
-                feed: { merged: '合并同类', raw: '逐条', key: '只看关键' }[view.feedMode],
-                compare: compareCount,
-                roster: analysis ? `我方 ${fmtNum(analysis.coverage.find(({ side }) => side === view.oursSide)?.known ?? 0)} · 其他 ${fmtNum(analysis.coverage.reduce((total, { side, known }) => total + (side === view.oursSide ? 0 : known), 0))}` : '',
-                kills: `${fmtNum(summary.meta.killmails.length)} 次击毁`, hits: hitCount,
-                lanes: `${fmtNum(view.pinned.size)} 人`,
-              }} content={renderModule} tools={moduleTools} />
-          </div> : <>
-            <section className="battle-replay" aria-label="回放">
+            <div className="battle-module-scroll">
+              <ModuleWorkspace desk={desk} viewport={viewport} columns={moduleColumns}
+                layout={moduleLayout} dispatch={dispatchModule} dragCancel={cancelDrag}
+                subtitles={{
+                  feed: { merged: '合并同类', raw: '逐条', key: '只看关键' }[view.feedMode],
+                  compare: compareCount,
+                  roster: analysis ? `我方 ${fmtNum(analysis.coverage.find(({ side }) => side === view.oursSide)?.known ?? 0)} · 其他 ${fmtNum(analysis.coverage.reduce((total, { side, known }) => total + (side === view.oursSide ? 0 : known), 0))}` : '',
+                  kills: `${fmtNum(summary.meta.killmails.length)} 次击毁`, hits: hitCount,
+                  lanes: `${fmtNum(view.pinned.size)} 人`,
+                }} content={renderModule} tools={moduleTools} />
+            </div>
+          </> : <>
+            <section className="battle-replay" aria-label="回放" onPointerDownCapture={clearTextSelection}>
               {summary.logs.length === 0 ? <EmptyBattle onUpload={openPicker} /> : <ReplayCanvas />}
             </section>
-            <section className="battle-timeline" aria-label="时间轴"><Timeline compact /></section>
+            <section className="battle-timeline" aria-label="时间轴" onPointerDownCapture={clearTextSelection}><Timeline compact /></section>
           </>}
           {layout === 'phone' && (
             <BottomSheet<PhoneTab> tabs={phoneTabs} value={phoneTab} onChange={setPhoneTab}>

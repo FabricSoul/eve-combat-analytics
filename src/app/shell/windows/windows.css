@@ -117,16 +117,18 @@ body.battle-window-dragging * {
 }
 
 .battle-layout[data-density="compact"] {
-  display: block;
+  display: flex;
+  flex-direction: column;
   isolation: isolate;
   font-size: var(--fs-compact-body);
 }
-.battle-module-scroll { height: 100%; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.battle-module-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .battle-layout :is(.battle-window-body, .u7-compare-scroll, .u7-compare-cards, .hit-table-scroll,
   .eca-pilot-lanes-scroll, .battle-drawer, .sides-cols, .sides-col-body, .battle-sheet-content) {
   overscroll-behavior: contain;
 }
 .battle-stage {
+  flex: none;
   display: grid;
   grid-template-rows: minmax(92px, 1fr) auto;
   margin: var(--space-2) var(--space-2) 0;
@@ -203,6 +205,9 @@ body.battle-window-dragging * {
   white-space: nowrap; background: var(--color-surface); color: var(--color-text);
 }
 .battle-module-menu { position: absolute; z-index: 2; inset: calc(100% + var(--space-1)) 0 auto auto; display: grid; gap: var(--space-2); min-width: 168px; padding: var(--space-3); background: var(--color-surface); border: 1px solid var(--color-hair); border-radius: var(--radius-ctl); }
+.battle-module-menu fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
+.battle-module-menu legend { color: var(--color-text-3); font-size: var(--fs-s); }
+.battle-module-menu small { margin-inline-start: auto; color: var(--color-text-2); font-size: var(--fs-s); }
 .battle-module-menu label { display: flex; gap: var(--space-2); align-items: center; white-space: nowrap; }
 .battle-module-menu button { text-align: start; color: var(--color-accent); white-space: nowrap; }
 

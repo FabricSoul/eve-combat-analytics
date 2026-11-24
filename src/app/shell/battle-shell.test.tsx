@@ -133,6 +133,43 @@ describe('battle shell review', () => {
     expect(host.textContent).toContain('已恢复默认布局')
   })
 
+  it('lists modules in their actual columns and reports floating and collapsed states', async () => {
+    localStorage.setItem('eve-combat-analytics:module-layout', JSON.stringify({
+      version: 3,
+      areas: [['hits', 'feed', 'compare'], ['roster', 'kills'], ['lanes']],
+      modules: Object.fromEntries(['feed', 'compare', 'roster', 'kills', 'hits', 'lanes'].map((id) => [id, {
+        hidden: false, floating: id === 'compare', collapsed: id === 'hits',
+        rect: id === 'compare' ? { x: 20, y: 20, width: 380, height: 400 } : null,
+      }])),
+      order: ['feed', 'compare', 'roster', 'kills', 'hits', 'lanes'],
+      stageHeight: null,
+    }))
+    await render()
+    const groups = [...host.querySelectorAll('.battle-module-menu fieldset')]
+    expect(groups.map((group) => group.querySelector('legend')?.textContent)).toEqual(['第 1 列', '第 2 列', '第 3 列'])
+    expect([...groups[0]!.querySelectorAll('input')].map((input) => input.getAttribute('aria-label'))).toEqual(['命中', '事件', '对比'])
+    expect(groups[0]!.textContent).toContain('命中收起')
+    expect(groups[0]!.textContent).toContain('对比浮窗')
+  })
+
+  it('keeps the replay stage outside the module scroller', async () => {
+    await render()
+    const scroll = host.querySelector('.battle-module-scroll')!
+    expect(scroll.querySelector('[data-module-area]')).not.toBeNull()
+    expect(scroll.querySelector('.battle-stage')).toBeNull()
+  })
+
+  it('clears text selected in a module when pressing the replay or timeline', async () => {
+    await render()
+    const row = host.querySelector('.roster-main')!
+    for (const area of ['.battle-replay', '.battle-timeline']) {
+      document.getSelection()!.selectAllChildren(row)
+      expect(document.getSelection()!.toString()).not.toBe('')
+      act(() => host.querySelector(area)!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })))
+      expect(document.getSelection()!.toString()).toBe('')
+    }
+  })
+
   it('shows SVG module tools and describes the stage grip', async () => {
     await render()
     for (const name of ['搜索事件', '筛选事件', '弹出 名单', '收起 名单', '整页查看命中', '命中排名指标', '对比列']) {

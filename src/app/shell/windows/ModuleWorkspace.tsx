@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type Dispatch, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type Dispatch, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { WorkspaceIcon } from '../../ui/icons/WorkspaceIcon'
 import { WindowFrame } from './WindowFrame'
@@ -11,7 +11,10 @@ type Drag = {
   ghost: HTMLElement; offsetX: number; offsetY: number
 }
 
-export function ModuleControls({ layout, dispatch }: { layout: ModuleLayout; dispatch: Dispatch<ModuleAction> }) {
+export function ModuleControls({ layout, dispatch, columns }: {
+  layout: ModuleLayout; dispatch: Dispatch<ModuleAction>; columns: number
+}) {
+  const descriptionId = useId()
   const disclosure = useRef<HTMLDetailsElement>(null)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const [restored, setRestored] = useState(false)
@@ -31,13 +34,22 @@ export function ModuleControls({ layout, dispatch }: { layout: ModuleLayout; dis
   return <div className="battle-layout-tools">
     <details ref={disclosure} className="battle-module-controls">
       <summary title="布局"><WorkspaceIcon name="layout" />布局</summary>
-    <div className="battle-module-menu" role="group" aria-label="显示模块">
-      {moduleIds.map((id) => <label key={id}>
-        <input type="checkbox" checked={!layout.modules[id].hidden} onChange={() => dispatch({ type: 'toggle', id })} />
-        {moduleTitles[id]}
-      </label>)}
-      <button type="button" onClick={restore}>恢复默认布局</button>
-    </div>
+      <div className="battle-module-menu" role="group" aria-label="显示模块">
+        {areaNames.slice(0, columns).map((area, column) => <fieldset key={area}>
+          <legend>第 {column + 1} 列</legend>
+          {visibleArea(layout, column, columns).map((id) => {
+            const { hidden, floating, collapsed } = layout.modules[id]
+            const status = [floating && '浮窗', collapsed && '收起'].filter(Boolean).join(' · ')
+            const badge = `${descriptionId}-${id}`
+            return <label key={id}>
+              <input type="checkbox" checked={!hidden} aria-label={moduleTitles[id]}
+                aria-describedby={status ? badge : undefined} onChange={() => dispatch({ type: 'toggle', id })} />
+              <span>{moduleTitles[id]}</span>{status && <small id={badge}>{status}</small>}
+            </label>
+          })}
+        </fieldset>)}
+        <button type="button" onClick={restore}>恢复默认布局</button>
+      </div>
     </details>
     {restored && <div className="battle-layout-confirmation" role="status">已恢复默认布局</div>}
   </div>
@@ -155,11 +167,11 @@ export function ModuleWorkspace({ desk, viewport, layout, dispatch, columns, dra
   }
 
   function targetAt(id: ModuleId, event: PointerEvent): Move | null {
-    const deskBounds = desk.current?.getBoundingClientRect()
-    if (!deskBounds || event.clientY < deskBounds.top || event.clientY > deskBounds.bottom) return null
     const scroll = desk.current?.querySelector('.battle-module-scroll')
-    if (event.clientY > deskBounds.bottom - 32) scroll?.scrollBy(0, 18)
-    if (event.clientY < deskBounds.top + 32) scroll?.scrollBy(0, -18)
+    const bounds = scroll?.getBoundingClientRect()
+    if (!scroll || !bounds || event.clientY < bounds.top || event.clientY > bounds.bottom) return null
+    if (event.clientY > bounds.bottom - 32) scroll.scrollBy(0, 18)
+    if (event.clientY < bounds.top + 32) scroll.scrollBy(0, -18)
     const { clientX: x, clientY: y } = event
     const targetArea = [...(areas.current?.querySelectorAll<HTMLElement>('[data-module-area]') ?? [])].find((node) => {
       const rect = node.getBoundingClientRect()
