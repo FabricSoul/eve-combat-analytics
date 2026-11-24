@@ -142,3 +142,32 @@ it('exposes the full pilot name as a title and accessible button label', () => {
   expect(button.title).toBe('Oldowner ofdock')
   expect(button.getAttribute('aria-label')).toBe('Oldowner ofdock')
 })
+
+it('shows hit rate and a quality distribution for two uploaders and recomputes both in a real range', () => {
+  function Harness() {
+    const { setRange } = useView()
+    return <><button id="hit-range" onClick={() => setRange([1750606900000, 1750606960000])}>Range</button><CompareTable /></>
+  }
+  render(<Harness />)
+  const header = [...host.querySelectorAll('thead th[scope="col"]')].find((el) => el.textContent.trim() === '命中率')!
+  expect(header).toBeDefined()
+  expect([...host.querySelectorAll('[scope="colgroup"]')].map((el) => el.textContent)).toContain('命中')
+  const cells = (name: string) => [...host.querySelectorAll('tbody tr')].find((row) => row.querySelector('th')?.textContent === name)!
+    .querySelector('td:last-child')!
+  const rate = (name: string) => cells(name).querySelector('.app-number')?.textContent
+  expect(rate('Blanchard2213')).toBe('93%')
+  expect(rate('Lucinda HIly')).toBe('98%')
+  const bar = () => cells('Blanchard2213').querySelector('.u7-hit-quality')!
+  expect(bar().getAttribute('title')).toContain('未命中 184')
+  const widths = () => [...bar().querySelectorAll<HTMLElement>('[data-quality]')]
+    .reduce((sum, segment) => sum + Number.parseFloat(segment.style.width), 0)
+  expect(widths()).toBeCloseTo(100)
+  expect(cells('Blanchard2213').querySelector('[title^="全队中位"]')).not.toBeNull()
+  act(() => header.querySelector('button')!.click())
+  expect(header.getAttribute('aria-sort')).toBe('descending')
+  act(() => host.querySelector<HTMLButtonElement>('#hit-range')!.click())
+  expect(rate('Blanchard2213')).toBe('99%')
+  expect(rate('Lucinda HIly')).toBe('97%')
+  expect(bar().getAttribute('title')).toContain('未命中 2')
+  expect(widths()).toBeCloseTo(100)
+})

@@ -64,6 +64,7 @@
 .u7-compare tbody th { font-weight: 400; }
 .u7-compare tbody th > label { margin-inline-end: var(--space-2); }
 .u7-compare td { text-align: right; }
+.u7-compare td .u7-hit-quality { width: min(100%, 80px); margin: 0 0 var(--space-1) auto; }
 .u7-compare-who { display: inline-flex; vertical-align: middle; align-items: center; gap: var(--space-1); min-width: 0; max-width: 185px; }
 .u7-ellipsis { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .u7-no-value { display: inline-block; vertical-align: middle; }
@@ -153,6 +154,7 @@
   .u7-compare td .u7-compare-bar {
     display: block; width: min(100%, 28px); height: 4px; margin: 0 0 var(--space-1) auto;
   }
+  .u7-compare td .u7-hit-quality { width: min(100%, 28px); }
   .u7-distribution-strip { grid-template-columns: 1fr; }
 }
 

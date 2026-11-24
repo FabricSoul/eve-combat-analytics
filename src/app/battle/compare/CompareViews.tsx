@@ -3,6 +3,8 @@ import type { EntityKey } from '@/core/contract'
 import { sideColor } from '../../lib/sides'
 import { Portrait } from '../../ui/Portrait'
 import { TypeIcon } from '../../ui/TypeIcon'
+import { HitQualityBar } from './HitQualityBar'
+import { hitQualityHint } from './hit-quality'
 import {
   damageKinds, median, metricValue, missingReason, shipId, unknownDamageReason, type CompareRow, type Metric,
 } from './metrics'
@@ -26,7 +28,7 @@ function position(value: number, { low, high }: Column) {
 
 export function MetricLabel({ metric }: { metric: Metric }) {
   const kind = damageKinds[metric.key as keyof typeof damageKinds]
-  return <span title={metric.key === 'unknown' ? unknownDamageReason : undefined}>
+  return <span title={metric.key === 'unknown' ? unknownDamageReason : metric.key === 'hitRate' ? hitQualityHint : undefined}>
     {kind?.icon && <img src={kind.icon} width="14" height="14" alt="" />} {metric.label}
   </span>
 }
@@ -89,6 +91,8 @@ export function SideBySide({ rows, columns, order }: {
               <MetricBar column={column} value={metricValue(row, column.metric)} color={sideColor(row.entity.side, order)} />
               <MetricValue row={row} metric={column.metric} />
             </div>
+            {column.metric.key === 'hitRate' && row.entity.hasLog &&
+              <HitQualityBar stats={row.stats} color={sideColor(row.entity.side, order)} />}
           </div>)}
         </div>
       </section>)}

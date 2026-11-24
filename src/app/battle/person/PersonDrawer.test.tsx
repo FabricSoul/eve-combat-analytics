@@ -72,3 +72,33 @@ it('keeps repair green while damage bars follow side and aggregate damage stays 
     act(() => root.unmount())
   }
 })
+
+it('shows hit rate, team median, quality counts, and observed weapon breakdown for a selected uploader', () => {
+  const fixture = loadUiFixture()
+  const pilot = Object.values(fixture.analysis.entities).find(({ name }) => name === 'Blanchard2213')!
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  function Harness() {
+    const { select } = useView()
+    useEffect(() => { select(pilot.key) }, [])
+    return <PersonDrawer />
+  }
+  try {
+    act(() => root.render(
+      <BattleProvider static={fixture}><ViewProvider syncUrl={false}><Harness /></ViewProvider></BattleProvider>,
+    ))
+    const tile = [...host.querySelectorAll('.u7-stat-tile')].find((el) => el.querySelector('h3')?.textContent === '命中')!
+    expect(tile?.textContent).toContain('93%')
+    expect(tile?.textContent).toContain('全队中位')
+    const breakdown = [...host.querySelectorAll('section')].find((el) => el.querySelector('h3')?.textContent === '命中质量')!
+    expect(breakdown?.textContent).toContain('184')
+    const weaponRates = [...breakdown.querySelectorAll('.u7-hit-weapon')].map((el) => el.textContent)
+    expect(weaponRates).toEqual(expect.arrayContaining([
+      expect.stringMatching(/Veles Supratidal Entropic Disintegrator.*100%/),
+      expect.stringMatching(/Imperial Navy Curator.*97%/),
+    ]))
+    expect(breakdown?.textContent).toContain('立体炸弹')
+  } finally {
+    act(() => root.unmount())
+  }
+})

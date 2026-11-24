@@ -6,6 +6,7 @@ import shipTypes from '@/core/data/ship-types.json'
 import { fmtNum, fmtPct, fmtSec } from '../../lib/format'
 import { useBattleContext } from '../../state/battle-store'
 import { useView } from '../../state/view-store'
+import { hitRate, noHitQualityReason } from './hit-quality'
 import damageTypes from './damage-types.json'
 import em from './em_small.png'
 import explosive from './explosive_small.png'
@@ -38,11 +39,11 @@ export function sideLabel(side: number, ours: number, order: readonly number[]):
   return `第 ${order.indexOf(side) + 1} 方`
 }
 
-type Group = '输出' | '节奏' | '承伤' | '后勤' | '点控'
+type Group = '输出' | '节奏' | '承伤' | '后勤' | '点控' | '命中'
 type NumericKey = Exclude<keyof PilotStats, 'key' | 'hitQuality' | 'source'>
 
 export interface Metric {
-  key: NumericKey | DamageKind
+  key: NumericKey | DamageKind | 'hitRate'
   label: string
   group: Group
   format: (value: number | null) => string
@@ -71,11 +72,12 @@ export const metrics = [
   { key: 'pointSeconds', label: '点控时长', group: '点控', format: seconds },
   { key: 'neutOut', label: '中和输出', group: '点控', format: amount },
   { key: 'neutIn', label: '被中和', group: '点控', format: amount },
+  { key: 'hitRate', label: '命中率', group: '命中', format: fmtPct, reason: noHitQualityReason },
 ] satisfies readonly Metric[]
 
 export const defaultColumns = [
   'damageOut', 'activeRatio', 'primaryShare', 'switchDelayMedian', 'switchAfterKillMedian', 'damageIn',
-  'repairOut', 'repReactionMedian', 'pointSeconds',
+  'repairOut', 'repReactionMedian', 'pointSeconds', 'hitRate',
 ] satisfies Metric['key'][]
 
 export interface CompareRow {
@@ -93,6 +95,7 @@ export function metricValue(row: CompareRow, metric: Metric): number | null {
   if (isDamageKind(metric.key)) return row.damage?.[metric.key] ?? 0
   if (metric.battleReport && row.stats.killmailCount === 0) return null
   if (metric.key === 'primaryShare' && row.stats.damageOut === 0) return null
+  if (metric.key === 'hitRate') return hitRate(row.stats)
   return row.stats[metric.key]
 }
 

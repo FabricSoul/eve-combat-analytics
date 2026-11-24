@@ -1,13 +1,15 @@
 import { useMemo } from 'react'
 import type { Analysis, Entity, EntityKey, EwarSpan, Interaction } from '@/core/contract'
-import { fmtHms, fmtNum } from '../../lib/format'
+import { fmtHms, fmtNum, fmtPct } from '../../lib/format'
 import { sideColor } from '../../lib/sides'
 import { TypeIcon } from '../../ui/TypeIcon'
+import { HitQualityBar } from '../compare/HitQualityBar'
+import { hitQualityHint, noHitQualityReason, topHitWeapons } from '../compare/hit-quality'
 import {
   damageKinds, metricValue, metrics, missingReason, rowMedian, seconds, shipId, unknownDamageReason, type CompareRow,
 } from '../compare/metrics'
 
-const tileKeys = ['damageOut', 'damageIn', 'repairOut', 'repairIn', 'activeRatio', 'repReactionMedian'] as const
+const tileKeys = ['damageOut', 'damageIn', 'repairOut', 'repairIn', 'activeRatio', 'repReactionMedian', 'hitRate'] as const
 const tileMetrics = tileKeys.map((key) => metrics.find((metric) => metric.key === key)!)
 const num = (value: number) => fmtNum(Math.round(value))
 const bucketDuration = 10_000
@@ -52,6 +54,7 @@ export function PersonStats({ analysis, pilot, rows, interactions, bounds, order
   const row = rows.find(({ entity }) => entity.key === pilot.key)
   const team = useMemo(() => rows.filter(({ entity }) => entity.side === pilot.side && entity.side >= 0), [rows, pilot.side])
   const details = useMemo(() => relationship(pilot, interactions), [pilot, interactions])
+  const weapons = useMemo(() => pilot.hasLog ? topHitWeapons(interactions, pilot.key) : [], [interactions, pilot])
   const points = useMemo(() => pointSpans(analysis.ewarSpans, pilot.key, bounds), [analysis.ewarSpans, pilot.key, bounds])
   const counterpartyColor = (key: EntityKey) => sideColor(analysis.entities[key]?.side ?? -1, order)
   return <div className="u7-person-stack">
@@ -59,12 +62,21 @@ export function PersonStats({ analysis, pilot, rows, interactions, bounds, order
       {tileMetrics.map((metric) => {
         const value = row ? metricValue(row, metric) : null
         return <section key={metric.key} className="u7-stat-tile">
-          <h3>{metric.label}</h3>
+          <h3>{metric.key === 'hitRate' ? '命中' : metric.label}</h3>
           <div className="app-number" title={value === null && row ? missingReason(row, metric) : undefined}>{metric.format(value)}</div>
           <small>全队中位 <span className="app-number">{metric.format(rowMedian(team, metric))}</span></small>
         </section>
       })}
     </div>
+    <section className="u7-person-card">
+      <h3>命中质量</h3>
+      <p className="u7-secondary">{hitQualityHint}</p>
+      {row && row.entity.hasLog && <HitQualityBar stats={row.stats} color={sideColor(pilot.side, order)} showCounts />}
+      {weapons.length > 0 && <ul>{weapons.map(({ name, rate, shots }) => <li className="u7-hit-weapon" key={name}>
+        <span>{name}</span><span className="app-number">{fmtNum(shots)} 次</span><span className="app-number">{fmtPct(rate)}</span>
+      </li>)}</ul>}
+      {!weapons.length && <p className="u7-secondary">{pilot.hasLog ? noHitQualityReason : '没有上传他的战斗日志'}。</p>}
+    </section>
     <section className="u7-person-card">
       <h3>按时间 · 每 10 秒</h3>
       <Series title="维修输出" values={details.repair} color="var(--color-repair)" start={origin} end={end} />
