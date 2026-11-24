@@ -116,7 +116,7 @@ describe('analyze', () => {
   it('computes every comparison field and includes killmail participants without logs', () => {
     const analysis = analyze(pilotComparison())
     expect(analysis.stats.find(({ key }) => key === 'char:1')).toEqual({
-      key: 'char:1', activeRatio: 4 / 43, damageOut: 190, damageIn: 100, repairOut: 75, repairIn: 30, neutOut: 8,
+      key: 'char:1', source: 'own', activeRatio: 4 / 43, damageOut: 190, damageIn: 100, repairOut: 75, repairIn: 30, neutOut: 8,
       neutIn: 9, primaryShare: 180 / 190, switchDelayMedian: null, switchAfterKillMedian: 14,
       repReactionMedian: 16, firstShotDelay: 0,
       hitQuality: { Hits: 2, Smashes: 1, none: 1 }, misses: 1, pointSeconds: 29, killmailDamage: 540, killmailCount: 2,
@@ -126,8 +126,8 @@ describe('analyze', () => {
       switchAfterKillMedian: 14, repReactionMedian: null,
     })
     expect(analysis.stats.find(({ key }) => key === 'char:5')).toEqual({
-      key: 'char:5', activeRatio: 0, damageOut: 0, damageIn: 0, repairOut: 0, repairIn: 0, neutOut: 0, neutIn: 0,
-      primaryShare: 0, switchDelayMedian: null, switchAfterKillMedian: null, repReactionMedian: null, firstShotDelay: null,
+      key: 'char:5', source: 'observed', activeRatio: 0, damageOut: 0, damageIn: 300, repairOut: 30, repairIn: 75, neutOut: 0, neutIn: 0,
+      primaryShare: 0, switchDelayMedian: null, switchAfterKillMedian: null, repReactionMedian: 2, firstShotDelay: null,
       hitQuality: {}, misses: 0, pointSeconds: 0, killmailDamage: 70, killmailCount: 1,
     })
     expect(analysis.coverage).toEqual([{ side: 0, known: 3, withLog: 2 }, { side: 1, known: 2, withLog: 1 }])

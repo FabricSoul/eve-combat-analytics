@@ -178,7 +178,7 @@ it('measures the first follower hit against the side’s first hit and omits the
       hit(0, 'Rook', 100), hit(24, 'Bishop', 100), hit(40, 'Knight', 100), hit(68, 'Rook', 100),
     ]),
   ])
-  expect(analyze(state).stats.map(({ switchDelayMedian }) => switchDelayMedian)).toEqual([3, 6])
+  expect(analyze(state).stats.filter(({ source }) => source === 'own').map(({ switchDelayMedian }) => switchDelayMedian)).toEqual([3, 6])
 })
 
 it('counts each fingerprint once for a relogged listener and preserves peer corroboration', () => {

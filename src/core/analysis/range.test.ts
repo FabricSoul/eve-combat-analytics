@@ -17,7 +17,7 @@ it('counts inclusive events and killmails, clips spans, and leaves the source an
     key: `char:${id}`, name: String(id), charId: id, side, sideSource: 'br', shipTypes: [], hasLog,
   })
   const a = pilot(1, 0)
-  const b = pilot(2, 1)
+  const b = pilot(2, 1, false)
   const c = pilot(3, 0)
   const d = pilot(4, 1, false)
   const hit = (t: number, amount: number, from = a): Interaction => ({
@@ -43,11 +43,11 @@ it('counts inclusive events and killmails, clips spans, and leaves the source an
   const stats = statsForRange(analysis, [mail(1, 999, 80, d), mail(2, 3000, 30), mail(3, 3001, 40)], 1000, 3000)
   expect(stats).toHaveLength(3)
   expect(stats[0]).toEqual({
-    key: a.key, damageOut: 50, damageIn: 0, repairOut: 0, repairIn: 0, neutOut: 0, neutIn: 0,
+    key: a.key, source: 'own', damageOut: 50, damageIn: 0, repairOut: 0, repairIn: 0, neutOut: 0, neutIn: 0,
     activeRatio: 1, primaryShare: 0.4, firstShotDelay: 1, switchDelayMedian: null, switchAfterKillMedian: null,
     repReactionMedian: null, hitQuality: { Hits: 2 }, misses: 0, pointSeconds: 2, killmailDamage: 30, killmailCount: 1,
   })
-  expect(stats[1]).toMatchObject({ key: b.key, damageIn: 60, killmailCount: 1, killmailDamage: 0 })
+  expect(stats[1]).toMatchObject({ key: b.key, source: 'observed', damageIn: 60, killmailCount: 1, killmailDamage: 0 })
   expect(stats[2]).toMatchObject({ key: c.key, damageOut: 10, primaryShare: 1 })
   expect(analysis.primaries[0]).toMatchObject({ start: 999, damage: 110, shooters: [a.key, c.key] })
 })

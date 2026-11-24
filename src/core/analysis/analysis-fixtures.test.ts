@@ -5,6 +5,7 @@ import type { BattleState } from '../contract'
 import { itemTypeId } from '../data/item-types'
 import shipTypes from '../data/ship-types.json'
 import { analyze } from './analyze'
+import { statsForRange } from './range'
 
 function report(state: BattleState, input: string) {
   const start = performance.now()
@@ -18,7 +19,7 @@ function report(state: BattleState, input: string) {
     if (!from.startsWith('char:') || !to.startsWith('char:')) unresolved += sources.length
     if (confirmed) corroborated++
   }
-  const logistics = stats.filter(({ repairOut }) => repairOut > 0)
+  const logistics = stats.filter(({ key, repairOut }) => entities[key]?.hasLog && repairOut > 0)
   const withReaction = logistics.filter(({ repReactionMedian }) => repReactionMedian !== null).length
   const loggedPilots = stats.filter(({ key }) => entities[key]?.hasLog)
   const withSwitchAfterKill = loggedPilots.filter(({ switchAfterKillMedian }) => switchAfterKillMedian !== null).length
@@ -57,6 +58,27 @@ it('corrects only Lucinda HIly in the owner-generated J125990 battle report', ()
   for (const { charId, side } of otherUploaders) expect(result.entities[`char:${charId}`]?.side).toBe(side)
   expect([...new Set(otherUploaders.filter(({ side }) => side >= 0).map(({ side }) => side))]).toEqual([1])
   console.info('J125990 log side corrections', result.sideOverrides)
+}, 60_000)
+
+it('reports observed SH4RK B4IT stats and preserves the uploader baseline in J125990', () => {
+  const state = realBattleStateWithBr()
+  const { start, end } = state.meta.windows[0]!
+  const analysis = analyze(state)
+  const observed = analysis.stats.find(({ key }) => key === 'char:1450582275')
+  expect(observed?.source).toBe('observed')
+  expect(observed!.damageOut).toBeGreaterThanOrEqual(2_090)
+  expect(observed!.damageIn).toBeGreaterThan(0)
+  const stats = statsForRange(analysis, state.meta.killmails, start, end)
+  expect(stats.find(({ key }) => key === 'char:1450582275')).toEqual(observed)
+  expect(stats.find(({ key }) => key === 'char:2121605780')).toEqual({
+    // Blanchard2213 measured at af8475d, before adding observed stats.
+    key: 'char:2121605780', source: 'own', activeRatio: 0.3595505617977528,
+    damageOut: 442358, damageIn: 226211, repairOut: 179005, repairIn: 158662,
+    neutOut: 0, neutIn: 27671, primaryShare: 0.6207641774309496, switchDelayMedian: 6,
+    switchAfterKillMedian: 9, repReactionMedian: 6.5, firstShotDelay: 97, misses: 184,
+    hitQuality: { Hits: 1175, 'Glances Off': 225, Grazes: 183, Penetrates: 444, Wrecks: 23, Smashes: 346 },
+    pointSeconds: 42, killmailDamage: 278129, killmailCount: 24,
+  })
 }, 60_000)
 
 it('keeps equipment out of entity ship types and does not resolve the rocket to a real pilot in J125990', () => {

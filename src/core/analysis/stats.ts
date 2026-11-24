@@ -96,9 +96,9 @@ export function collectStats(
   for (const key of [...entities.keys()].sort()) {
     const entity = entities.get(key)!
     const killmails = killmailTotals.get(key)
-    if (!entity.hasLog && !killmails) continue
     const pilot: PilotStats = {
       key,
+      source: entity.hasLog ? 'own' : 'observed',
       activeRatio: 0,
       damageOut: 0,
       damageIn: 0,
@@ -117,21 +117,18 @@ export function collectStats(
       killmailDamage: killmails?.damage ?? 0,
       killmailCount: killmails?.count ?? 0,
     }
-    stats.push(pilot)
-    if (entity.hasLog) {
-      pilots.set(key, {
-        stats: pilot,
-        engagementStart: null,
-        engagementEnd: null,
-        firstShot: null,
-        lastDamageSecond: null,
-        activeSeconds: 0,
-        primaryDamage: 0,
-        switches: [],
-        switchesAfterKill: [],
-        reactions: [],
-      })
-    }
+    pilots.set(key, {
+      stats: pilot,
+      engagementStart: null,
+      engagementEnd: null,
+      firstShot: null,
+      lastDamageSecond: null,
+      activeSeconds: 0,
+      primaryDamage: 0,
+      switches: [],
+      switchesAfterKill: [],
+      reactions: [],
+    })
   }
 
   const needsRepair = new Map<EntityKey, DamageEpisodes>()
@@ -211,6 +208,9 @@ export function collectStats(
     pilot.stats.repReactionMedian = median(reactions)
     pilot.stats.switchDelayMedian = median(switches)
     pilot.stats.switchAfterKillMedian = median(pilot.switchesAfterKill)
+    if (pilot.stats.source === 'own' || engagementStart !== null || pilot.stats.pointSeconds > 0 || pilot.stats.killmailCount > 0) {
+      stats.push(pilot.stats)
+    }
   }
 
   return stats
