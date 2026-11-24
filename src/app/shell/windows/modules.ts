@@ -23,7 +23,7 @@ export type ModuleAction = Drop
   | { type: 'replay'; action: ReplayOverlayAction }
   | { type: 'reset' }
 export const moduleStorageKey = 'eve-combat-analytics:module-layout'
-const version = 4
+const version = 5
 
 export function defaultModules(): ModuleLayout {
   return {
@@ -91,9 +91,19 @@ export function keyboardDrop(layout: ModuleLayout, id: ModuleId, key: string, co
   return { type: 'move', id, area, index: peers.indexOf(other) + (delta > 0 ? 1 : 0) }
 }
 
-export function clampStage(height: number, viewportHeight: number) {
-  const maximum = viewportHeight * 0.75
-  return Math.round(Math.min(maximum, Math.max(456, height)))
+export const timelineMinHeight = 150
+
+export function replayHeightBounds(viewportHeight: number, workspaceHeight: number, timelineHeight: number) {
+  const stageChrome = 10 // 8px top gutter and two 1px borders
+  const available = Math.max(0, Math.floor(workspaceHeight - Math.max(timelineMinHeight, timelineHeight) - stageChrome))
+  const modules = Math.min(220, Math.max(0, available - 120))
+  const max = available - modules
+  const min = Math.min(220, max)
+  return { min, max, initial: Math.min(max, Math.max(min, Math.floor(viewportHeight * 0.62))) }
+}
+
+export function clampStage(height: number, { min, max }: Pick<ReturnType<typeof replayHeightBounds>, 'min' | 'max'>) {
+  return Math.round(Math.min(max, Math.max(min, height)))
 }
 
 export function floatModule(id: ModuleId, viewport: Viewport): WindowRect {
@@ -118,12 +128,13 @@ function validModule(value: unknown): value is ModuleState {
 export function loadModules(storage?: Pick<Storage, 'getItem'>): ModuleLayout {
   try {
     const value: unknown = JSON.parse((storage ?? localStorage).getItem(moduleStorageKey) ?? 'null')
-    if (isObject(value) && value.version === version) {
+    if (isObject(value) && (value.version === version || value.version === 4)) {
       const { areas, modules, order, stageHeight, replay } = value
       if (Array.isArray(areas) && areas.length === 3 && areas.every(ids) && permutation(areas.flat())
         && isObject(modules) && Object.keys(modules).length === moduleIds.length && moduleIds.every((id) => validModule(modules[id]))
-        && permutation(order) && (stageHeight === null || (number(stageHeight) && stageHeight > 0)) && validReplayOverlays(replay)) {
-        return { areas, modules: modules as ModuleLayout['modules'], order, stageHeight, replay }
+        && permutation(order) && (stageHeight === null || (number(stageHeight) && stageHeight >= 0)) && validReplayOverlays(replay)) {
+        // In v4 the saved height included the timeline. Preserve the rest of the layout.
+        return { areas, modules: modules as ModuleLayout['modules'], order, stageHeight: value.version === 4 ? null : stageHeight, replay }
       }
     }
   } catch {

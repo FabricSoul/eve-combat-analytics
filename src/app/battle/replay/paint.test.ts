@@ -153,3 +153,48 @@ it('renders the landing frame after changing focus and outliving the configured 
   expect(over.probe.arc).toHaveBeenCalledWith(stop.x, stop.y, 2.5, 0, Math.PI * 2)
   expect(playback.endpoints().size).toBe(0)
 })
+
+it('paints legend effects from generic shapes, without loading icons or drawing text', async () => {
+  const canvas = canvasProbe()
+  const painter = makePainter(canvas.context, canvas.context, document.createElement('div'), () => {})
+  const load = vi.fn()
+  vi.stubGlobal('Image', class {
+    onerror: (() => void) | null = null
+    set src(value: string) { load(value); this.onerror?.() }
+  })
+  try {
+    for (const effect of ['damage', 'repair', 'point', 'neut', 'miss'] as const) painter.paintSample(effect, 90, 28, 250, true)
+    await vi.dynamicImportSettled()
+    for (const effect of ['damage', 'repair', 'point', 'neut', 'miss'] as const) painter.paintSample(effect, 90, 28, 250, true)
+    expect(canvas.probe.lineTo).toHaveBeenCalled()
+    expect(load).not.toHaveBeenCalled()
+    expect(canvas.probe.strokeText).not.toHaveBeenCalled()
+    expect(canvas.probe.fillText).not.toHaveBeenCalled()
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
+
+it('replaces missing map module art with a small shape and preserves the name for hit testing', async () => {
+  const layout = makeLayout([pilot(1), pilot(2)], [1, 2], 500, 400)
+  Object.assign(layout.nodes[0]!, { x: 100, y: 180 })
+  Object.assign(layout.nodes[1]!, { x: 350, y: 200 })
+  // Synthetic name deliberately absent from the module catalog.
+  const weapon = 'Test launcher without a module icon'
+  const edge: ReplayEdge = {
+    t: 0, from: 'char:1', to: 'char:2', kind: 'damage', amount: 500, weapon,
+    quality: null, repairType: null, ewar: null, sources: [], corroborated: false, strength: 1,
+  }
+  const under = canvasProbe()
+  const over = canvasProbe()
+  const painter = makePainter(under.context, over.context, document.createElement('div'), () => {})
+  const present = new Set<EntityKey>(['char:1', 'char:2'])
+  const frame = { t: 250, selected: null, focusOnly: false, reducedMotion: true, playing: false }
+  painter.paint(layout, [edge], [], present, frame, 500, 400)
+  await vi.dynamicImportSettled()
+  const painted = painter.paint(layout, [edge], [], present, frame, 500, 400)
+  expect(over.probe.strokeText).not.toHaveBeenCalled()
+  expect(over.probe.fillText).not.toHaveBeenCalled()
+  expect(over.probe.lineTo).toHaveBeenCalled()
+  expect(painted.modules).toEqual([{ name: weapon, rect: expect.objectContaining({ width: 10, height: 10 }) }])
+})

@@ -131,8 +131,43 @@ export class BattleRoom extends ProductionRoom {
     const legend = page.getByRole('region', { name: '交互图例', exact: true })
     const lastItem = legend.getByText('未命中', { exact: true })
     const stageBox = await stage.boundingBox()
-    assert.ok(Math.abs(stageBox.height / height - 0.62) < 0.02, 'the default stage takes about 62% of the viewport')
-    assert.ok((await replay.boundingBox()).height >= (height >= 900 ? 460 : 360), 'the canvas is large enough for replay')
+    const timeline = stage.getByRole('region', { name: '时间轴', exact: true })
+    async function checkTimeline() {
+      assert.ok((await timeline.boundingBox()).height >= 150, 'the timeline reserves room for its plot, controls and axis')
+      const { damageHeight, intersections } = await timeline.locator('[data-timeline-chart]').evaluate((node) => {
+        const labels = [...node.querySelectorAll('.eca-timeline-label')].map((label) => ({
+          name: label.textContent, box: label.getBoundingClientRect(),
+        })).sort((a, b) => a.box.top - b.box.top)
+        const lane = node.querySelector('[data-lane="damage"]')
+        return {
+          damageHeight: Number(lane.getAttribute('data-lane-height')) * Math.abs(lane.getScreenCTM().d),
+          intersections: labels.slice(1).flatMap(({ name, box }, index) =>
+            box.top < labels[index].box.bottom ? [[labels[index].name, name]] : []),
+        }
+      })
+      assert.ok(damageHeight >= 90, 'the damage curve lane is at least 90 CSS pixels tall')
+      assert.deepEqual(intersections, [], 'timeline lane labels do not overlap')
+    }
+    await checkTimeline()
+    const canvasHeight = (await replay.boundingBox()).height
+    const canvasBudget = height - 220 - stageBox.y - (stageBox.height - canvasHeight)
+    assert.ok(Math.abs(canvasHeight - Math.min(height * 0.62, canvasBudget)) <= 1,
+      'the default replay height budgets the timeline and 220 px for modules before applying its 62% cap')
+    assert.ok((await page.locator('.battle-module-scroll').boundingBox()).height >= 220, 'modules retain at least 220 px by default')
+    const grip = stage.getByRole('separator', { name: '调整舞台高度' })
+    await grip.press('ArrowUp')
+    assert.equal((await replay.boundingBox()).height, canvasHeight - 16)
+    await checkTimeline()
+    await grip.dblclick()
+    assert.equal((await replay.boundingBox()).height, canvasHeight)
+    const extraLayers = ['我方维修', '点人', '击毁用舰船图标'].map((name) => timeline.getByRole('button', { name, exact: true }))
+    for (const layer of extraLayers) await layer.click()
+    await checkTimeline()
+    await page.waitForFunction(() => document.querySelector('.battle-module-scroll').getBoundingClientRect().height >= 220)
+    for (const layer of extraLayers) await layer.click()
+    await page.waitForFunction((expected) =>
+      document.querySelector('.battle-stage .battle-replay').getBoundingClientRect().height === expected, canvasHeight)
+    await page.screenshot({ path: join(output, `readable-timeline-${width}x${height}-dark.png`) })
     assert.ok(await page.locator('.eca-timeline-bar .eca-timeline-hint').isVisible(), 'the timeline hint shares the controls row')
     await trigger.click()
     await lastItem.waitFor()
@@ -201,14 +236,6 @@ export class BattleRoom extends ProductionRoom {
     // This is a fresh context. Restore the defaults before the remaining layout smoke steps.
     await page.locator('.battle-module-controls > summary').click()
     await page.getByRole('button', { name: '恢复默认布局' }).click()
-    if (height === 800) {
-      await page.setViewportSize({ width, height: 900 })
-      await page.waitForFunction(() => document.querySelector('.battle-stage').getBoundingClientRect().height === 558)
-      assert.ok((await replay.boundingBox()).height >= 460, 'a 900px viewport gives the canvas at least 460px')
-      await page.setViewportSize({ width, height })
-      await page.waitForFunction((expected) =>
-        document.querySelector('.battle-stage').getBoundingClientRect().height === expected, stageBox.height)
-    }
   }
 
   const a = await open(1280, 800, 'dark')
@@ -530,8 +557,8 @@ export class BattleRoom extends ProductionRoom {
       const heightGrip = page.getByRole('separator', { name: '调整舞台高度' })
       assert.equal(await heightGrip.getAttribute('title'), '拖动调整高度，双击恢复')
       const startHeight = (await stage.boundingBox()).height
-      await heightGrip.press('ArrowDown')
-      assert.equal((await stage.boundingBox()).height, startHeight + 16)
+      await heightGrip.press('ArrowUp')
+      assert.equal((await stage.boundingBox()).height, startHeight - 16)
       await heightGrip.dblclick()
       assert.equal((await stage.boundingBox()).height, startHeight)
       assert.equal(await page.locator('.eca-timeline-hint').count(), 1)

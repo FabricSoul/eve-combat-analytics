@@ -11,6 +11,7 @@ import { PilotActions } from '../roster/PilotActions'
 import { BattleProvider } from '@/app/state/battle-store'
 import { ViewProvider } from '@/app/state/view-store'
 import { loadUiFixture } from '@/app/test/ui-fixture'
+import { projectileAt } from './projectile'
 
 const order = [0, 1]
 const killmails = [] as const
@@ -115,6 +116,27 @@ it('shows every graded hit and the miss in game order with the comparison labels
   expect(comparison.map(({ label }) => label)).toEqual(expected)
   expect(labels).toEqual(comparison.map(({ label }) => label))
   expect(entries.querySelectorAll('canvas')).toHaveLength(expected.length)
+})
+
+it('reveals the full map weapon name while hovering its generic glyph', async () => {
+  const weapon = 'Test launcher without a module icon'
+  await render(analysis([alpha, beta], [{ ...observation(beta.key), weapon }]), time + 250)
+  const point = (name: string) => {
+    const [, x, y] = /translate3d\(([-.\d]+)px, ([-.\d]+)px/.exec(marker(name).style.transform)!
+    return { x: Number(x), y: Number(y) }
+  }
+  const { position } = projectileAt('damage', point(alpha.name), point(beta.name), 250, true, 1)
+  const stage = host.querySelector('.replay-stage')!
+  await act(() => stage.dispatchEvent(new PointerEvent('pointermove', {
+    clientX: position.x, clientY: position.y, bubbles: true,
+  })))
+  await refresh()
+  const tip = stage.querySelector('.replay-miss-tooltip[data-positioned]')
+  expect(tip).not.toBeNull()
+  expect(tip?.textContent).toBe(weapon)
+  await act(() => stage.dispatchEvent(new PointerEvent('pointerout', { bubbles: true })))
+  await refresh()
+  expect(stage.querySelector('.replay-miss-tooltip[data-positioned]')).toBeNull()
 })
 
 describe('replay analysis refresh', () => {

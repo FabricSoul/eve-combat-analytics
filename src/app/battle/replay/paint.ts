@@ -41,6 +41,11 @@ export interface MissTracer {
   stop: Point
 }
 
+export interface PaintedModule {
+  name: string
+  rect: Rect
+}
+
 export function missedTracerAt(misses: readonly MissTracer[], point: Point) {
   return misses.some(({ source, stop }) => {
     const dx = stop.x - source.x
@@ -69,7 +74,6 @@ export function makePainter(
 ) {
   const colors = new Map<string, string>()
   const icons = new Map<string, HTMLImageElement | null | undefined>()
-  let font = ''
   let mono = ''
   let fade = 3000
   let linger = fade - maxProjectileTravelMs
@@ -80,7 +84,6 @@ export function makePainter(
     for (const name of ['side-0', 'side-1', 'side-2', 'side-n', 'repair', 'text', 'text-2', 'text-3', 'accent-line', 'bg', 'raised', 'surface', 'dead']) {
       colors.set(`var(--color-${name})`, style.getPropertyValue(`--color-${name}`).trim())
     }
-    font = style.getPropertyValue('--font-ui').trim()
     mono = style.getPropertyValue('--font-mono').trim()
     const milliseconds = (name: string, fallback: number) => {
       const css = style.getPropertyValue(name).trim()
@@ -211,14 +214,14 @@ export function makePainter(
   }
 
   function drawProjectile(
-    line: Line, source: Point, target: Point, end: number, reducedMotion: boolean, elapsed: number,
+    line: Line, source: Point, target: Point, end: number, reducedMotion: boolean, elapsed: number, sample = false,
   ): Rect | null {
     const { edge, age, opacity, travel, lifetime } = line
     const effectAge = age + (reducedMotion ? 0 : elapsed)
     if (!end || effectAge >= lifetime || opacity < 0.25) return null
     if (edge.kind === 'miss' && (reducedMotion || effectAge >= travel)) return null
     const { position: { x, y }, head, continuous } = projectileAt(edge.kind, source, target, effectAge, reducedMotion, end, travel)
-    const icon = edge.weapon ? moduleIcon(edge.weapon) : null
+    const icon = !sample && edge.weapon ? moduleIcon(edge.weapon) : null
     const inFlight = !continuous && effectAge < travel
     const alpha = opacity * (reducedMotion ? 0.9 : Math.min(1, (1 - effectAge / lifetime) * 1.35))
     if (!reducedMotion && (inFlight || !icon)) {
@@ -229,25 +232,26 @@ export function makePainter(
       over.fillStyle = line.color
       over.fill()
     }
-    if (!edge.weapon || icon === undefined) return null
+    if (!sample && !edge.weapon) return null
 
     over.globalAlpha = alpha
     if (icon) {
       over.drawImage(icon, x - 9, y - 9, 18, 18)
       return { x: x - 9, y: y - 9, width: 18, height: 18 }
     }
-    const clipped = edge.weapon.length > 27 ? edge.weapon.slice(0, 26) + '…' : edge.weapon
-    const labelY = y - 8
-    over.font = `11px ${font}`
-    over.textAlign = 'center'
-    over.textBaseline = 'alphabetic'
-    over.lineWidth = 3
-    over.strokeStyle = color('bg')
-    over.fillStyle = color('text-2')
-    over.strokeText(clipped, x, labelY)
-    over.fillText(clipped, x, labelY)
-    const width = over.measureText(clipped).width + 3
-    return { x: x - width / 2, y: labelY - 12, width, height: 15 }
+    const radius = 5
+    over.beginPath()
+    over.moveTo(x, y - radius)
+    over.lineTo(x + radius, y)
+    over.lineTo(x, y + radius)
+    over.lineTo(x - radius, y)
+    over.lineTo(x, y - radius)
+    over.fillStyle = color('surface')
+    over.fill()
+    over.lineWidth = 1.5
+    over.strokeStyle = line.color
+    over.stroke()
+    return { x: x - radius, y: y - radius, width: radius * 2, height: radius * 2 }
   }
 
   function drawImpact(
@@ -451,9 +455,15 @@ export function makePainter(
       if (miss) misses.push(miss)
       if (!isProjectile(line.edge.kind)) projectiles.push({ from: line.edge.from, to: line.edge.to, age: line.age, line, source, target, end })
     }
+    const modules: PaintedModule[] = []
+    function recordModule(rect: Rect | null, name: string | null) {
+      if (!rect) return
+      occupied.push(rect)
+      if (name) modules.push({ name, rect })
+    }
     for (const { line, source, target, end } of projectilePerPair(projectiles)) {
       const rect = drawProjectile(line, source, target, end, reducedMotion, pausedShot(line) ? 0 : pausedElapsed)
-      if (rect) occupied.push(rect)
+      recordModule(rect, line.edge.weapon)
     }
 
     // Render an arriving icon at its endpoint once, before releasing its lane visually.
@@ -468,7 +478,7 @@ export function makePainter(
       const arrived = t >= flight.end || reducedMotion
       const atHead = arrived ? { ...line, age: Math.min(line.age, line.travel) } : line
       const rect = drawProjectile(atHead, source, target, end, reducedMotion, 0)
-      if (rect) occupied.push(rect)
+      recordModule(rect, line.edge.weapon)
       if (arrived) flight.arrived = true
     }
 
@@ -489,7 +499,7 @@ export function makePainter(
       }
     }
 
-    return { related, positions, occupied, bounds, misses, animating, burst: reducedMotion ? null : burst }
+    return { related, positions, occupied, bounds, misses, modules, animating, burst: reducedMotion ? null : burst }
   }
 
   // Synthetic timings and amounts illustrate the same effects the replay paints.
@@ -506,11 +516,8 @@ export function makePainter(
       return
     }
     const quality = damage ? kind.quality : null
-    const weapon = kind === 'damage' || kind === 'miss' ? 'Veles Supratidal Entropic Disintegrator'
-      : kind === 'repair' ? 'Large Remote Armor Repairer II'
-        : kind === 'point' ? 'Warp Scrambler II' : kind === 'neut' ? 'Heavy Energy Neutralizer II' : null
     const edge: ReplayEdge = {
-      t: 0, from: 'char:1', to: 'char:2', kind: interactionKind, quality, weapon,
+      t: 0, from: 'char:1', to: 'char:2', kind: interactionKind, quality, weapon: null,
       repairType: null, ewar: null, sources: [], corroborated: false,
       amount: interactionKind === 'miss' ? 0 : 124, strength: 0.6,
     }
@@ -530,11 +537,11 @@ export function makePainter(
     ring(under, source.x, source.y, radius, color('side-0'), 1.5, 1)
     ring(under, target.x, target.y, radius, color('side-1'), 1.5, 1)
     if (kind === 'point') drawPoint(target, radius, 1, reducedMotion ? 0 : elapsed)
-    if (weapon) drawProjectile(line, source, target, end, reducedMotion, 0)
+    if (!damage && kind !== 'shake' && kind !== 'miss') drawProjectile(line, source, target, end, reducedMotion, 0, true)
     if (miss) drawMissMark(miss)
     if (kind === 'repair' || kind === 'neut') {
       const bounds = { x: 0, y: 0, width, height }
-      drawImpact(target, radius, { edge, age: reducedMotion ? 150 : age % 700, opacity: 1, color: tone }, 0, bounds, [])
+      drawImpact(target, radius, { edge: { ...edge, amount: 0 }, age: reducedMotion ? 150 : age % 700, opacity: 1, color: tone }, 0, bounds, [])
     }
   }
 

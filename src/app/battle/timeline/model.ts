@@ -172,10 +172,10 @@ export function timelineLayout(compact: boolean, layers: ReadonlySet<LayerId>, h
   }
 
   const killIcons = layers.has('kills') && layers.has('killIcons')
-  if (layers.has('primary')) add('primary', workspace ? 10 : 14, '主目标')
-  if (hasDamage) add('damage', workspace ? 20 : 70, '伤害/秒')
-  if (layers.has('repOurs')) add('repair', workspace ? 24 : 40, '我方维修', 6)
-  if (layers.has('point')) add('point', workspace ? 18 : 28, '点住的人数', 6)
-  if (layers.has('kills')) add('kills', killIcons ? 56 : workspace ? 9 : 14, '击毁', workspace ? 2 : 4)
+  if (layers.has('primary')) add('primary', workspace ? 18 : 14, '主目标')
+  if (hasDamage) add('damage', workspace ? 90 : 70, '伤害/秒')
+  if (layers.has('repOurs')) add('repair', workspace ? 34 : 40, '我方维修', 6)
+  if (layers.has('point')) add('point', 28, '点住的人数', 6)
+  if (layers.has('kills')) add('kills', killIcons ? 56 : workspace ? 18 : 14, '击毁', 4)
   return { lanes, height: y + 16, killIcons }
 }

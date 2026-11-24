@@ -130,8 +130,7 @@ body.battle-window-dragging * {
 .battle-stage {
   flex: none;
   display: grid;
-  grid-template-rows: minmax(min(360px, 45dvh), 1fr) auto;
-  min-height: min-content;
+  grid-template-rows: auto auto;
   margin: var(--space-2) var(--space-2) 0;
   position: relative;
   background: var(--color-surface);

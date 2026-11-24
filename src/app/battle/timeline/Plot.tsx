@@ -161,8 +161,8 @@ export const Plot = memo(function Plot(props: PlotProps) {
     {lanes.map((lane) => {
       const { id, label, top, height } = lane
       const base = top + height - 2
-      return <g key={id} data-lane={id}>
-        {!compact && <text x="0" y={top + (id === 'damage' ? 30 : id === 'primary' ? 10 : id === 'kills' ? (props.killIcons ? 18 : 11) : 14)}
+      return <g key={id} data-lane={id} data-lane-height={height}>
+        {!compact && <text x="0" y={top + height / 2} dominantBaseline="central"
           className="eca-timeline-label">{label}</text>}
         {/* Icons can extend past the plot ends, so only the strokes and primary bar need clipping. */}
         <g clipPath={id === 'kills' && props.killIcons ? undefined : `url(#${clipId})`}>

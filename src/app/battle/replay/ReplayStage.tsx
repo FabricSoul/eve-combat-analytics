@@ -10,7 +10,7 @@ import { Portrait } from '@/app/ui/Portrait'
 import { usePilotMenu } from '../roster/PilotActions'
 import { ReplayOverlays } from './ReplayOverlays'
 import { useReplayKeyboard, type ReplayFocusTarget } from './keyboard'
-import { makePainter, missedTracerAt, type MissTracer, type ReplayFrame } from './paint'
+import { makePainter, missedTracerAt, type MissTracer, type PaintedModule, type ReplayFrame } from './paint'
 import type { Point } from './layout-effects'
 import { createProjectilePlayback } from './projectile'
 import { placePilotLabel } from './placement'
@@ -19,6 +19,13 @@ import type { Rect } from './placement'
 import { buildScene, makeLayout } from './scene'
 import type { ReplayLayout, ReplayNode } from './scene'
 import './replay.css'
+
+function moduleAt(modules: readonly PaintedModule[], point: Point) {
+  for (let index = modules.length - 1; index >= 0; index--) {
+    const { rect: { x, y, width, height }, name } = modules[index]!
+    if (point.x >= x && point.x <= x + width && point.y >= y && point.y <= y + height) return name
+  }
+}
 
 interface ReplayStageProps extends Omit<ReplayFrame, 'reducedMotion' | 'pausedElapsed'> {
   analysis: Analysis
@@ -96,9 +103,10 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
   const over = useRef<HTMLCanvasElement>(null)
   const bracket = useRef<HTMLDivElement>(null)
   const tooltip = useRef<HTMLDivElement>(null)
-  const missTooltip = useRef<HTMLDivElement>(null)
+  const effectTooltip = useRef<HTMLDivElement>(null)
   const missTracers = useRef<readonly MissTracer[]>([])
-  const pointer = useRef<Point | null>(null)
+  const paintedModules = useRef<readonly PaintedModule[]>([])
+  const pointer = useRef<(Point & { overPilot: boolean }) | null>(null)
   const markers = useRef(new Map<EntityKey, HTMLDivElement>())
   const labelElements = useRef(new Map<EntityKey, HTMLSpanElement>())
   const previousLayout = useRef<ReplayLayout | null>(null)
@@ -124,29 +132,37 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     else markers.current.delete(key)
   }, [])
 
-  const updateMissTooltip = useCallback((stageWidth: number) => {
-    const tip = missTooltip.current
+  const updateEffectTooltip = useCallback((stageWidth: number) => {
+    const tip = effectTooltip.current
     const point = pointer.current
     if (!tip) return
-    const visible = point !== null && missedTracerAt(missTracers.current, point)
-    tip.toggleAttribute('data-positioned', visible)
-    if (!visible || !point) return
-    const x = Math.max(4, Math.min(stageWidth - 52, point.x + 10))
-    const y = point.y >= 28 ? point.y - 26 : point.y + 10
-    tip.style.transform = `translate3d(${x}px, ${y}px, 0)`
+    const missed = point && !point.overPilot && missedTracerAt(missTracers.current, point)
+    const label = point && (missed ? '未命中' : moduleAt(paintedModules.current, point))
+    tip.toggleAttribute('data-positioned', Boolean(label))
+    if (!label || !point) return
+    if (tip.textContent !== label) tip.textContent = label
+    if (missed) {
+      const x = Math.max(4, Math.min(stageWidth - 52, point.x + 10))
+      const y = point.y >= 28 ? point.y - 26 : point.y + 10
+      tip.style.transform = `translate3d(${x}px, ${y}px, 0)`
+      return
+    }
+    const left = point.x > stageWidth / 2
+    const above = point.y >= 75
+    tip.style.transform = `translate3d(${point.x + (left ? -10 : 10)}px, ${point.y + (above ? -8 : 10)}px, 0) translate(${left ? '-100%' : '0'}, ${above ? '-100%' : '0'})`
   }, [])
 
   function movePointer(event: PointerEvent<HTMLDivElement>) {
     handlers.onPointerMove(event)
-    const target = event.target
+    const target = event.target as Element
     if (event.pointerType === 'touch' || event.buttons || menu?.active
-      || (target instanceof Element && target.closest('.replay-pilot, .replay-header, .replay-close-fights, .replay-stage-zoom'))) {
+      || !event.currentTarget.contains(target) || target.closest('.replay-header, .replay-stage-zoom')) {
       pointer.current = null
     } else {
       const { left, top } = event.currentTarget.getBoundingClientRect()
-      pointer.current = { x: event.clientX - left, y: event.clientY - top }
+      pointer.current = { x: event.clientX - left, y: event.clientY - top, overPilot: Boolean(target.closest('.replay-pilot')) }
     }
-    updateMissTooltip(width)
+    updateEffectTooltip(width)
   }
 
   useLayoutEffect(() => {
@@ -243,11 +259,12 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       const live = painter.liveEdges(scene.edges, t)
       layout.placeVisible(present, live)
       layout.placeUnassigned(present)
-      const { related, positions, bounds, misses, animating, burst } = painter.paint(
+      const { related, positions, bounds, misses, modules, animating, burst } = painter.paint(
         layout, live, scene.pointSpans, present, { ...current, reducedMotion, pausedElapsed }, width, height, camera,
       )
       missTracers.current = misses
-      if (pointer.current) updateMissTooltip(width)
+      paintedModules.current = modules
+      if (pointer.current) updateEffectTooltip(width)
       let bursting = false
       const labels: { element: HTMLElement; node: ReplayNode; center: Point; priority: number; required: boolean }[] = []
       let nextLabelKey = `${camera.x}|${camera.y}|${camera.scale}|${detailKey}`
@@ -364,7 +381,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       appearanceObserver.disconnect()
       reduced.removeEventListener('change', schedule)
     }
-  }, [layout, scene, width, height, dpr, playback, updateTargets, updateMissTooltip])
+  }, [layout, scene, width, height, dpr, playback, updateTargets, updateEffectTooltip])
 
   useLayoutEffect(() => {
     frame.current = { t, playing, selected, focusOnly, detailKey, lockedKey, camera }
@@ -396,7 +413,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
   </div>
   return (
     <div ref={host} className="replay-stage" data-zoomed={camera.scale > 1 || undefined} {...handlers}
-      onPointerMove={movePointer} onPointerLeave={() => { pointer.current = null; updateMissTooltip(width) }}>
+      onPointerMove={movePointer} onPointerLeave={() => { pointer.current = null; updateEffectTooltip(width) }}>
       <canvas ref={under} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer" aria-hidden="true" />
       <div ref={toolbar} role="toolbar" aria-label="回放飞行员" tabIndex={-1}
         onFocus={onFocus} onBlur={onBlur} onKeyDown={onKeyDown}>
@@ -404,7 +421,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       </div>
       <div className="replay-name-layer" aria-hidden="true">{pilotLabels}</div>
       <canvas ref={over} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer replay-effects" aria-hidden="true" />
-      <div ref={missTooltip} className="replay-miss-tooltip" role="tooltip">未命中</div>
+      <div ref={effectTooltip} className="replay-miss-tooltip" role="tooltip" />
       {locked && (
         <div ref={bracket} className="replay-lock">
           <Bracket />

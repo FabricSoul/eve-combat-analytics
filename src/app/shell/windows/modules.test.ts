@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultModules, moduleLayoutReducer, keyboardDrop, loadModules, saveModules } from './modules'
+import { defaultModules, moduleLayoutReducer, keyboardDrop, loadModules, replayHeightBounds, saveModules } from './modules'
 
 describe('battle modules', () => {
   it('lays out the default three areas and supports in-area and cross-area moves', () => {
@@ -49,6 +49,15 @@ describe('battle modules', () => {
     expect(reopened.replay.overlays.legend).toEqual({ open: true, collapsed: true, rect: moved })
     expect(reopened.replay.order).toEqual(['fights', 'legend'])
     expect(loadModules({ getItem: () => JSON.stringify({ ...JSON.parse(saved), version: 3, stageHeight: 400 }) })).toEqual(defaults)
+    expect(loadModules({ getItem: () => JSON.stringify({ ...JSON.parse(saved), version: 4, stageHeight: 400 }) }))
+      .toEqual({ ...reopened, stageHeight: null })
     expect(moduleLayoutReducer(reopened, { type: 'reset' })).toEqual(defaults)
+  })
+
+  it('budgets the timeline and 220px of modules before applying the replay height cap', () => {
+    expect(replayHeightBounds(800, 752, 176)).toEqual({ min: 220, max: 346, initial: 346 })
+    expect(replayHeightBounds(940, 892, 176)).toEqual({ min: 220, max: 486, initial: 486 })
+    expect(replayHeightBounds(1500, 1452, 150)).toEqual({ min: 220, max: 1072, initial: 930 })
+    expect(replayHeightBounds(400, 352, 150)).toEqual({ min: 120, max: 120, initial: 120 })
   })
 })

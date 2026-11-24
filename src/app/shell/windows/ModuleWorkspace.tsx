@@ -56,21 +56,21 @@ export function ModuleControls({ layout, dispatch, columns }: {
   </div>
 }
 
-export function StageGrip({ height, viewportHeight, dispatch }: {
-  height: number; viewportHeight: number; dispatch: Dispatch<ModuleAction>
+export function StageGrip({ height, limits, dispatch }: {
+  height: number; limits: { min: number; max: number }; dispatch: Dispatch<ModuleAction>
 }) {
   const pointer = useRef<{ id: number; start: number; height: number } | null>(null)
   function release(event: PointerEvent) {
     if (pointer.current?.id === event.pointerId) pointer.current = null
   }
   return <div className="battle-stage-grip" role="separator" tabIndex={0} title="拖动调整高度，双击恢复"
-    aria-label="调整舞台高度" aria-orientation="horizontal" aria-valuemin={clampStage(0, viewportHeight)}
-    aria-valuemax={clampStage(viewportHeight, viewportHeight)} aria-valuenow={height}
+    aria-label="调整舞台高度" aria-orientation="horizontal" aria-valuemin={limits.min}
+    aria-valuemax={limits.max} aria-valuenow={height}
     onDoubleClick={() => dispatch({ type: 'stage', height: null })}
     onKeyDown={(event) => {
       if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown' && event.key !== 'Home') return
       event.preventDefault()
-      dispatch({ type: 'stage', height: event.key === 'Home' ? null : clampStage(height + (event.key === 'ArrowUp' ? -16 : 16), viewportHeight) })
+      dispatch({ type: 'stage', height: event.key === 'Home' ? null : clampStage(height + (event.key === 'ArrowUp' ? -16 : 16), limits) })
     }}
     onPointerDown={(event) => {
       if (event.button !== 0) return
@@ -79,7 +79,7 @@ export function StageGrip({ height, viewportHeight, dispatch }: {
     }}
     onPointerMove={(event) => {
       const drag = pointer.current
-      if (drag?.id === event.pointerId) dispatch({ type: 'stage', height: clampStage(drag.height + event.clientY - drag.start, viewportHeight) })
+      if (drag?.id === event.pointerId) dispatch({ type: 'stage', height: clampStage(drag.height + event.clientY - drag.start, limits) })
     }} onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release} />
 }
 

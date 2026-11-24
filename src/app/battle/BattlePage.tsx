@@ -9,7 +9,7 @@ import { PhonePersonPage } from '../shell/PhonePersonPage'
 import { useBattleLayout } from '../shell/useBattleLayout'
 import { useWindowViewport } from '../shell/windows/DesktopWindows'
 import { ModuleControls, ModuleWorkspace, StageGrip } from '../shell/windows/ModuleWorkspace'
-import { clampStage, loadModules, moduleLayoutReducer, saveModules, type ModuleId } from '../shell/windows/modules'
+import { clampStage, loadModules, moduleLayoutReducer, replayHeightBounds, saveModules, timelineMinHeight, type ModuleId } from '../shell/windows/modules'
 import '../shell/windows/windows.css'
 import { BattleProvider, useBattleContext } from '../state/battle-store'
 import { ViewProvider, useView, writeReplayNoise } from '../state/view-store'
@@ -63,13 +63,16 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   const picker = useRef<HTMLInputElement>(null)
   const openPicker = () => picker.current?.click()
   const desk = useRef<HTMLDivElement>(null)
+  const timeline = useRef<HTMLElement>(null)
   const workspace = layout !== 'phone'
   const moduleColumns = layout === 'desktop' ? 3 : 2
   const [moduleLayout, dispatchModule] = useReducer(moduleLayoutReducer, undefined, () => loadModules())
   const [replayLayer, setReplayLayer] = useState<HTMLDivElement | null>(null)
-  const viewport = useWindowViewport(desk, workspace && Boolean(summary))
-  const viewportHeight = window.innerHeight
-  const stageHeight = clampStage(moduleLayout.stageHeight ?? viewportHeight * 0.62, viewportHeight)
+  const hasWorkspace = workspace && Boolean(summary)
+  const viewport = useWindowViewport(desk, hasWorkspace)
+  const [timelineHeight, setTimelineHeight] = useState(timelineMinHeight)
+  const stageLimits = replayHeightBounds(window.innerHeight, viewport.height, timelineHeight)
+  const stageHeight = clampStage(moduleLayout.stageHeight ?? stageLimits.initial, stageLimits)
   const [search, setSearch] = useState<'feed' | 'roster' | null>(null)
   const [eventFilters, setEventFilters] = useState(true)
   const [rosterAlphabetical, setRosterAlphabetical] = useState(false)
@@ -83,6 +86,16 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   const cancelDrag = useRef<(() => boolean) | null>(null)
   const cancelReplayDrag = useRef<(() => boolean) | null>(null)
   const dispatchReplay = useCallback((action: ReplayOverlayAction) => dispatchModule({ type: 'replay', action }), [])
+
+  useLayoutEffect(() => {
+    const element = timeline.current
+    if (!hasWorkspace || !element) return
+    const measure = () => setTimelineHeight(Math.ceil(element.getBoundingClientRect().height))
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(element)
+    return () => observer?.disconnect()
+  }, [hasWorkspace])
 
   useEffect(() => {
     saveModules(moduleLayout)
@@ -258,12 +271,12 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
       {summary ? (
         <div ref={desk} className="battle-layout" data-layout={layout} data-density={workspace ? 'compact' : undefined}>
           {workspace ? <>
-            <section className="battle-stage" aria-label="回放舞台" style={{ height: stageHeight }} onPointerDownCapture={clearTextSelection}>
-              <section className="battle-replay" aria-label="回放">
+            <section className="battle-stage" aria-label="回放舞台" onPointerDownCapture={clearTextSelection}>
+              <section className="battle-replay" aria-label="回放" style={{ height: stageHeight }}>
                 {replay}
               </section>
-              <section className="battle-timeline" aria-label="时间轴"><Timeline separateLanes /></section>
-              <StageGrip height={stageHeight} viewportHeight={viewportHeight} dispatch={dispatchModule} />
+              <section ref={timeline} className="battle-timeline" aria-label="时间轴" style={{ minHeight: timelineMinHeight }}><Timeline separateLanes /></section>
+              <StageGrip height={stageHeight} limits={stageLimits} dispatch={dispatchModule} />
             </section>
             <div className="battle-module-scroll">
               <ModuleWorkspace desk={desk} viewport={viewport} columns={moduleColumns}
