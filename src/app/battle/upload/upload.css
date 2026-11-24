@@ -109,3 +109,13 @@
   .upload-row[data-status="parsing"] .upload-icon svg, .upload-progress[data-indeterminate] i { animation: none; }
   .upload-progress[data-indeterminate] i { width: 100%; }
 }
+
+.upload-tray-counts { margin-left: auto; }
+.upload-tray-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; margin-right: -4px; padding: 0;
+  border: 0; border-radius: var(--radius-ctl); background: transparent; color: var(--color-text-2); cursor: pointer;
+  transition: background-color var(--dur-hover) var(--ease), color var(--dur-hover) var(--ease);
+}
+.upload-tray-close:hover { background: var(--color-raised); color: var(--color-text); }
+.upload-tray-close:focus-visible { outline: 2px solid var(--color-accent-line); outline-offset: 2px; }

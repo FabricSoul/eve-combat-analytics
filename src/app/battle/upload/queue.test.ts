@@ -133,4 +133,15 @@ describe('runUpload', () => {
     await runUpload(deps)
     expect(actions.at(-1)).toMatchObject({ type: 'fail', id: 7, status: 'failed' })
   })
+
+  it('clearSettled drops finished, duplicate and failed rows and keeps queued or active ones', () => {
+    let state: QueueState = queueReducer(initialQueue, { type: 'add', files: [{ name: 'a', size: 1 }, { name: 'b', size: 1 }, { name: 'c', size: 1 }, { name: 'd', size: 1 }] })
+    state = queueReducer(state, { type: 'start', id: 1 })
+    state = queueReducer(state, { type: 'done', id: 1, log: { id: 'x', charId: 1, charName: 'A', side: 0, events: 1, uploadedAt: 0 } })
+    state = queueReducer(state, { type: 'start', id: 2 })
+    state = queueReducer(state, { type: 'fail', id: 2, status: 'failed', message: 'no' })
+    state = queueReducer(state, { type: 'start', id: 3 })
+    state = queueReducer(state, { type: 'clearSettled' })
+    expect(state.items.map(({ name, status }) => [name, status])).toEqual([['c', 'uploading'], ['d', 'queued']])
+  })
 })

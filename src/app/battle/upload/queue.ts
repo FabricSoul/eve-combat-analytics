@@ -35,6 +35,8 @@ export type QueueAction =
   | { type: 'duplicate'; id: number; of: string }
   | { type: 'fail'; id: number; status: FailureStatus; message: string }
   | { type: 'remove'; id: number }
+  /** The tray's × button: forget every settled row (done, duplicate, failed); queued and active uploads keep going. */
+  | { type: 'clearSettled' }
 
 export const initialQueue: QueueState = { items: [], nextId: 1 }
 
@@ -75,6 +77,10 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
       return change(state, action.id, ({ status }) => isActive(status), (item) => ({ ...item, status: 'duplicate', duplicateOf: action.of }))
     case 'fail':
       return change(state, action.id, ({ status }) => isActive(status), (item) => ({ ...item, status: action.status, message: action.message }))
+    case 'clearSettled': {
+      const items = state.items.filter(({ status }) => !isSettled(status))
+      return items.length === state.items.length ? state : { ...state, items }
+    }
     case 'remove': {
       const item = state.items.find(({ id }) => id === action.id)
       // Settled non-success rows can be dismissed; done rows stay as the record of what was added.

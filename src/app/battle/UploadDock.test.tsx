@@ -140,6 +140,23 @@ describe('UploadDock', () => {
     expect(host.querySelector('.upload-row[data-status="done"]')).toBeNull()
   })
 
+  it('closes the upload list with its × button and reopens it for the next drop', async () => {
+    mount()
+    let n = 0
+    vi.spyOn(api, 'uploadLog').mockImplementation(async () => newLog({ id: `closed${++n}` }))
+    await act(async () => { window.dispatchEvent(dragEvent('drop', [file('first.txt', 'first')])) })
+    await settle()
+    expect(host.querySelector('.upload-row[data-status="done"]')).not.toBeNull()
+    const close = host.querySelector<HTMLButtonElement>('.upload-tray button[aria-label="关闭上传列表"]')
+    expect(close).not.toBeNull()
+    act(() => close!.click())
+    expect(host.querySelector('.upload-tray')).toBeNull()
+    await act(async () => { window.dispatchEvent(dragEvent('drop', [file('second.txt', 'second')])) })
+    await settle()
+    const rows = [...host.querySelectorAll('.upload-row .upload-file')].map((cell) => cell.textContent)
+    expect(rows).toEqual(['second.txt'])
+  })
+
   it('keeps two batches dropped in the same turn apart (R2a-1)', async () => {
     mount()
     const bodies: string[] = []

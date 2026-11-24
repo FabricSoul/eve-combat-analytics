@@ -41,11 +41,13 @@ function detail(item: UploadItem, logCorrected: (log: UploadedLogSummary) => boo
 export interface UploadTrayProps {
   items: readonly UploadItem[]
   onRemove?(id: number): void
+  /** Close the list (the × in its header). */
+  onClose?(): void
   /** True when the log's side was corrected from log evidence. */
   logCorrected?(log: UploadedLogSummary): boolean
 }
 
-export function UploadTray({ items, onRemove, logCorrected = () => false }: UploadTrayProps) {
+export function UploadTray({ items, onRemove, onClose, logCorrected = () => false }: UploadTrayProps) {
   const counts = summarizeQueue({ items: [...items], nextId: 0 })
   const header = [
     counts.done > 0 && `${counts.done} 完成`,
@@ -57,6 +59,9 @@ export function UploadTray({ items, onRemove, logCorrected = () => false }: Uplo
       <header className="upload-tray-head">
         <span>上传 · <span className="app-number">{items.length}</span> 个文件</span>
         <span className="upload-tray-counts">{header}</span>
+        {onClose && <button type="button" className="upload-tray-close" aria-label="关闭上传列表" title="关闭" onClick={onClose}>
+          <Icon name="x" />
+        </button>}
       </header>
       <div className="upload-rows" role="list">
         {items.map((item) => {

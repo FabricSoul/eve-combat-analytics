@@ -17,6 +17,8 @@ export function UploadDock({ pickerRef }: UploadDockProps) {
   const { summary, analysis } = useBattleContext()
   const brId = summary?.meta.brId
   const [queue, dispatch] = useReducer(queueReducer, initialQueue)
+  // The × hides the list; uploads still running continue, and the next drop or pick opens it again.
+  const [closed, setClosed] = useState(false)
   const [dragging, setDragging] = useState(false)
   const latest = useRef({ queue, summary })
   latest.current = { queue, summary }
@@ -25,7 +27,9 @@ export function UploadDock({ pickerRef }: UploadDockProps) {
 
   // The File travels inside the same reducer action as its row, so ids are allocated once, in order.
   const enqueue = useCallback((list: readonly File[]) => {
-    if (list.length > 0) dispatch({ type: 'add', files: list.map((file) => ({ name: file.name, size: file.size, file })) })
+    if (list.length === 0) return
+    setClosed(false)
+    dispatch({ type: 'add', files: list.map((file) => ({ name: file.name, size: file.size, file })) })
   }, [])
 
   useEffect(() => {
@@ -54,7 +58,7 @@ export function UploadDock({ pickerRef }: UploadDockProps) {
       setDragging(false)
       void collectFiles(event.dataTransfer).then(({ files, problems }) => {
         enqueue(files)
-        if (problems.length > 0) dispatch({ type: 'reject', problems })
+        if (problems.length > 0) { setClosed(false); dispatch({ type: 'reject', problems }) }
       })
     }
     window.addEventListener('dragenter', enter)
@@ -116,8 +120,9 @@ export function UploadDock({ pickerRef }: UploadDockProps) {
           </div>
         </div>
       )}
-      {queue.items.length > 0 && (
-        <UploadTray items={queue.items} logCorrected={corrected} onRemove={(id) => dispatch({ type: 'remove', id })} />
+      {queue.items.length > 0 && !closed && (
+        <UploadTray items={queue.items} logCorrected={corrected} onRemove={(id) => dispatch({ type: 'remove', id })}
+          onClose={() => { dispatch({ type: 'clearSettled' }); setClosed(true) }} />
       )}
     </>
   )
