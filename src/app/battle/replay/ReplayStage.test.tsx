@@ -4,6 +4,10 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Analysis, Entity, EntityKey, Interaction, Killmail } from '@/core/contract'
 import { ReplayStage } from './ReplayStage'
+import { ReplayCanvas } from '../ReplayCanvas'
+import { EventFeed } from '../EventFeed'
+import { BattleProvider } from '@/app/state/battle-store'
+import { ViewProvider } from '@/app/state/view-store'
 import { loadUiFixture } from '@/app/test/ui-fixture'
 
 const order = [0, 1]
@@ -189,4 +193,66 @@ it('positions every present uploader label in the 1280 × 800 desktop canvas', a
   expect(uploaders).toHaveLength(17)
   expect(uploaders.filter((pilot) => !pilot.parentElement?.querySelector('.replay-pilot-label[data-positioned]'))
     .map((pilot) => pilot.getAttribute('aria-label'))).toEqual([])
+})
+
+it('keeps paused nodes still and keeps them still during quiet playback', async () => {
+  vi.mocked(window.matchMedia).mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() } as unknown as MediaQueryList)
+  const result = analysis()
+  const positions = () => [alpha, beta, neutral].map(({ name }) => marker(name).style.transform)
+  const quiet = time + 20_000
+  await render(result, quiet)
+  const initial = positions()
+  for (let frame = 0; frame < 8; frame++) await refresh()
+  expect(positions()).toEqual(initial)
+  for (let offset = 0; offset < 2000; offset += 250) {
+    await act(() => root.render(<ReplayStage analysis={result} killmails={killmails} order={order}
+      t={quiet + offset} playing selected={null} select={select} focusOnly={false} />))
+    await refresh()
+    expect(positions()).toEqual(initial)
+  }
+})
+
+it('shares URL-backed drone, smartbomb, small-hit and miss filters between the canvas and feed', async () => {
+  const originalUrl = window.location.href
+  window.history.replaceState(null, '', '?hide=drones')
+  const { summary } = loadUiFixture()
+  const enemies = ['Drone', 'Smartbomb', 'Small', 'Miss', 'Normal'].map((name, index): Entity => ({
+    ...beta, name, key: `char:${index + 10}`, charId: index + 10,
+  }))
+  const weapons = ['Warrior II', '联邦海军大型等离子立体炸弹*', 'small gun', 'miss gun', 'main gun']
+  const result = analysis([alpha, ...enemies], enemies.map(({ key }, index) => ({
+    ...observation(key), kind: index === 3 ? 'miss' : 'damage', weapon: weapons[index]!,
+    amount: index === 2 ? 99 : index === 3 ? 0 : 1000,
+  })))
+  const canvasHas = (name: string) => marker(name).hasAttribute('data-present')
+  const feedHas = (weapon: string) => Boolean(host.querySelector(`.feed-weapon[title="${weapon}"]`))
+  try {
+    await act(() => root.render(
+      <BattleProvider static={{ summary, analysis: result }}><ViewProvider initialTime={time}>
+        <ReplayCanvas /><EventFeed />
+      </ViewProvider></BattleProvider>,
+    ))
+    await act(async () => { await vi.dynamicImportSettled() })
+    await refresh()
+    const toggle = async (label: string) => {
+      const input = [...host.querySelectorAll('label')].find((item) => item.textContent === label)?.querySelector('input')
+      expect(input).toBeInstanceOf(HTMLInputElement)
+      await act(() => input!.click())
+      await refresh()
+    }
+    const check = (visible: boolean[]) => {
+      expect(enemies.map(({ name }) => canvasHas(name))).toEqual(visible)
+      expect(weapons.map(feedHas)).toEqual(visible)
+    }
+    check([false, true, true, true, true])
+    await toggle('隐藏立体炸弹伤害')
+    await toggle('隐藏小额伤害（低于 100）')
+    await toggle('隐藏未命中')
+    check([false, false, false, false, true])
+    expect(new URLSearchParams(window.location.search).get('hide')).toBe('drones,smartbombs,small,misses')
+    await toggle('隐藏无人机/战斗机伤害')
+    check([true, false, false, false, true])
+  } finally {
+    window.history.replaceState(null, '', originalUrl)
+  }
 })

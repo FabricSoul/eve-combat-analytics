@@ -6,6 +6,7 @@ import { TypeIcon } from '../ui/TypeIcon'
 import { buildFeed, defaultFeedKinds, scopeLabel, type FeedKind, type FeedRow } from './feed/model'
 import { useModuleTypeId } from './feed/item-icon'
 import { Who } from './feed/Who'
+import { useNoiseFilteredAnalysis } from './replay/noise'
 import { fullSideOrder } from './roster/model'
 import './roster/roster.css'
 import './feed/feed.css'
@@ -41,6 +42,7 @@ function useNarrow(forced: boolean | undefined) {
 export function EventFeed({ compact: forcedCompact }: EventFeedProps) {
   const { summary, analysis } = useBattleContext()
   const view = useView()
+  const visibleAnalysis = useNoiseFilteredAnalysis(analysis)
   const t = useCoarseTime()
   const { root, compact } = useNarrow(forcedCompact)
   const moduleTypeId = useModuleTypeId()
@@ -48,8 +50,8 @@ export function EventFeed({ compact: forcedCompact }: EventFeedProps) {
   const mode = view.feedMode
   const focus = view.focusOnly ? view.selected : null
   const rows = useMemo(
-    () => summary && analysis ? buildFeed({ analysis, summary, mode, t, oursSide: view.oursSide, kinds: active, focus, range: view.range }) : [],
-    [summary, analysis, mode, t, view.oursSide, active, focus, view.range],
+    () => summary && visibleAnalysis ? buildFeed({ analysis: visibleAnalysis, summary, mode, t, oursSide: view.oursSide, kinds: active, focus, range: view.range }) : [],
+    [summary, visibleAnalysis, mode, t, view.oursSide, active, focus, view.range],
   )
   const order = useMemo(() => analysis ? fullSideOrder(analysis, view.oursSide) : [], [analysis, view.oursSide])
 

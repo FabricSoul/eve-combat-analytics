@@ -165,7 +165,7 @@ export function buildFeed(input: FeedInput): FeedRow[] {
   const list: Interaction[] = []
   for (let n = low; n < high; n++) {
     const i = interactions[n]!
-    if (i.kind === 'miss' || !wanted.has(feedKind(i.kind))) continue
+    if (!wanted.has(feedKind(i.kind))) continue
     if (focus && i.from !== focus && i.to !== focus) continue
     list.push(i)
   }

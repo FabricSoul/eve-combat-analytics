@@ -59,12 +59,11 @@ describe('replay presence in the complete J125990 fight', () => {
     const later = scene.visibleAt(at('15:44:02'), null)
     const persistent = [...first].find((key) => later.has(key) && layout.byKey.get(key)?.entity.side !== -1)!
     const node = layout.byKey.get(persistent)!
-    layout.setVisible(first)
-    layout.tick(75)
+    layout.placeVisible(first, [])
     const position = { x: node.x, y: node.y }
-    expect(layout.setVisible(later)).toBe(true)
+    expect(layout.placeVisible(later, [])).toBe(true)
     expect({ x: node.x, y: node.y }).toEqual(position)
-    expect(layout.setVisible(later)).toBe(false)
+    expect(layout.placeVisible(later, [])).toBe(false)
   })
 })
 

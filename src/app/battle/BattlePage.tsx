@@ -7,7 +7,7 @@ import { PhonePersonPage } from '../shell/PhonePersonPage'
 import { RosterRail } from '../shell/RosterRail'
 import { useBattleLayout } from '../shell/useBattleLayout'
 import { BattleProvider, useBattleContext } from '../state/battle-store'
-import { ViewProvider, useView, type PanelTab } from '../state/view-store'
+import { ViewProvider, useView, writeReplayNoise, type PanelTab } from '../state/view-store'
 import { BottomSheet } from '../ui/BottomSheet'
 import { Button } from '../ui/Button'
 import { Tabs, type TabOption } from '../ui/Tabs'
@@ -127,6 +127,7 @@ function BattleWorkspace() {
     if (t > 0) url.searchParams.set('t', String(Math.floor(t)))
     if (view.selected) url.searchParams.set('sel', view.selected)
     else url.searchParams.delete('sel')
+    writeReplayNoise(url.searchParams, view.hiddenNoise)
     return url.href
   }
 

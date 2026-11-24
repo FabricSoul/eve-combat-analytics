@@ -1,7 +1,7 @@
 // The event feed on the FULL real fight (17 logs, 52 killmails), not the clipped gallery snapshot.
 import { beforeAll, describe, expect, it } from 'vitest'
 import { analyze } from '@/core/analysis/analyze'
-import type { Analysis, BattleSummary, Interaction } from '@/core/contract'
+import type { Analysis, BattleSummary } from '@/core/contract'
 import { realBattleStateWithBr } from '../../../../fixtures/real/j125990-20250622/load'
 import { buildFeed, windowMs } from './model'
 
@@ -25,15 +25,13 @@ beforeAll(() => {
   late = interactions.at(-1)!.t - 30_000
 }, 120_000)
 
-const mergeable = (i: Interaction) => i.kind !== 'miss'
-
 describe('feed on the full real fight', () => {
   it('has the size the review measured', () => {
     expect(analysis.interactions.length).toBeGreaterThan(50_000)
   })
 
   it('merged mode in the densest window: counts and totals equal an independent grouping of the 10 s slice', () => {
-    const slice = analysis.interactions.filter((i) => i.t <= dense && i.t > dense - windowMs && mergeable(i))
+    const slice = analysis.interactions.filter((i) => i.t <= dense && i.t > dense - windowMs)
     expect(slice.length).toBeGreaterThan(200)
     const expected = new Map<string, { count: number; total: number; lastT: number }>()
     for (const i of slice) {

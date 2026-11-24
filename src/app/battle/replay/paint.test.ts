@@ -34,7 +34,7 @@ describe('replay paint anchors', () => {
     const under = canvasProbe()
     const over = canvasProbe()
     const paint = makePainter(under.context, over.context, document.createElement('div'), () => {}).paint
-    const frame = { t: 500, selected: null, focusOnly: false, reducedMotion: false, playing: false }
+    const frame = { t: 800, selected: null, focusOnly: false, reducedMotion: false, playing: false }
     const present = new Set<EntityKey>(['char:1', 'char:2'])
     const moving = paint(layout, [edge], [], present, frame, 500, 400)
     const sourceMarker = moving.positions.get(source!)
@@ -69,7 +69,7 @@ it('clears temporary pulse rings as wall time advances at the same paused instan
   host.style.setProperty('--dur-edge-fade', '3s')
   const painter = makePainter(under.context, over.context, host, () => {})
   const present = new Set<EntityKey>(['char:1', 'char:2'])
-  const frame = { t: 500, selected: null, focusOnly: false, reducedMotion: false, playing: false, pausedElapsed: 0 }
+  const frame = { t: 800, selected: null, focusOnly: false, reducedMotion: false, playing: false, pausedElapsed: 0 }
   const initial = painter.paint(layout, [edge], [], present, frame, 500, 400)
   expect(under.probe.arc.mock.calls.some(([, , radius]) => radius > 10)).toBe(true)
 

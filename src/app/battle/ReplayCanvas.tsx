@@ -3,6 +3,7 @@ import type { EntityKey, Killmail } from '@/core/contract'
 import { sideOrder } from '../lib/sides'
 import { useBattleContext } from '../state/battle-store'
 import { usePlayback, useView } from '../state/view-store'
+import { ReplayNoiseControls, useNoiseFilteredAnalysis } from './replay/noise'
 import { ReplayStage } from './replay/ReplayStage'
 
 export interface ReplayCanvasProps {}
@@ -13,12 +14,13 @@ export function ReplayCanvas(_props: ReplayCanvasProps) {
   const { analysis, summary, status } = useBattleContext()
   const { selected, focusOnly, oursSide, select } = useView()
   const { t, playing } = usePlayback()
+  const visibleAnalysis = useNoiseFilteredAnalysis(analysis)
   const selectRef = useRef(select)
   useLayoutEffect(() => { selectRef.current = select }, [select])
   const selectPilot = useCallback((key: EntityKey) => selectRef.current(key), [])
   const order = useMemo(() => analysis ? sideOrder(analysis, oursSide) : [], [analysis, oursSide])
 
-  if (!analysis) {
+  if (!analysis || !visibleAnalysis) {
     return <div className="replay-status" role="status">{status === 'error' ? '无法加载回放' : '正在加载回放…'}</div>
   }
 
@@ -26,6 +28,6 @@ export function ReplayCanvas(_props: ReplayCanvasProps) {
     return <div className="replay-status" role="status">当前日志中没有战斗交互</div>
   }
 
-  return <ReplayStage analysis={analysis} killmails={summary?.meta.killmails ?? noKillmails}
+  return <ReplayStage analysis={visibleAnalysis} headerActions={<ReplayNoiseControls />} killmails={summary?.meta.killmails ?? noKillmails}
     order={order} select={selectPilot} t={t} playing={playing} selected={selected} focusOnly={focusOnly} />
 }

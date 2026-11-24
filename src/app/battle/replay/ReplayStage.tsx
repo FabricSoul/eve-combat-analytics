@@ -1,10 +1,13 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { Analysis, EntityKey, Killmail } from '@/core/contract'
 import { typeRenderUrl } from '@/app/lib/images'
 import { sideColor, sideLetter } from '@/app/lib/sides'
+import { maxZoom, minZoom, zoomStep } from './camera'
+import { useReplayCamera } from './useReplayCamera'
 import { Bracket } from '@/app/ui/Bracket'
 import { Portrait } from '@/app/ui/Portrait'
+import { InteractionKey } from './InteractionKey'
 import { useReplayKeyboard, type ReplayFocusTarget } from './keyboard'
 import { makePainter } from './paint'
 import type { ReplayFrame } from './paint'
@@ -17,6 +20,7 @@ import './replay.css'
 
 interface ReplayStageProps extends Omit<ReplayFrame, 'reducedMotion' | 'pausedElapsed'> {
   analysis: Analysis
+  headerActions?: ReactNode
   killmails: readonly Killmail[]
   order: readonly number[]
   select: (key: EntityKey) => void
@@ -82,8 +86,9 @@ function ReplayLegend({ analysis, order }: Pick<ReplayStageProps, 'analysis' | '
   )
 }
 
-export function ReplayStage({ analysis, killmails, order, select, t, playing, selected, focusOnly }: ReplayStageProps) {
+export function ReplayStage({ analysis, headerActions, killmails, order, select, t, playing, selected, focusOnly }: ReplayStageProps) {
   const host = useRef<HTMLDivElement>(null)
+  const { camera, zoom, reset, handlers } = useReplayCamera(host)
   const under = useRef<HTMLCanvasElement>(null)
   const over = useRef<HTMLCanvasElement>(null)
   const bracket = useRef<HTMLDivElement>(null)
@@ -102,7 +107,7 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
   const lockedKey = focused ?? selected
   const detailKey = inspected ?? focused ?? selected
   const detail = detailKey ? layout?.byKey.get(detailKey) : undefined
-  const frame = useRef({ t, playing, selected, focusOnly, detailKey, lockedKey })
+  const frame = useRef({ t, playing, selected, focusOnly, detailKey, lockedKey, camera })
   const pauseClock = useRef<{ t: number; playing: boolean; since: number } | null>(null)
 
   const register = useCallback((key: EntityKey, element: HTMLDivElement | null) => {
@@ -142,9 +147,8 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
     let animation: number | null = null
     let disposed = false
-    let lastLayoutTime: number | null = null
-    let lastLayoutSelection: EntityKey | null = null
-    let lastFocusOnly = false
+    let firstFrame = true
+    let paintedCamera = frame.current.camera
     let tooltipKey: EntityKey | null | undefined
     let tooltipWidth = 0
     let tooltipHeight = 0
@@ -172,8 +176,11 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
     function draw() {
       animation = null
       if (!layout) return
-      const { detailKey, lockedKey, ...current } = frame.current
-      const { t, playing, selected, focusOnly } = current
+      const { detailKey, lockedKey, camera, ...current } = frame.current
+      const { t, playing, selected } = current
+      const cameraChanged = paintedCamera !== camera
+      paintedCamera = camera
+      bracket.current?.toggleAttribute('data-camera-change', cameraChanged)
       const now = performance.now()
       let pause = pauseClock.current
       if (!pause || pause.t !== t || pause.playing !== playing) {
@@ -185,21 +192,6 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
       const recent = recentEngagement(scene.edges, t)
       const present = scene.visibleAt(t, selected, recent)
       const opponents = scene.recentOpponents(recent)
-      const membershipChanged = layout.setVisible(present)
-      const layoutTime = playing ? Math.floor(t / 250) * 250 : t
-      const firstFrame = lastLayoutTime === null
-      if (membershipChanged || layoutTime !== lastLayoutTime || selected !== lastLayoutSelection || focusOnly !== lastFocusOnly) {
-        const inheritedFrame = firstFrame && continued
-        layout.engage(scene.edges, t, selected, focusOnly, !inheritedFrame || playing)
-        // A live refresh starts from the current coordinates. Only a new viewport settles in a batch.
-        if (!inheritedFrame) layout.tick(firstFrame ? 145 : 1)
-        lastLayoutTime = layoutTime
-        lastLayoutSelection = selected
-        lastFocusOnly = focusOnly
-      } else if (!reducedMotion && layout.isMoving()) {
-        layout.tick()
-      }
-
       if (detailKey !== tooltipKey) {
         tooltipKey = detailKey
         tooltipWidth = tooltip.current?.offsetWidth ?? 0
@@ -207,9 +199,10 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
       }
 
       const live = painter.liveEdges(scene.edges, t)
+      layout.placeVisible(present, live)
       layout.placeUnassigned(present)
       const { related, positions, occupied, bounds, animating, burst } = painter.paint(
-        layout, live, scene.pointSpans, present, { ...current, reducedMotion, pausedElapsed }, width, height,
+        layout, live, scene.pointSpans, present, { ...current, reducedMotion, pausedElapsed }, width, height, camera,
       )
       let bursting = false
       const labels: { element: HTMLElement; node: ReplayNode; priority: number }[] = []
@@ -254,7 +247,8 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
         }
         const label = marker.querySelector<HTMLElement>('.replay-pilot-label')
         if (label) {
-          if (key === selected || key === detailKey || (height >= 420 && (node.entity.hasLog || opponents.has(key)))) {
+          const inView = x + node.radius > 0 && x - node.radius < width && y + node.radius > 0 && y - node.radius < height
+          if (inView && (key === selected || key === detailKey || (height >= 420 && (node.entity.hasLog || opponents.has(key))))) {
             labels.push({ element: label, node, priority: node.entity.hasLog ? 3 : key === selected ? 2 : key === detailKey ? 1 : 0 })
           } else label.removeAttribute('data-positioned')
         }
@@ -289,7 +283,8 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
         element.style.transform = `translate3d(${rect.x - center.x}px, ${rect.y - center.y}px, 0)`
         occupied.push(rect)
       }
-      if (!reducedMotion && (layout.isMoving() || (!playing && (animating || bursting)))) schedule()
+      firstFrame = false
+      if (!reducedMotion && !playing && (animating || bursting)) schedule()
     }
 
     draw()
@@ -303,14 +298,14 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
   }, [layout, scene, width, height, dpr, updateTargets])
 
   useLayoutEffect(() => {
-    frame.current = { t, playing, selected, focusOnly, detailKey, lockedKey }
+    frame.current = { t, playing, selected, focusOnly, detailKey, lockedKey, camera }
     invalidate.current()
-  }, [t, playing, selected, focusOnly, detailKey, lockedKey])
+  }, [t, playing, selected, focusOnly, detailKey, lockedKey, camera])
 
   const locked = lockedKey ? layout?.byKey.get(lockedKey) : undefined
 
   return (
-    <div ref={host} className="replay-stage">
+    <div ref={host} className="replay-stage" data-zoomed={camera.scale > 1 || undefined} {...handlers}>
       <canvas ref={under} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer" aria-hidden="true" />
       <div ref={toolbar} role="toolbar" aria-label="回放飞行员" tabIndex={-1}
         onFocus={onFocus} onBlur={onBlur} onKeyDown={onKeyDown}>
@@ -326,7 +321,18 @@ export function ReplayStage({ analysis, killmails, order, select, t, playing, se
           <Bracket />
         </div>
       )}
-      <ReplayLegend analysis={analysis} order={order} />
+      <div className="replay-header">
+        <ReplayLegend analysis={analysis} order={order} />
+        <div className="replay-header-actions">
+          <InteractionKey />
+          {headerActions}
+          <div className="replay-zoom" role="group" aria-label="回放缩放">
+            <button type="button" aria-label="缩小" disabled={camera.scale <= minZoom} onClick={() => zoom(1 / zoomStep)}>−</button>
+            <button type="button" aria-label="放大" disabled={camera.scale >= maxZoom} onClick={() => zoom(zoomStep)}>+</button>
+            <button type="button" onClick={reset}>适应全部</button>
+          </div>
+        </div>
+      </div>
       {detail && (
         <div ref={tooltip} className="replay-tooltip" role="tooltip">
           <Portrait charId={detail.entity.charId} size={32} />

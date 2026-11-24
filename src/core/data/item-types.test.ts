@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync, statSync } from 'node:fs'
-import { realLogTexts } from '../../../fixtures/real/j125990-20250622/load'
+import { realBattleStateWithBr, realLogTexts } from '../../../fixtures/real/j125990-20250622/load'
 import { parseGamelog } from '../log/parse'
-import { itemTypeId } from './item-types'
+import { itemTypeId, damageNoise, itemTypeGroup } from './item-types'
+import { analyze } from '../analysis/analyze'
 
 describe('item-types', () => {
   it('resolves known weapon/module names in English and Chinese to identical type IDs', () => {
@@ -94,4 +95,29 @@ describe('item-types', () => {
     expect(resolved.size).toBe(53)
     expect(resolutionRate).toBe(100)
   })
+})
+
+it('classifies combat drones, fighters and smartbombs from SDE groups in both languages', () => {
+  expect(itemTypeGroup('Warrior II')).toEqual({ groupId: 100, categoryId: 18 })
+  expect(damageNoise('Warrior II')).toBe('drones')
+  expect(damageNoise('武士 II*')).toBe('drones')
+  expect(damageNoise('Templar I')).toBe('drones')
+  expect(damageNoise('圣殿骑士 I*')).toBe('drones')
+  expect(itemTypeGroup('Federation Navy Large Plasma Smartbomb')).toEqual({ groupId: 72, categoryId: 7 })
+  expect(damageNoise('联邦海军大型等离子立体炸弹*')).toBe('smartbombs')
+  expect(damageNoise('Veles Supratidal Entropic Disintegrator')).toBeNull()
+  expect(damageNoise('unrecognized drone smartbomb')).toBeNull()
+})
+
+it('classifies drone and smartbomb interactions in the full J125990 analysis', () => {
+  const interactions = analyze(realBattleStateWithBr()).interactions
+  const counts = { drones: 0, smartbombs: 0 }
+  for (const { kind, weapon } of interactions) {
+    if (kind !== 'damage' || !weapon) continue
+    const group = damageNoise(weapon)
+    if (group) counts[group]++
+  }
+  console.log('Real damage interaction classifications:', counts)
+  expect(counts.drones).toBeGreaterThan(0)
+  expect(counts.smartbombs).toBeGreaterThan(0)
 })

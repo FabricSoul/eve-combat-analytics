@@ -3,7 +3,7 @@ import type { SimulationLinkDatum, SimulationNodeDatum } from 'd3-force'
 import type { Analysis, Entity, EntityKey, Interaction, Killmail } from '@/core/contract'
 import shipTypes from '@/core/data/ship-types.json'
 import { sideColor, sideLetter } from '@/app/lib/sides'
-import { interactionScales, sideAnchors, upperTimeIndex } from './layout-effects'
+import { interactionScales, sideAnchors } from './layout-effects'
 import { makePresence } from './presence'
 
 const shipById = new Map(shipTypes.map((ship) => [ship.id, ship]))
@@ -94,6 +94,7 @@ export function buildScene(analysis: Analysis, killmails: readonly Killmail[], o
 interface LayoutPositions {
   byKey: ReadonlyMap<EntityKey, ReplayNode>
   row: { slots: number; seats: ReadonlyMap<EntityKey, number> }
+  placed: ReadonlySet<EntityKey>
 }
 
 interface CombatLink extends SimulationLinkDatum<ReplayNode> {
@@ -122,7 +123,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   const byKey = new Map(nodes.map((node) => [node.entity.key, node]))
   const assigned = nodes.filter(({ entity }) => entity.side !== -1)
   let activeNodes: ReplayNode[] = []
-  let participating = new Set<ReplayNode>()
+  const placed = new Set<EntityKey>()
   const unassigned = nodes.filter(({ entity }) => entity.side === -1).map((node) => ({ node, radius: node.radius }))
   const bottomInset = unassigned.length ? 41 : 0
   const anchorFor = ({ entity }: ReplayNode) => anchors.get(entity.side) ?? anchors.get(-1)!
@@ -138,45 +139,49 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     .alphaDecay(0.032)
     .velocityDecay(0.35)
 
-  function tick(count = 1) {
-    simulation.tick(count)
-    for (const node of activeNodes) {
-      const inset = node.radius + 5
-      node.x = Math.max(inset, Math.min(width - inset, node.x))
-      node.y = Math.max(42 + inset, Math.min(height - inset - Math.max(bottomInset, node.labeled ? 20 : 8), node.y))
-    }
-  }
-
-  function setVisible(visible: ReadonlySet<EntityKey>) {
+  function placeVisible(visible: ReadonlySet<EntityKey>, live: readonly ReplayEdge[]) {
     const next = assigned.filter(({ entity }) => visible.has(entity.key))
     if (next.length === activeNodes.length && next.every((node, index) => node === activeNodes[index])) return false
-    for (const node of next) {
-      if (!participating.has(node)) node.vx = node.vy = 0
-    }
+
+    const survivors = new Set(activeNodes)
+    // The first batch after an analysis rebuild keeps coordinates from the previous scene.
+    if (!activeNodes.length) for (const node of next) if (placed.has(node.entity.key)) survivors.add(node)
+    const entrants = next.filter((node) => !survivors.has(node))
     activeNodes = next
-    participating = new Set(next)
-    // d3 reindexes the remaining objects in place. Clear links with outgoing endpoints first.
+    if (!entrants.length) return true
+
     links.links([])
     simulation.nodes(next)
-    return true
-  }
+    const pinned = next.filter((node) => survivors.has(node))
+    for (const node of pinned) {
+      node.fx = node.x
+      node.fy = node.y
+    }
+    for (const node of entrants) node.vx = node.vy = 0
 
-  function engage(edges: readonly ReplayEdge[], now: number, selected: EntityKey | null, focusOnly: boolean, reheat = true) {
     const pairs = new Map<string, CombatLink>()
-    const end = upperTimeIndex(edges, now)
-    for (let index = upperTimeIndex(edges, now - 4000); index < end; index++) {
-      const { from, to } = edges[index]!
-      if (from === to || (focusOnly && from !== selected && to !== selected)) continue
+    for (const { from, to } of live) {
+      if (from === to || !visible.has(from) || !visible.has(to)) continue
       const source = byKey.get(from)
       const target = byKey.get(to)
-      if (!source || !target || !participating.has(source) || !participating.has(target)) continue
+      if (!source || !target || source.entity.side === -1 || target.entity.side === -1) continue
       const key = `${source.ordinal}/${target.ordinal}`
       const pair = pairs.get(key)
       if (pair) pair.count++
       else pairs.set(key, { source, target, count: 1 })
     }
     links.links([...pairs.values()])
-    if (reheat) simulation.alpha(Math.max(simulation.alpha(), 0.2))
+    // Settle only the entering nodes, in one batch. Per-frame simulation drift is visible even while paused.
+    simulation.alpha(0.2).tick(pinned.length ? 70 : 145).alpha(0)
+    for (const node of pinned) node.fx = node.fy = null
+    for (const node of entrants) {
+      const inset = node.radius + 5
+      node.x = Math.max(inset, Math.min(width - inset, node.x))
+      node.y = Math.max(42 + inset, Math.min(height - inset - Math.max(bottomInset, node.labeled ? 20 : 8), node.y))
+      node.vx = node.vy = 0
+      placed.add(node.entity.key)
+    }
+    return true
   }
 
   const rowWidth = Math.max(0, width - 12)
@@ -192,13 +197,13 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
       if (prior && (prior.entity.side === -1) === (node.entity.side === -1)) {
         node.x = prior.x
         node.y = prior.y
+        if (previous.placed.has(node.entity.key)) placed.add(node.entity.key)
       }
     }
     row.slots = previous.row.slots
     for (const [key, seat] of previous.row.seats) {
       if (byKey.get(key)?.entity.side === -1) row.seats.set(key, seat)
     }
-    simulation.alpha(0)
   }
 
   function placeUnassigned(visible: ReadonlySet<EntityKey>) {
@@ -236,7 +241,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     }
   }
 
-  return { nodes, byKey, row, width, height, ours: order[0], tick, setVisible, engage, placeUnassigned, inheritPositions, isMoving: () => activeNodes.length > 0 && simulation.alpha() > 0.004 }
+  return { nodes, byKey, row, placed, width, height, ours: order[0], placeVisible, placeUnassigned, inheritPositions }
 }
 
 export type ReplayLayout = ReturnType<typeof makeLayout>

@@ -11,10 +11,20 @@ export type PanelTab = 'roster' | 'compare' | 'kills' | 'fit'
 export type PlaybackSpeed = 1 | 2 | 4 | 8
 export type TimeRange = readonly [from: number, to: number]
 
+const replayNoiseFilters = ['drones', 'smartbombs', 'small', 'misses'] as const
+export type ReplayNoiseFilter = typeof replayNoiseFilters[number]
+
+export function writeReplayNoise(params: URLSearchParams, filters: ReadonlySet<ReplayNoiseFilter>) {
+  const value = replayNoiseFilters.filter((filter) => filters.has(filter)).join(',')
+  if (value) params.set('hide', value)
+  else params.delete('hide')
+}
+
 interface UrlView {
   oursSide: number | null
   t: number | null
   selected: EntityKey | null
+  hiddenNoise: ReadonlySet<ReplayNoiseFilter>
 }
 
 interface PlaybackState {
@@ -29,6 +39,7 @@ interface ViewState {
   focusOnly: boolean
   oursSide: number
   layers: ReadonlySet<LayerId>
+  hiddenNoise: ReadonlySet<ReplayNoiseFilter>
   feedMode: FeedMode
   drawerTab: DrawerTab
   panelTab: PanelTab
@@ -42,6 +53,7 @@ interface ViewState {
   setFocusOnly(focus: boolean): void
   setOursSide(side: number): void
   toggleLayer(layer: LayerId): void
+  toggleNoiseFilter(filter: ReplayNoiseFilter): void
   setFeedMode(mode: FeedMode): void
   setDrawerTab(tab: DrawerTab): void
   setPanelTab(tab: PanelTab): void
@@ -59,10 +71,14 @@ function readSelection(value: string | null): EntityKey | null {
 
 function readView(): UrlView {
   const params = new URLSearchParams(window.location.search)
-  return { oursSide: readInteger(params.get('ours')), t: readInteger(params.get('t')), selected: readSelection(params.get('sel')) }
+  const hidden = new Set(params.get('hide')?.split(','))
+  return {
+    oursSide: readInteger(params.get('ours')), t: readInteger(params.get('t')), selected: readSelection(params.get('sel')),
+    hiddenNoise: new Set(replayNoiseFilters.filter((filter) => hidden.has(filter))),
+  }
 }
 
-const emptyUrlView: UrlView = { oursSide: null, t: null, selected: null }
+const emptyUrlView: UrlView = { oursSide: null, t: null, selected: null, hiddenNoise: new Set() }
 const defaultLayers: LayerId[] = ['dmgOurs', 'dmgTheirs', 'primary', 'kills']
 const ViewContext = createContext<ViewState | null>(null)
 const PlaybackContext = createContext<PlaybackState | null>(null)
@@ -84,6 +100,7 @@ export function ViewProvider({
   const [time, setTime] = useState(initialView.t)
   const [side, setSide] = useState(initialView.oursSide)
   const [selected, setSelected] = useState(initialView.selected)
+  const [hiddenNoise, setHiddenNoise] = useState(initialView.hiddenNoise)
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState<PlaybackSpeed>(1)
   const [range, saveRange] = useState<TimeRange | null>(null)
@@ -104,6 +121,7 @@ export function ViewProvider({
       setTime(view.t)
       setSide(view.oursSide)
       setSelected(view.selected)
+      setHiddenNoise(view.hiddenNoise)
       setFocusOnly(false)
       setPlaying(false)
     }
@@ -112,8 +130,11 @@ export function ViewProvider({
   }, [syncUrl])
 
   useEffect(() => {
-    if (!syncUrl || (playing && performance.now() - lastUrlWrite.current < 1000)) return
+    if (!syncUrl) return
     const url = new URL(window.location.href)
+    const oldNoise = url.searchParams.get('hide')
+    writeReplayNoise(url.searchParams, hiddenNoise)
+    if (oldNoise === url.searchParams.get('hide') && playing && performance.now() - lastUrlWrite.current < 1000) return
     const params = { ours: side, t: time, sel: selected }
     for (const [name, value] of Object.entries(params)) {
       const encoded = typeof value === 'number' ? String(Math.floor(value)) : value
@@ -129,7 +150,7 @@ export function ViewProvider({
         // Some browsers rate-limit history updates during rapid scrubbing.
       }
     }
-  }, [side, time, selected, playing, syncUrl])
+  }, [side, time, selected, hiddenNoise, playing, syncUrl])
 
   useEffect(() => {
     if (!playing) return
@@ -178,6 +199,12 @@ export function ViewProvider({
     else next.add(layer)
     return next
   }), [])
+  const toggleNoiseFilter = useCallback((filter: ReplayNoiseFilter) => setHiddenNoise((previous) => {
+    const next = new Set(previous)
+    if (next.has(filter)) next.delete(filter)
+    else next.add(filter)
+    return next
+  }), [])
   const oursSide = side ?? defaultSide
   const focused = selected !== null && focusOnly
   const value = useMemo<ViewState>(() => ({
@@ -187,6 +214,7 @@ export function ViewProvider({
     focusOnly: focused,
     oursSide,
     layers,
+    hiddenNoise,
     feedMode,
     drawerTab,
     panelTab,
@@ -200,11 +228,12 @@ export function ViewProvider({
     setFocusOnly,
     setOursSide,
     toggleLayer,
+    toggleNoiseFilter,
     setFeedMode,
     setDrawerTab,
     setPanelTab,
-  }), [speed, range, selected, focused, oursSide, layers, feedMode, drawerTab, panelTab,
-    getTime, seek, play, pause, setRange, select, setOursSide, toggleLayer])
+  }), [speed, range, selected, focused, oursSide, layers, hiddenNoise, feedMode, drawerTab, panelTab,
+    getTime, seek, play, pause, setRange, select, setOursSide, toggleLayer, toggleNoiseFilter])
   const playback = useMemo(() => ({ t, playing }), [t, playing])
   const coarseTime = playing ? Math.floor(t / coarseInterval) * coarseInterval : t
   const coarsePlayback = useMemo(() => ({ t: coarseTime, playing }), [coarseTime, playing])

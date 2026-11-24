@@ -1,6 +1,7 @@
 """Export weapon, module, charge, drone and fighter type names (en + zh) from pyfa's eve.db.
 
-Usage: python3 etl/item_types.py <path/to/eve.db> src/core/data/item-types.json
+Usage: python3 etl/item_types.py <path/to/eve.db> src/core/data/item-types.json [--groups-only]
+Use --groups-only with an English-only database to retain existing localized names.
 Categories: 7 modules, 8 charges, 18 drones, 87 fighters, 22 deployables, 66 structure modules, 23 starbase, 32 subsystems.
 Source data: CCP's static data as packaged by pyfa (GPLv3); EVE names are CCP's property.
 """
@@ -12,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 db = sys.argv[1] if len(sys.argv) > 1 else str(ROOT / "build" / "eve.db")
-out = sys.argv[2] if len(sys.argv) > 2 else str(ROOT / "src" / "core" / "data" / "item-types.json")
+out = Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / "src" / "core" / "data" / "item-types.json"
 
 # Small verified alias table: normalized name -> pinned type ID.
 # Ambiguous names (mapping to multiple type IDs after normalization) are dropped from export
@@ -38,7 +39,29 @@ def normalize(s: str) -> str:
     )
 
 
+def export_groups(c: sqlite3.Connection, ids: set[int]) -> None:
+    groups: dict[tuple[int, int], list[int]] = defaultdict(list)
+    for type_id, group, category in c.execute(
+        """select t.typeID, g.groupID, g.categoryID
+           from invtypes t join invgroups g on g.groupID = t.groupID order by t.typeID"""
+    ):
+        if type_id in ids:
+            groups[group, category].append(type_id)
+            ids.remove(type_id)
+    if ids:
+        raise ValueError(f"Item IDs missing group metadata: {sorted(ids)}")
+    group_out = out.with_name(f"{out.stem}-groups.json")
+    with group_out.open("w", encoding="utf-8") as f:
+        json.dump([[group, category, items] for (group, category), items in sorted(groups.items())],
+                  f, separators=(",", ":"))
+    print(f"Exported {len(groups)} groups to {group_out}")
+
+
 c = sqlite3.connect(db)
+if "--groups-only" in sys.argv[3:]:
+    export_groups(c, {item[0] for item in json.loads(out.read_text(encoding="utf-8"))})
+    sys.exit()
+
 rows = c.execute(
     """select t.typeID, t.typeName, t.typeName_zh
        from invtypes t join invgroups g on g.groupID = t.groupID
@@ -97,3 +120,5 @@ with open(out, "w", encoding="utf-8") as f:
     json.dump(types, f, ensure_ascii=False, separators=(",", ":"))
 
 print(f"Exported {len(types)} item types to {out}")
+
+export_groups(c, {item[0] for item in types})

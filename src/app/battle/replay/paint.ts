@@ -1,11 +1,16 @@
-import type { EntityKey, EwarSpan } from '@/core/contract'
+import type { EntityKey, EwarSpan, HitQuality } from '@/core/contract'
 import { fmtNum } from '@/app/lib/format'
 import { typeIconUrl } from '@/app/lib/images'
-import { impactShake, interactionWindow, tracerWidth } from './layout-effects'
+import { initialCamera, projectPoint } from './camera'
+import { impactShake, interactionWindow } from './layout-effects'
 import type { Point } from './layout-effects'
+import { hitTracerStyle } from './hit-quality'
+import { projectileAt, projectilePerPair, shotTravelMs } from './projectile'
 import { placeAnnotation } from './placement'
 import type { Rect } from './placement'
 import type { ReplayEdge, ReplayLayout, ReplayNode } from './scene'
+
+export type ReplaySample = { quality: HitQuality } | 'damage' | 'miss' | 'repair' | 'neut' | 'point' | 'kill' | 'shake'
 
 export interface ReplayFrame {
   t: number
@@ -18,11 +23,12 @@ export interface ReplayFrame {
 
 interface Line {
   edge: ReplayEdge
-  source: ReplayNode
-  target: ReplayNode
+  source: Point & { color: string }
+  target: Point & { radius: number }
   age: number
   opacity: number
   color: string
+  style: ReturnType<typeof hitTracerStyle>
 }
 
 interface Impact {
@@ -32,9 +38,8 @@ interface Impact {
   color: string
 }
 
-const drawRank = { damage: 0, repair: 1, neut: 2, nos: 2, ewar: 3, miss: 4 }
 const tau = 2 * Math.PI
-const impactDelay = 350
+const impactDelay = shotTravelMs
 
 export function makePainter(
   under: CanvasRenderingContext2D, over: CanvasRenderingContext2D, host: HTMLElement, invalidate: () => void,
@@ -48,7 +53,7 @@ export function makePainter(
 
   function refreshTokens() {
     const style = getComputedStyle(host)
-    for (const name of ['side-0', 'side-1', 'side-2', 'side-n', 'repair', 'text', 'text-2', 'text-3', 'accent-line', 'bg', 'raised']) {
+    for (const name of ['side-0', 'side-1', 'side-2', 'side-n', 'repair', 'text', 'text-2', 'text-3', 'accent-line', 'bg', 'raised', 'surface', 'dead']) {
       colors.set(`var(--color-${name})`, style.getPropertyValue(`--color-${name}`).trim())
     }
     font = style.getPropertyValue('--font-ui').trim()
@@ -63,8 +68,11 @@ export function makePainter(
   }
 
   const color = (name: string) => colors.get(`var(--color-${name})`) ?? ''
-  const edgeColor = (edge: ReplayEdge, source: ReplayNode) => {
-    if (edge.kind === 'damage') return colors.get(source.color) ?? color('side-n')
+  const edgeColor = (edge: ReplayEdge, source: Pick<ReplayNode, 'color'>, sideShare: number) => {
+    if (edge.kind === 'damage' || edge.kind === 'miss') {
+      const side = colors.get(source.color) || color('side-n')
+      return sideShare === 100 ? side : `color-mix(in srgb, ${side} ${sideShare}%, ${color('surface')})`
+    }
     if (edge.kind === 'repair') return color('repair')
     return color('text-3')
   }
@@ -118,7 +126,7 @@ export function makePainter(
       }
     }
     under.lineTo(x + dx * to, y + dy * to)
-    under.setLineDash(kind === 'repair' ? [5, 3] : kind === 'ewar' || kind === 'miss' ? [2, 4] : [])
+    under.setLineDash(line.style.dash)
     under.lineWidth = width
     under.lineCap = 'round'
     under.strokeStyle = line.color
@@ -127,49 +135,73 @@ export function makePainter(
     under.setLineDash([])
   }
 
-  function drawLine(line: Line, source: Point, target: Point, reducedMotion: boolean, pausedElapsed: number) {
-    const { edge, opacity, age } = line
-    const width = edge.amount > 0 ? tracerWidth(edge.strength) : 1.25
+  function pathEnd(line: Line, source: Point, target: Point) {
+    if (line.edge.kind !== 'miss') return line.style.end
+    const distance = Math.hypot(target.x - source.x, target.y - source.y) || 1
+    return Math.max(0, Math.min(line.style.end, 1 - (line.target.radius + 7) / distance))
+  }
+
+  function drawLine(line: Line, source: Point, target: Point, end: number, reducedMotion: boolean, pausedElapsed: number) {
+    if (!end) return
+    const { edge, opacity, age, style } = line
+    const width = edge.amount > 0 || edge.kind === 'miss' ? style.width : 1.25
     const entrance = reducedMotion ? 1 : Math.min(1, 0.18 + age / appear)
     const trailAlpha = reducedMotion ? 0.42 : (1 - age / fade) * entrance * 0.24
-    strokeLine(line, source, target, 0, 1, opacity * trailAlpha, 0.6 + width * 0.35)
+    if (edge.kind === 'miss') {
+      strokeLine(line, source, target, 0, end, opacity * Math.max(trailAlpha, (1 - age / fade) * 0.65), width)
+      return
+    }
+    strokeLine(line, source, target, 0, end, opacity * trailAlpha, 0.6 + width * 0.35)
 
     const effectAge = age + pausedElapsed
-    const travel = effectAge / 650
+    const travel = effectAge / shotTravelMs
     if (!reducedMotion && effectAge < fade && travel < 1 && opacity > 0.2) {
       const from = Math.max(0, travel - 0.35)
       const capDrain = edge.kind === 'neut' || edge.kind === 'nos'
       strokeLine(line, source, target, capDrain ? 1 - travel : from, capDrain ? 1 - from : travel, opacity * entrance, width)
-      const head = capDrain ? 1 - travel : travel
-      under.beginPath()
-      under.arc(source.x + (target.x - source.x) * head, source.y + (target.y - source.y) * head, 2.5, 0, tau)
-      under.fillStyle = line.color
-      under.fill()
     }
   }
 
-  function drawModule(line: Line, source: Point, target: Point, count: number, reducedMotion: boolean): Rect | null {
-    const { age, edge, opacity } = line
-    if (!edge.weapon) return null
-    const x = (source.x + target.x) / 2
-    const y = (source.y + target.y) / 2 - 10 - 13 * count
-    const icon = moduleIcon(edge.weapon)
-    if (icon === undefined) return null
-    under.globalAlpha = opacity * (reducedMotion ? 1 : Math.min(1, (1350 - age) / 420))
+  function drawProjectile(
+    line: Line, source: Point, target: Point, end: number, reducedMotion: boolean, elapsed: number,
+  ): Rect | null {
+    const { edge, age, opacity } = line
+    const effectAge = age + (reducedMotion ? 0 : elapsed)
+    if (!end || effectAge >= fade || opacity < 0.25) return null
+    const { position: { x, y }, head, continuous } = projectileAt(edge.kind, source, target, effectAge, reducedMotion, end)
+    const icon = edge.weapon ? moduleIcon(edge.weapon) : null
+    const inFlight = !continuous && effectAge < shotTravelMs
+    const alpha = opacity * (reducedMotion ? 0.9 : Math.min(1, (1 - effectAge / fade) * 1.35))
+    if (!reducedMotion && inFlight) {
+      const lead = Math.min(end, head + 0.035)
+      over.beginPath()
+      over.arc(source.x + (target.x - source.x) * lead, source.y + (target.y - source.y) * lead, icon ? 2 : 2.5, 0, tau)
+      over.globalAlpha = alpha
+      over.fillStyle = line.color
+      over.shadowColor = line.color
+      over.shadowBlur = 6
+      over.fill()
+      over.shadowBlur = 0
+    }
+    if (!edge.weapon || icon === undefined) return null
+
+    over.globalAlpha = alpha
     if (icon) {
-      under.drawImage(icon, x - 9, y - 9, 18, 18)
+      over.drawImage(icon, x - 9, y - 9, 18, 18)
       return { x: x - 9, y: y - 9, width: 18, height: 18 }
     }
     const clipped = edge.weapon.length > 27 ? edge.weapon.slice(0, 26) + '…' : edge.weapon
-    under.font = `11px ${font}`
-    under.textAlign = 'center'
-    under.lineWidth = 3
-    under.strokeStyle = color('bg')
-    under.fillStyle = color('text-2')
-    under.strokeText(clipped, x, y)
-    under.fillText(clipped, x, y)
-    const width = under.measureText(clipped).width + 3
-    return { x: x - width / 2, y: y - 12, width, height: 15 }
+    const labelY = y - 8
+    over.font = `11px ${font}`
+    over.textAlign = 'center'
+    over.textBaseline = 'alphabetic'
+    over.lineWidth = 3
+    over.strokeStyle = color('bg')
+    over.fillStyle = color('text-2')
+    over.strokeText(clipped, x, labelY)
+    over.fillText(clipped, x, labelY)
+    const width = over.measureText(clipped).width + 3
+    return { x: x - width / 2, y: labelY - 12, width, height: 15 }
   }
 
   function drawImpact(
@@ -214,6 +246,18 @@ export function makePainter(
     occupied.push(rect)
   }
 
+  function drawPoint(position: Point, radius: number, opacity: number, age: number) {
+    const angle = (age % 2400) / 2400 * tau
+    under.setLineDash([3, 4])
+    ring(under, position.x, position.y, radius + 7, color('text'), 1.5, opacity, [angle, angle + tau])
+    under.setLineDash([])
+  }
+
+  function hitOffset(age: number, ordinal: number, shake: number) {
+    const phase = (age % 1000) * 0.24 + ordinal
+    return { x: Math.sin(phase) * shake, y: Math.cos(phase * 1.3) * shake }
+  }
+
   function burst({ x, y }: Point, radius: number, age: number) {
     if (age >= Math.min(fade, 920)) return false
     for (let index = 0; index < 3; index++) {
@@ -233,14 +277,14 @@ export function makePainter(
 
   function paint(
     layout: ReplayLayout, live: readonly ReplayEdge[], pointSpans: readonly EwarSpan[],
-    present: ReadonlySet<EntityKey>, frame: ReplayFrame, width: number, height: number,
+    present: ReadonlySet<EntityKey>, frame: ReplayFrame, width: number, height: number, camera = initialCamera,
   ) {
     under.clearRect(0, 0, width, height)
     over.clearRect(0, 0, width, height)
     const { t, selected, focusOnly, reducedMotion, pausedElapsed = 0 } = frame
     let animating = false
     const related = new Set<EntityKey>()
-    const lines = new Map<string, Line>()
+    const lines = new Map<string, Line & { source: ReplayNode; target: ReplayNode }>()
     const impacts = new Map<ReplayNode, Map<ReplayEdge['kind'], Impact>>()
     const shakes = new Map<ReplayNode, number>()
     const points = new Map<ReplayNode, number>()
@@ -257,16 +301,18 @@ export function makePainter(
       }
       const age = t - edge.t
       const opacity = selected === null || highlighted ? 1 : 0.15
-      const tone = edgeColor(edge, source)
-      const line = { edge, source, target, age, opacity, color: tone }
+      const style = hitTracerStyle(edge.kind, edge.quality, edge.strength)
+      const tone = edgeColor(edge, source, style.sideShare)
+      const line = { edge, source, target, age, opacity, color: tone, style }
       const key = `${source.ordinal}:${target.ordinal}:${edge.kind}`
       const previous = lines.get(key)
       // Coincident paths share a tracer so the same pixels don't stack to full opacity.
       if (!previous || previous.age !== age || previous.edge.strength < edge.strength) lines.set(key, line)
       const effectAge = age + pausedElapsed
       if (reducedMotion || effectAge >= fade) continue
-      if (source !== target && effectAge < 650 && opacity > 0.2) animating = true
-      if (edge.kind === 'damage') {
+      if (source !== target && opacity > 0.2 && (effectAge < shotTravelMs || edge.weapon)) animating = true
+      if (edge.kind === 'miss') continue
+      if (style.shakesTarget) {
         const shake = impactShake(edge.strength, effectAge - impactDelay, false) * opacity
         if (shake > (shakes.get(target) ?? 0)) shakes.set(target, shake)
       }
@@ -308,42 +354,34 @@ export function makePainter(
       if (!present.has(key)) continue
       if (focusOnly && selected !== key && !related.has(key)) continue
       const shake = shakes.get(node) ?? 0
-      const phase = ((t + pausedElapsed) % 1000) * 0.24 + node.ordinal
-      const x = node.x + Math.sin(phase) * shake
-      const y = node.y + Math.cos(phase * 1.3) * shake
+      const offset = hitOffset(t + pausedElapsed, node.ordinal, shake)
+      const projected = projectPoint(camera, node)
+      const x = projected.x + offset.x
+      const y = projected.y + offset.y
       positions.set(node, { x, y })
       const inset = node.radius + 2
       occupied.push({ x: x - inset, y: y - inset, width: inset * 2 + (node.letter ? 7 : 0), height: inset * 2 })
     }
 
-    const moduleRows = new Map<string, number>()
+    const projectiles: { from: string; to: string; age: number; line: Line; source: Point; target: Point; end: number }[] = []
     for (const line of lines.values()) {
       if (line.source === line.target) continue
       const source = positions.get(line.source)
       const target = positions.get(line.target)
       if (!source || !target) continue
-      drawLine(line, source, target, reducedMotion, pausedElapsed)
+      const end = pathEnd(line, source, target)
+      drawLine(line, source, target, end, reducedMotion, pausedElapsed)
+      projectiles.push({ from: line.edge.from, to: line.edge.to, age: line.age, line, source, target, end })
     }
-    // Paint module icons after the tracers so crossing lines do not cover them.
-    for (const line of [...lines.values()].sort((a, b) => drawRank[a.edge.kind] - drawRank[b.edge.kind])) {
-      if (!line.edge.weapon || line.source === line.target || line.age > (reducedMotion ? fade : 1350) || line.opacity < 0.25) continue
-      const source = positions.get(line.source)
-      const target = positions.get(line.target)
-      if (!source || !target) continue
-      const key = `${line.source.ordinal}:${line.target.ordinal}`
-      const row = moduleRows.get(key) ?? 0
-      const rect = drawModule(line, source, target, row, reducedMotion)
+    for (const { line, source, target, end } of projectilePerPair(projectiles)) {
+      const rect = drawProjectile(line, source, target, end, reducedMotion, pausedElapsed)
       if (rect) occupied.push(rect)
-      moduleRows.set(key, row + 1)
     }
 
     for (const [node, opacity] of points) {
       const position = positions.get(node)
       if (!position) continue
-      const angle = (t % 2400) / 2400 * tau
-      under.setLineDash([3, 4])
-      ring(under, position.x, position.y, node.radius + 7, color('text'), 1.5, opacity, [angle, angle + tau])
-      under.setLineDash([])
+      drawPoint(position, node.radius, opacity, t)
     }
 
     for (const [node, effects] of impacts) {
@@ -358,6 +396,51 @@ export function makePainter(
     return { related, positions, occupied, bounds, animating, burst: reducedMotion ? null : burst }
   }
 
+  // Synthetic timings and amounts illustrate the same effects the replay paints.
+  function paintSample(kind: ReplaySample, width: number, height: number, elapsed: number, reducedMotion: boolean) {
+    under.clearRect(0, 0, width, height)
+    const damage = typeof kind === 'object'
+    const interactionKind = damage ? 'damage' : kind === 'point' ? 'ewar' : kind === 'kill' || kind === 'shake' ? 'damage' : kind
+    const source = { x: 8, y: height / 2 }
+    const target = { x: width - 26, y: height / 2 }
+    const radius = 5
+    if (kind === 'kill') {
+      ring(under, target.x, target.y, radius, color('dead'), 2, 1)
+      burst(target, radius, reducedMotion ? 210 : elapsed % 950)
+      return
+    }
+    const quality = damage ? kind.quality : null
+    const weapon = kind === 'damage' || kind === 'miss' ? 'Veles Supratidal Entropic Disintegrator'
+      : kind === 'repair' ? 'Large Remote Armor Repairer II'
+        : kind === 'point' ? 'Warp Scrambler II' : kind === 'neut' ? 'Heavy Energy Neutralizer II' : null
+    const edge: ReplayEdge = {
+      t: 0, from: 'char:1', to: 'char:2', kind: interactionKind, quality, weapon,
+      repairType: null, ewar: null, sources: [], corroborated: false,
+      amount: interactionKind === 'miss' ? 0 : 124, strength: 0.6,
+    }
+    const style = hitTracerStyle(interactionKind, quality, edge.strength)
+    const shooter = { ...source, radius, color: 'var(--color-side-0)' }
+    const tone = edgeColor(edge, shooter, style.sideShare)
+    const age = damage ? 250 : reducedMotion ? 250 : elapsed % 1600
+    if (kind === 'shake') {
+      const offset = hitOffset(age, 0, impactShake(edge.strength, age - impactDelay, reducedMotion))
+      target.x += offset.x
+      target.y += offset.y
+    }
+    const line: Line = { edge, source: shooter, target: { ...target, radius }, age, opacity: 1, style, color: tone }
+    const end = pathEnd(line, source, target)
+    if (damage) strokeLine(line, source, target, 0, 1, 1, style.width)
+    else drawLine(line, source, target, end, reducedMotion, 0)
+    ring(under, source.x, source.y, radius, color('side-0'), 1.5, 1)
+    ring(under, target.x, target.y, radius, color('side-1'), 1.5, 1)
+    if (kind === 'point') drawPoint(target, radius, 1, reducedMotion ? 0 : elapsed)
+    if (weapon) drawProjectile(line, source, target, end, reducedMotion, 0)
+    if (kind === 'repair' || kind === 'neut') {
+      const bounds = { x: 0, y: 0, width, height }
+      drawImpact(target, radius, { edge, age: reducedMotion ? 150 : age % 700, opacity: 1, color: tone }, 0, bounds, [])
+    }
+  }
+
   refreshTokens()
-  return { paint, liveEdges, refreshTokens }
+  return { paint, liveEdges, refreshTokens, paintSample }
 }

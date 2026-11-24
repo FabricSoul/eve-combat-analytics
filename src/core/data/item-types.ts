@@ -1,4 +1,5 @@
 import itemTypes from './item-types.json'
+import itemTypeGroups from './item-types-groups.json'
 
 type ItemTuple = [id: number, en: string, zh: string | null]
 
@@ -49,4 +50,27 @@ export function itemTypeId(name: string): number | null {
 export function isItemTypeName(name: string): boolean {
   const key = normalize(name)
   return typeIds.has(key) || ambiguous.has(key)
+}
+
+interface ItemTypeGroup {
+  groupId: number
+  categoryId: number
+}
+
+const groupsByType = new Map<number, ItemTypeGroup>()
+for (const [groupId, categoryId, ids] of itemTypeGroups as [number, number, number[]][]) {
+  const group = { groupId, categoryId }
+  for (const id of ids) groupsByType.set(id, group)
+}
+
+export function itemTypeGroup(name: string): Readonly<ItemTypeGroup> | null {
+  const typeId = itemTypeId(name)
+  return typeId === null ? null : groupsByType.get(typeId) ?? null
+}
+
+export function damageNoise(name: string): 'drones' | 'smartbombs' | null {
+  const group = itemTypeGroup(name)
+  if (!group) return null
+  if (group.categoryId === 18 || group.categoryId === 87) return 'drones'
+  return group.groupId === 72 ? 'smartbombs' : null
 }
