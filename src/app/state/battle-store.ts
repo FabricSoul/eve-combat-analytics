@@ -40,6 +40,8 @@ function applyMessage(summary: BattleSummary, message: Exclude<ServerMessage, { 
         fits: [...summary.fits.filter(({ charId }) => charId !== message.fit.charId), message.fit]
           .sort((a, b) => a.charId - b.charId),
       }
+    case 'fit_removed':
+      return { ...summary, fits: summary.fits.filter(({ charId }) => charId !== message.charId) }
     case 'sides_set':
       return { ...summary, sideOverrides: message.overrides }
     case 'identities_set':

@@ -310,6 +310,7 @@ export interface ApiError {
  * GET  /api/battles/:brId/logs/:logId                       → UploadedLog    (immutable: cache forever; for "show source line")
  * POST /api/battles/:brId/logs      body: raw Gamelog text  → UploadResult  (duplicate: true when this exact file was already stored)
  * PUT  /api/battles/:brId/fits/:charId body: EFT text (≤ 64 KiB) → FitEntry
+ * DELETE /api/battles/:brId/fits/:charId                    → { removed: charId }  (undo of a fit save; broadcasts fit_removed)
  * PUT  /api/battles/:brId/sides     body SideEdit            → SideOverride (numeric side in the response)
  * PUT  /api/battles/:brId/identities body { from: EntityKey; to: `char:${number}` | null } → IdentityMerge | { removed: EntityKey }
  * 'new' allocates the next side up to index 7, or returns 400 bad_request when there is no room.
@@ -379,6 +380,7 @@ export type ServerMessage =
   /** metaNames contains newly resolved character, corporation, and alliance names keyed by ID. */
   | { type: 'log_added'; log: UploadedLogSummary; names: NameIndex; metaNames?: BattleMeta['names'] }
   | { type: 'fit_set'; fit: FitEntry }
+  | { type: 'fit_removed'; charId: number }
   | { type: 'sides_set'; overrides: SideOverride[] }
   | { type: 'identities_set'; merges: IdentityMerge[] }
   /** A new analysis is ready; clients refetch GET /analysis. */
