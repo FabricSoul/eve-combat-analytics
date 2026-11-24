@@ -104,7 +104,7 @@ export function indexSideAssignments(state: SideAssignmentInput) {
 
 interface SideEvidence {
   charId: number
-  logIds: Set<string>
+  logIds: Set<string> | null
   uploadedAt: number
   repairs: number[]
   damage: number[]
@@ -116,38 +116,50 @@ function evidenceSide(counts: number[], minimum: number): number {
 }
 
 export function deriveSideOverrides(
-  state: BattleState, interactions: Interaction[], entities: Map<EntityKey, Entity>, sides: SideAssignments, teamCount: number,
+  state: BattleState, interactions: Interaction[], entities: Map<EntityKey, Entity>, sides: SideAssignments, teamCount: number, source: 'own' | 'observed' = 'own',
 ): SideOverride[] {
   if (teamCount < 2) return []
   const binaryBr = state.meta.teams.length === 2
 
   const evidence = new Map<EntityKey, SideEvidence>()
-  for (const { id, charId, uploadedAt } of state.logs) {
-    const { sideSource } = assignedSide(sides, charId)
-    if (sideSource === 'manual' || sideSource === 'log') continue
-    const key = charKey(charId)
-    const existing = evidence.get(key)
-    if (existing) {
-      existing.logIds.add(id)
-      existing.uploadedAt = Math.max(existing.uploadedAt, uploadedAt)
-    } else {
-      evidence.set(key, {
-        charId, logIds: new Set([id]), uploadedAt,
-        repairs: Array<number>(teamCount).fill(0), damage: binaryBr ? [0, 0] : [],
-      })
+  const createEvidence = (charId: number, logIds: Set<string> | null, uploadedAt: number): SideEvidence => ({
+    charId, logIds, uploadedAt, repairs: Array<number>(teamCount).fill(0), damage: binaryBr ? [0, 0] : [],
+  })
+  if (source === 'own') {
+    for (const { id, charId, uploadedAt } of state.logs) {
+      const { sideSource } = assignedSide(sides, charId)
+      if (sideSource === 'manual' || sideSource === 'log') continue
+      const key = charKey(charId)
+      const existing = evidence.get(key)
+      if (existing) {
+        existing.logIds!.add(id)
+        existing.uploadedAt = Math.max(existing.uploadedAt, uploadedAt)
+      } else evidence.set(key, createEvidence(charId, new Set([id]), uploadedAt))
+    }
+  } else {
+    for (const { key, charId, side, hasLog, sideSource } of entities.values()) {
+      // Indirect evidence places unassigned characters. A known affiliation
+      // is retained unless an uploader's own evidence can overturn it.
+      if (charId !== null && !hasLog && side < 0 && sideSource !== 'manual') {
+        evidence.set(key, createEvidence(charId, null, 0))
+      }
     }
   }
   if (evidence.size === 0) return []
 
-  for (const { kind, from, to, sources } of interactions) {
+  for (const { kind, from, to, sources, t } of interactions) {
     if (kind !== 'repair' && (kind !== 'damage' || !binaryBr)) continue
-    const own = evidence.get(from)
-    if (!own || from === to || !sources.some(({ logId }) => own.logIds.has(logId))) continue
-    const { side, sideSource } = entities.get(to)!
-    const counts = kind === 'repair' ? own.repairs : own.damage
+    const witness = evidence.get(from)
+    if (!witness || from === to) continue
+    const { side, sideSource, hasLog } = entities.get(to)!
+    if (witness.logIds) {
+      if (sideSource === 'log' || !sources.some(({ logId }) => witness.logIds!.has(logId))) continue
+    } else if (!hasLog) continue
+    const counts = kind === 'repair' ? witness.repairs : witness.damage
     // Override-only sides can supply repair evidence, but are outside the BR damage pair.
-    if (side < 0 || side >= counts.length || sideSource === 'unknown' || sideSource === 'log') continue
+    if (side < 0 || side >= counts.length || sideSource === 'unknown') continue
     counts[side] = counts[side]! + 1
+    if (!witness.logIds) witness.uploadedAt = t
   }
 
   const overrides: SideOverride[] = []

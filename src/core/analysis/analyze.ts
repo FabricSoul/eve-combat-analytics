@@ -46,6 +46,12 @@ export const analyze: Analyze = (state) => {
     entities.clear()
     interactions = collectInteractions(state, entities, assignments)
   }
+  const observed = deriveSideOverrides(state, interactions, entities, assignments, sideCount, 'observed')
+  if (observed.length) {
+    sideOverrides.push(...observed)
+    entities.clear()
+    interactions = collectInteractions(state, entities, assignments)
+  }
   const { totals, deaths, firstKill } = indexKillmails(state.meta, entities, assignments)
   const ewarSpans = collectEwarSpans(interactions)
   const coverage = collectCoverage(entities, sideCount)

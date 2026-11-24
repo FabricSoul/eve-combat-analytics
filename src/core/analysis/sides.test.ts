@@ -165,3 +165,31 @@ it.each([0, 1])('keeps original side %i when qualifying repair and damage eviden
   expect(result.entities['char:1']).toMatchObject({ side, sideSource: 'esi' })
   expect(result.sideOverrides).toEqual([])
 })
+
+it('infers unassigned pilots from damage or repairs witnessed by uploaders and honors manual and BR membership', () => {
+  const incoming = (kind: 'damage' | 'repair', name: string, count: number, start: number) =>
+    Array.from({ length: count }, (_, i) => kind === 'damage'
+      ? hit(start + i, name, 10, { dir: 'in' })
+      : event(start + i, name, { kind: 'repair', dir: 'in', amount: 10, repairType: 'armor', module: null }))
+  const state = battle([log(1, 'Ace', 0, [
+    ...incoming('damage', 'Shooter', 50, 0), ...incoming('repair', 'Healer', 20, 50),
+    ...incoming('damage', 'Manual', 50, 70), ...incoming('damage', 'Historical', 50, 120),
+    ...incoming('damage', 'Too few', 49, 170),
+  ])], [kill(1, 1, pilot(10, 100, 1000), [])])
+  state.names = {
+    Shooter: { charId: 7, side: -1 }, Healer: { charId: 8, side: -1 },
+    Manual: { charId: 9, side: -1 }, Historical: { charId: 10, side: -1 },
+    'Too few': { charId: 11, side: -1 },
+  }
+  state.sideOverrides = [manual('char:9', 0, 0)]
+  const result = analyze(state)
+  expect(result.sideOverrides).toMatchObject([
+    { subject: 'char:7', side: 1, source: 'log', reason: 'repaired side 1: 0 events, damaged side 0: 50 events' },
+    { subject: 'char:8', side: 0, source: 'log', reason: 'repaired side 0: 20 events, damaged side 1: 0 events' },
+  ])
+  expect(result.entities).toMatchObject({
+    'char:9': { side: 0, sideSource: 'manual' },
+    'char:10': { side: 0, sideSource: 'br' },
+    'char:11': { side: -1 },
+  })
+})

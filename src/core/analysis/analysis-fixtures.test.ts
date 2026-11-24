@@ -45,19 +45,34 @@ it('identity coverage on the real J125990 fight (fixtures/real/j125990-20250622)
   expect(r.withSwitchAfterKill).toBeGreaterThanOrEqual(12)
 }, 60_000)
 
-it('corrects only Lucinda HIly in the owner-generated J125990 battle report', () => {
+it('corrects only Lucinda HIly among uploaders in the owner-generated J125990 battle report', () => {
   const state = realBattleStateWithBr()
   const result = analyze(state)
   const lucinda = 2117427381
   expect(state.logs.find(({ charId }) => charId === lucinda)?.side).toBe(0)
   expect(result.entities[`char:${lucinda}`]).toMatchObject({ side: 1, sideSource: 'log' })
-  expect(result.sideOverrides).toEqual([
+  expect(result.sideOverrides.filter(({ subject }) => result.entities[subject as `char:${number}`]?.hasLog)).toEqual([
     expect.objectContaining({ subject: `char:${lucinda}`, side: 1, source: 'log' }),
   ])
   const otherUploaders = state.logs.filter(({ charId }) => charId !== lucinda)
   for (const { charId, side } of otherUploaders) expect(result.entities[`char:${charId}`]?.side).toBe(side)
   expect([...new Set(otherUploaders.filter(({ side }) => side >= 0).map(({ side }) => side))]).toEqual([1])
   console.info('J125990 log side corrections', result.sideOverrides)
+}, 60_000)
+
+it('assigns previously unplaced J125990 characters from observed evidence and records their reasons', () => {
+  const state = realBattleStateWithBr()
+  const result = analyze(state)
+  const assigned = result.sideOverrides.filter(({ subject }) => {
+    const entity = result.entities[subject as `char:${number}`]
+    return entity && !entity.hasLog
+  })
+  expect(Object.values(result.entities).filter(({ charId, side }) => charId !== null && side === -1).length).toBeLessThan(23)
+  expect(assigned.length).toBeGreaterThan(0)
+  for (const { subject, side, reason } of assigned) {
+    expect(reason).toMatch(/events/)
+    expect(result.entities[subject as `char:${number}`]).toMatchObject({ side, sideSource: 'log' })
+  }
 }, 60_000)
 
 it('reports observed SH4RK B4IT stats and preserves the uploader baseline in J125990', () => {
