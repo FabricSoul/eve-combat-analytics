@@ -1,107 +1,21 @@
 // Verify the real Vite UI, Worker, SQLite Durable Object and WebSocket on loopback.
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
-import { cloudflare } from '@cloudflare/vite-plugin'
-import tailwindcss from '@tailwindcss/vite'
-import react from '@vitejs/plugin-react'
-import { chromium } from 'playwright-core'
-import { createServer } from 'vite'
+import { brId, fixture, launchChromium, root, startFixtureBattle } from './fixture-battle.mjs'
 
-const root = fileURLToPath(new URL('../', import.meta.url))
-const fixture = join(root, 'fixtures/real/j125990-20250622')
-const brId = '6b03a9aff85099ccb2b7e763'
 const output = join(root, 'build/ui-smoke')
 const route = `/b/${brId}`
 const pilot = 'Blanchard2213'
 const logFile = '20250622_134516_2121605780.txt'
 
-const executablePath = [
-  process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE, chromium.executablePath(),
-  '/Applications/Chromium.app/Contents/MacOS/Chromium',
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/chromium',
-].find((candidate) => candidate && existsSync(candidate))
-assert.ok(executablePath, 'Install Chromium with pnpm exec playwright-core install chromium')
-
 await mkdir(output, { recursive: true })
-const scratch = await mkdtemp(join(root, 'build/ui-smoke-worker-'))
-let server
+const server = await startFixtureBattle()
+const { origin } = server
 let browser
 try {
-  // Only upstream BR/ESI fetches are replaced. All browser requests reach the production routes.
-  const entry = join(scratch, 'worker.ts')
-  await writeFile(entry, `
-import composition from '../../fixtures/real/j125990-20250622/br-${brId}.composition.json'
-import esi from '../../fixtures/real/j125990-20250622/esi.json'
-import { BattleRoom as ProductionRoom } from '../../src/worker/index'
-import { createServices } from '../../src/worker/services'
-export { default } from '../../src/worker/index'
-
-const characters = new Map(Object.entries(esi.names)
-  .filter(([, row]) => row.category === 'character')
-  .map(([id, row]) => [row.name.toLowerCase(), Number(id)]))
-const affiliations = new Map()
-for (const [name, row] of Object.entries(esi.nameIndex)) {
-  if (!row) continue
-  characters.set(name.toLowerCase(), row.charId)
-  if (row.corpId) affiliations.set(row.charId, row)
-}
-for (const row of esi.listeners) {
-  characters.set(row.charName.toLowerCase(), row.charId)
-  if (row.corpId) affiliations.set(row.charId, row)
-}
-export class BattleRoom extends ProductionRoom {
-  protected override makeServices() {
-    return createServices(this.env, {
-      now: Date.now,
-      sleep: (ms) => scheduler.wait(ms),
-      async fetch(input, init) {
-        const url = new URL(String(input))
-        if (url.href === 'https://br.evetools.org/newapi/br/composition/${brId}') return Response.json(composition)
-        const values = JSON.parse(String(init?.body))
-        if (url.pathname === '/latest/universe/names/') {
-          return Response.json(values.flatMap((id) => esi.names[id] ? [{ id, ...esi.names[id] }] : []))
-        }
-        if (url.pathname === '/latest/universe/ids/') {
-          return Response.json({ characters: values.flatMap((name) => {
-            const id = characters.get(name.toLowerCase())
-            return id === undefined ? [] : [{ id, name }]
-          }) })
-        }
-        if (url.pathname === '/latest/characters/affiliation/') {
-          return Response.json(values.flatMap((id) => {
-            const row = affiliations.get(id)
-            return row ? [{ character_id: id, corporation_id: row.corpId, alliance_id: row.allyId ?? undefined }] : []
-          }))
-        }
-        throw new Error('Unexpected upstream fixture request: ' + url.href)
-      },
-    })
-  }
-}
-`)
-  server = await createServer({
-    root, configFile: false, logLevel: 'warn',
-    plugins: [react(), tailwindcss(), cloudflare({
-      config: { main: entry }, persistState: false, inspectorPort: false, remoteBindings: false,
-    })],
-    resolve: { alias: { '@': join(root, 'src') } },
-    worker: { format: 'es' },
-    server: { host: '127.0.0.1', port: 0 },
-  })
-  await server.listen()
-  const origin = `http://127.0.0.1:${server.httpServer.address().port}`
-  const seed = await fetch(`${origin}/api/battles`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ brUrl: `https://br.evetools.org/br/${brId}` }),
-  })
-  assert.equal(seed.status, 200, await seed.clone().text())
-  assert.deepEqual(await seed.json(), { brId })
-
-  browser = await chromium.launch({ executablePath, headless: true })
+  browser = await launchChromium()
   async function open(width, height, colorScheme, reducedMotion = 'no-preference', query = '', hasTouch = false) {
     const context = await browser.newContext({ viewport: { width, height }, colorScheme, reducedMotion, hasTouch, serviceWorkers: 'block' })
     await context.route('**/*', async (request) => {
@@ -442,8 +356,12 @@ export class BattleRoom extends ProductionRoom {
         }
       }
       await page.getByRole('button', { name: '时间轴用法' }).click()
-      const help = page.getByRole('dialog', { name: '时间轴用法' })
+      const help = page.getByRole('dialog', { name: '时间轴使用说明' })
       await assertAboveFights(help, 'timeline help')
+      await help.getByRole('heading', { name: '时间轴使用说明' }).waitFor()
+      await help.getByRole('button', { name: '关闭时间轴使用说明' }).click()
+      await help.waitFor({ state: 'hidden' })
+      await page.getByRole('button', { name: '时间轴用法' }).click()
       await page.keyboard.press('Escape')
       await help.waitFor({ state: 'hidden' })
       await replay.locator('.replay-noise summary').click()
@@ -963,9 +881,9 @@ export class BattleRoom extends ProductionRoom {
       await page.screenshot({ path: join(output, 'walk2-stage-selection-cleared.png') })
       const help = page.getByRole('button', { name: '时间轴用法' })
       await help.click()
-      await page.getByRole('dialog', { name: '时间轴用法' }).waitFor()
+      await page.getByRole('dialog', { name: '时间轴使用说明' }).waitFor()
       await page.keyboard.press('Escape')
-      await page.getByRole('dialog', { name: '时间轴用法' }).waitFor({ state: 'hidden' })
+      await page.getByRole('dialog', { name: '时间轴使用说明' }).waitFor({ state: 'hidden' })
       await page.locator('.replay-noise summary').click()
       await page.getByRole('checkbox', { name: '隐藏无人机/战斗机伤害' }).check()
       await assertClearPilotLabels(page)
@@ -1207,7 +1125,9 @@ export class BattleRoom extends ProductionRoom {
   }
   console.log('UI smoke passed')
 } finally {
-  await browser?.close()
-  await server?.close()
-  await rm(scratch, { recursive: true, force: true })
+  try {
+    await browser?.close()
+  } finally {
+    await server.close()
+  }
 }

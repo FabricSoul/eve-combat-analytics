@@ -53,6 +53,16 @@
   font-size: var(--fs-s);
 }
 
+.eca-timeline-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.eca-timeline-help-header h2 { font-weight: 600; }
+
 .eca-timeline-help-popover ul {
   display: grid;
   gap: var(--space-1);

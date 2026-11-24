@@ -67,19 +67,27 @@ export function TimelineHelp({ touchRange }: { touchRange: boolean }) {
     return () => document.removeEventListener('pointerdown', closeOutside)
   }, [open])
 
+  function closeHelp() {
+    setOpen(false)
+    trigger.current?.focus({ preventScroll: true })
+  }
+
   return <div ref={help} className="eca-timeline-help" onBlur={(event) => {
     if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false)
   }} onKeyDown={(event) => {
     if (!open || event.key !== 'Escape') return
     event.preventDefault()
-    setOpen(false)
-    trigger.current?.focus({ preventScroll: true })
+    closeHelp()
   }}>
     <Button ref={trigger} variant="ghost" className="eca-timeline-help-trigger" aria-label="时间轴用法"
       title="时间轴用法" aria-haspopup="dialog" aria-controls={id} aria-expanded={open}
       onClick={() => setOpen(!open)}>?</Button>
-    <div ref={panel} id={id} role="dialog" aria-label="时间轴用法" tabIndex={-1} hidden={!open}
+    <div ref={panel} id={id} role="dialog" aria-labelledby={`${id}-title`} tabIndex={-1} hidden={!open}
       className="eca-timeline-help-popover">
+      <div className="eca-timeline-help-header">
+        <h2 id={`${id}-title`}>时间轴使用说明</h2>
+        <Button variant="ghost" type="button" aria-label="关闭时间轴使用说明" onClick={closeHelp}>×</Button>
+      </div>
       <ul>
         {touchRange && <li>点「选段」输入开始和结束时间</li>}
         {helpItems.map((item) => <li key={item}>{item}</li>)}

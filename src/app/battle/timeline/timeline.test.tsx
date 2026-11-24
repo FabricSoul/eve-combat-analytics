@@ -294,7 +294,7 @@ describe('timeline', () => {
     expect(document.activeElement).toBe(trigger)
     // jsdom does not translate a button's Enter/Space into its native click.
     await click('时间轴用法')
-    const popover = host.querySelector('[role="dialog"][aria-label="时间轴用法"]')!
+    const popover = host.querySelector('[role="dialog"].eca-timeline-help-popover')!
     expect(trigger.getAttribute('aria-expanded')).toBe('true')
     expect(trigger.getAttribute('aria-controls')).toBe(popover.id)
     expect(document.activeElement).toBe(popover)
@@ -312,6 +312,20 @@ describe('timeline', () => {
     expect(escape.defaultPrevented).toBe(true)
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
     expect(popover.hasAttribute('hidden')).toBe(true)
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('gives the help dialog a visible title and a close button that returns focus', async () => {
+    await render()
+    const trigger = button('时间轴用法')
+    await click('时间轴用法')
+    const dialog = host.querySelector('[role="dialog"]')!
+    const title = dialog.querySelector('h2')
+    expect(title?.textContent).toBe('时间轴使用说明')
+    expect(dialog.getAttribute('aria-labelledby')).toBe(title?.id)
+    expect(button('关闭时间轴使用说明').textContent).toBe('×')
+    await click('关闭时间轴使用说明')
+    expect(dialog.hasAttribute('hidden')).toBe(true)
     expect(document.activeElement).toBe(trigger)
   })
 
