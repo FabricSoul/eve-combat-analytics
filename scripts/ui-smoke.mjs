@@ -646,10 +646,17 @@ try {
   await phonePage.getByRole('tab', { name: '名单' }).click()
   assert.equal(await grip.getAttribute('aria-valuetext'), '半屏')
   const phonePilot = phonePage.getByRole('button', { name: new RegExp(pilot) }).and(phonePage.locator('.roster-main'))
+  const phoneChart = phonePage.locator('[data-timeline-chart]')
+  const phoneTime = await phoneChart.getAttribute('aria-valuenow')
   await phonePilot.click()
   const detail = phonePage.getByRole('dialog', { name: '个人详情' })
   assert.deepEqual(await detail.boundingBox(), { x: 0, y: 44, width: 390, height: 800 },
     'phone pilot detail fills the page below the top bar')
+  assert.equal(await phoneChart.evaluate((el) => { el.focus(); return document.activeElement === el }), false)
+  await phonePage.keyboard.press('Tab')
+  assert.ok(await detail.evaluate((el) => el.contains(document.activeElement)), 'the phone detail retains keyboard focus')
+  await phonePage.keyboard.press('ArrowRight')
+  assert.equal(await phoneChart.getAttribute('aria-valuenow'), phoneTime, 'phone detail protects the covered timeline')
   await phonePage.keyboard.press('Escape')
   await detail.waitFor({ state: 'hidden' })
   assert.ok(await phonePilot.evaluate((node) => document.activeElement === node), 'closing details restores focus')
@@ -1009,6 +1016,48 @@ try {
       await hits.locator('.hit-analysis[data-expanded="true"]').waitFor()
       await page.keyboard.press('Escape')
       assert.equal(await hits.locator('.hit-analysis[data-expanded="true"]').count(), 0)
+
+      const assertFullPageKeyboard = async (opener, surface, close) => {
+        const chart = page.locator('[data-timeline-chart]')
+        const before = await chart.getAttribute('aria-valuenow')
+        await opener.press('Enter')
+        await page.locator(surface).waitFor()
+        await close.waitFor()
+        assert.ok(await close.evaluate((el) => document.activeElement === el), surface + ' takes focus')
+        assert.ok(await chart.evaluate((el) => Boolean(el.closest('[inert]'))), surface + ' makes the stage inert')
+        assert.equal(await chart.evaluate((el) => { el.focus(); return document.activeElement === el }), false)
+        for (const direction of ['Shift+Tab', 'Tab']) {
+          for (let step = 0; step < 8; step++) {
+            await page.keyboard.press(direction)
+            assert.ok(await page.evaluate((selector) => {
+              const focused = document.activeElement
+              return !focused.closest('.battle-layout') || Boolean(focused.closest(selector))
+            }, surface), surface + ' excludes covered controls from the Tab order')
+          }
+        }
+        await page.keyboard.press('ArrowRight')
+        assert.equal(await chart.getAttribute('aria-valuenow'), before, surface + ' preserves the hidden replay cursor')
+        await close.press('Escape')
+        await page.locator(surface).waitFor({ state: 'hidden' })
+        assert.ok(await opener.evaluate((el) => document.activeElement === el), surface + ' restores its opener')
+        assert.equal(await chart.evaluate((el) => Boolean(el.closest('[inert]'))), false)
+      }
+      for (const [openName, surface] of [
+        ['整页查看对比', '.u7-compare[data-expanded="true"]'],
+        ['整页查看命中', '.hit-analysis[data-expanded="true"]'],
+        ['整页查看击毁', '.kills[data-expanded="true"]'],
+      ]) {
+        await assertFullPageKeyboard(page.getByRole('button', { name: openName, exact: true }), surface,
+          page.locator(surface + ' [data-full-page-close]'))
+      }
+      const pilotOpener = rosterModule.locator('.roster-main').first()
+      await pilotOpener.press('Enter')
+      const pilotDrawer = page.locator('.battle-drawer')
+      await assertFullPageKeyboard(pilotDrawer.getByRole('button', { name: '展开整页' }), '.u7-person[data-expanded="true"]',
+        pilotDrawer.getByRole('button', { name: '还原抽屉' }))
+      await pilotDrawer.getByRole('button', { name: '关闭个人详情' }).press('Enter')
+      assert.ok(await pilotOpener.evaluate((el) => document.activeElement === el), 'closing the drawer restores the pilot row')
+      console.log('Full-page keyboard: Compare, Hits, Kills and pilot exclude covered controls and restore focus')
 
       async function dragHits(cancel) {
         await hitBar.scrollIntoViewIfNeeded()

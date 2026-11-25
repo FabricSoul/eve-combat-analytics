@@ -139,7 +139,8 @@ export function CompareTable(_props: CompareTableProps) {
             </label>)}
           </fieldset>)}
         </div></details>
-        <Button variant="ghost" data-full-page-close={expanded || undefined} onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '整页'}</Button>
+        <Button variant="ghost" data-full-page-open={!expanded || undefined} data-full-page-close={expanded || undefined}
+          onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '整页'}</Button>
       </div>
     </header>
     {(!empty || range || pinned.size > 0 || (mode === 'table' && unidentified.length > 0 && !noLogs)) && <div className="u7-compare-note">

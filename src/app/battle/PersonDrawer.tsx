@@ -86,7 +86,8 @@ function PilotDrawer({ pilot, analysis }: { pilot: Entity; analysis: Analysis })
         </div>
         <div className="u7-person-actions">
           <Button variant="ghost" className="u7-drawer-expand" aria-label={expanded ? '还原抽屉' : '展开整页'}
-            title={expanded ? '还原抽屉' : '展开整页'} onClick={() => setExpanded(!expanded)}>{expanded ? '↙' : '↗'}</Button>
+            title={expanded ? '还原抽屉' : '展开整页'} data-full-page-open={!expanded || undefined}
+            data-full-page-close={expanded || undefined} onClick={() => setExpanded(!expanded)}>{expanded ? '↙' : '↗'}</Button>
           <Button variant="ghost" aria-label="关闭个人详情" title="关闭个人详情" onClick={() => select(null)}>×</Button>
         </div>
       </div>

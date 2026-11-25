@@ -68,7 +68,8 @@ export function HitAnalysis() {
   return <section className="hit-analysis" aria-label="命中分析" data-expanded={expanded}>
     <header className="hit-analysis-header">
       <h2>命中分析</h2>
-      <Button variant="ghost" data-full-page-close={expanded || undefined} onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '整页'}</Button>
+      <Button variant="ghost" data-full-page-open={!expanded || undefined} data-full-page-close={expanded || undefined}
+        onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '整页'}</Button>
     </header>
     <div className="hit-analysis-body">
       <p className="hit-secondary">{hitObservationHint}</p>

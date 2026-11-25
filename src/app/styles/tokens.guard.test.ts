@@ -13,6 +13,43 @@ import { usePlayback, useView, ViewProvider } from '../state/view-store'
 
 const appDirectory = resolve('src/app')
 
+function channels(value: string) {
+  const values = value.match(/[\d.]+/g)?.map(Number) ?? []
+  return /^color\(srgb /.test(value) ? values.map((channel, index) => index < 3 ? channel * 255 : channel) : values
+}
+
+function composite(foreground: number[], background: number[], opacity = 1): number[] {
+  const alpha = foreground.length < 3 ? 0 : (foreground[3] ?? 1) * opacity
+  return alpha === 0 ? background : background.map((channel, i) => foreground[i]! * alpha + channel * (1 - alpha))
+}
+
+function paintedBackground(element: Element | null): number[] {
+  if (!element) return []
+  const color = channels(getComputedStyle(element).backgroundColor)
+  if (color.length === 3 || color[3] === 1) return color.slice(0, 3)
+  return composite(color, paintedBackground(element.parentElement))
+}
+
+function luminance(channels: number[]) {
+  const [r, g, b] = channels.map((byte) => {
+    const channel = byte / 255
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+}
+
+function contrast(foreground: number[], background: number[]) {
+  const a = luminance(foreground)
+  const b = luminance(background)
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+}
+
+function contrastBacking(element: Element, background: Element | null) {
+  const { outlineStyle, outlineWidth, outlineColor } = getComputedStyle(element)
+  return outlineStyle === 'solid' && parseFloat(outlineWidth) >= 1
+    ? channels(outlineColor) : paintedBackground(background)
+}
+
 function filesIn(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = resolve(directory, entry.name)
@@ -124,6 +161,162 @@ function hasColorLiteral(source: string, path: string): boolean {
 }
 
 describe('design tokens', () => {
+  it.each(['light', 'dark'])('keeps Compare side marks at 3:1 in %s appearance', (theme) => {
+    const style = document.createElement('style')
+    style.textContent = ['styles/tokens.css', 'battle/compare/compare.css', 'battle/compare/hit-quality.css']
+      .map((file) => readFileSync(resolve(appDirectory, file), 'utf8')).join('\n')
+      .replaceAll(':hover', '[data-test-hover]')
+    document.head.appendChild(style)
+    const compare = document.createElement('section')
+    compare.className = 'u7-compare'
+    compare.dataset.appearance = theme
+    document.body.appendChild(compare)
+    try {
+      // Use the shared selectors for the large and compact table bars, side-by-side track, and distribution rings.
+      compare.innerHTML = `
+        <table><tbody>
+          <tr><td><span class="u7-compare-bar"><i></i></span></td></tr>
+          <tr data-test-hover><td><span class="u7-compare-bar"><i></i></span></td></tr>
+          <tr data-pinned="true"><td><span class="u7-compare-bar"><i></i></span></td></tr>
+        </tbody></table>
+        <div class="u7-compare-cards"><section><div class="u7-compare-pair"><span class="u7-compare-bar"><i></i></span></div></section></div>
+        <div class="u7-distribution-axis"><button class="u7-distribution-point"></button></div>`
+      const bars = compare.querySelectorAll<HTMLElement>('.u7-compare-bar > i')
+      const point = compare.querySelector<HTMLButtonElement>('.u7-distribution-point')!
+      for (const side of [0, 1, 2, -1]) {
+        const token = sideColor(side, [0, 1, 2])
+        for (const [i, fill] of [...bars].entries()) {
+          fill.style.background = token
+          const backing = paintedBackground(fill.parentElement)
+          const computed = getComputedStyle(fill)
+          const color = composite(channels(computed.backgroundColor), backing, Number(computed.opacity || 1))
+          expect.soft(contrast(color, backing), `side ${side} on Compare track ${i + 1}`).toBeGreaterThanOrEqual(3)
+          const track = fill.parentElement!
+          const edge = contrastBacking(track, track.parentElement)
+          expect.soft(contrast(color, edge), `side ${side} at the edge of Compare track ${i + 1}`).toBeGreaterThanOrEqual(3)
+        }
+        point.style.setProperty('--point-side', token)
+        for (const highlighted of [false, true]) {
+          point.dataset.highlighted = String(highlighted)
+          const computed = getComputedStyle(point)
+          const backing = paintedBackground(point)
+          const color = composite(channels(computed.borderTopColor), backing, Number(computed.opacity || 1))
+          expect.soft(contrast(color, backing), `side ${side} distribution ring, pinned=${highlighted}`).toBeGreaterThanOrEqual(3)
+        }
+      }
+    } finally {
+      style.remove()
+      compare.remove()
+    }
+  })
+
+  it.each(['light', 'dark'])('keeps pilot bars and battle side swatches at 3:1 in %s appearance', (theme) => {
+    const style = document.createElement('style')
+    // Tailwind Preflight removes the browser's default button background.
+    style.textContent = 'button { background: transparent; }\n' + [
+      'styles/tokens.css',
+      'shell/workspace.css',
+      'battle/roster/roster.css',
+      'battle/person/person.css',
+      'battle/compare/compare.css',
+      'battle/upload/kills.css',
+      'battle/feed/feed.css',
+      'battle/hits/hits.css',
+    ].map((file) => readFileSync(resolve(appDirectory, file), 'utf8')).join('\n')
+      .replaceAll(':hover', '[data-test-hover]').replaceAll(':focus-visible', '[data-test-focus]')
+    const root = document.createElement('div')
+    root.dataset.appearance = theme
+    root.style.background = 'var(--color-bg)'
+    root.innerHTML = `
+      <div class="u7-person"><div class="u7-person-card">
+        <span class="u7-top-track"><i></i></span>
+        <span class="u7-fit-track"><i></i></span><span class="u7-fit-track"><i data-theory="true"></i></span>
+      </div><i class="u7-side-dot" data-side-swatch="pilot header"></i></div>
+      <div class="u7-compare-options"><i class="u7-side-dot" data-side-swatch="Compare side filter"></i></div>
+      <div class="hit-analysis">
+        <div class="hit-analysis-controls"><i class="hit-side-dot" data-side-swatch="Hits side filter"></i></div>
+        <div class="hit-card"><i class="hit-side-dot" data-side-swatch="Hits side card"></i></div>
+        <div class="hit-trend"><i class="hit-side-dot" data-side-swatch="Hits trend legend"></i></div>
+      </div>
+      <h3 class="roster-head"><i class="side-dot" data-side-swatch="roster header"></i></h3>
+      <div class="battle-rail"><div class="battle-rail-side"><i class="side-dot" data-side-swatch="roster rail"></i></div></div>
+      <section class="sides-col"><header class="sides-col-head"><i class="side-dot" data-side-swatch="side panel"></i></header></section>
+      <div class="side-menu">
+        <button class="side-menu-item"><i class="side-dot" data-side-swatch="side menu"></i></button>
+        <button class="side-menu-item" data-test-focus><i class="side-dot" data-side-swatch="focused side menu"></i></button>
+      </div>
+      <div class="feed-row" aria-current="true"><span><i class="side-dot" data-side-swatch="current event"></i></span></div>
+      <div style="background: var(--color-raised)"><i class="app-side-picker-dot" data-side-swatch="side picker trigger"></i></div>
+      <ul class="app-side-picker-options">
+        <li><i class="app-side-picker-dot" data-side-swatch="side picker option"></i></li>
+        <li data-test-hover><i class="app-side-picker-dot" data-side-swatch="hovered side picker option"></i></li>
+        <li aria-selected="true"><i class="app-side-picker-dot" data-side-swatch="selected side picker option"></i></li>
+      </ul>
+      <div class="kills">
+        <button class="kills-row" data-test-hover><span class="kills-name"><i class="kills-dot" data-side-swatch="hovered kill"></i></span></button>
+        <button class="kills-row kills-row--sel"><span class="kills-name"><i class="kills-dot" data-side-swatch="selected kill"></i></span></button>
+      </div>`
+    document.head.appendChild(style)
+    document.body.appendChild(root)
+    try {
+      const fill = root.querySelector<HTMLElement>('.u7-top-track i')!
+      const track = fill.parentElement!
+      for (const side of [0, 1, 2, -1]) {
+        const token = sideColor(side, [0, 1, 2])
+        fill.style.background = token
+        const color = channels(getComputedStyle(fill).backgroundColor)
+        expect.soft(contrast(color, paintedBackground(track)), `side ${side} on pilot damage track`).toBeGreaterThanOrEqual(3)
+        expect.soft(contrast(color, contrastBacking(track, track.parentElement)), `side ${side} at the edge of pilot damage track`).toBeGreaterThanOrEqual(3)
+        for (const dot of root.querySelectorAll<HTMLElement>('[data-side-swatch]')) {
+          if (dot.classList.contains('u7-side-dot')) dot.style.setProperty('--u7-side', token)
+          else dot.style.background = token
+          const backing = contrastBacking(dot, dot.parentElement)
+          const computed = getComputedStyle(dot)
+          const color = composite(channels(computed.backgroundColor), backing, Number(computed.opacity || 1))
+          expect.soft(contrast(color, backing), `side ${side} on ${dot.dataset.sideSwatch}`).toBeGreaterThanOrEqual(3)
+        }
+      }
+      for (const fill of root.querySelectorAll('.u7-fit-track i')) {
+        const style = getComputedStyle(fill)
+        const color = channels(style.borderTopStyle === 'dashed' ? style.borderTopColor : style.backgroundColor)
+        const backing = paintedBackground(fill.parentElement)
+        expect.soft(contrast(composite(color, backing), backing), 'fit stat fill or theoretical outline').toBeGreaterThanOrEqual(3)
+      }
+    } finally {
+      root.remove()
+      style.remove()
+    }
+  })
+
+  it.each(['light', 'dark'])('keeps hit quality side marks at 3:1 on %s surfaces', (theme) => {
+    const style = document.createElement('style')
+    style.textContent = ['styles/tokens.css', 'battle/compare/hit-quality.css']
+      .map((file) => readFileSync(resolve(appDirectory, file), 'utf8')).join('\n')
+    const root = document.createElement('div')
+    root.dataset.appearance = theme
+    root.innerHTML = '<div class="u7-hit-quality"><span data-quality="Grazes" style="--quality-strength: 30%"></span></div>'
+    document.head.appendChild(style)
+    document.body.appendChild(root)
+    try {
+      const bar = root.querySelector<HTMLElement>('.u7-hit-quality')!
+      const segment = bar.querySelector('span')!
+      for (const surface of ['bg', 'surface', 'raised']) {
+        root.style.background = `var(--color-${surface})`
+        for (const side of [0, 1, 2, -1]) {
+          bar.style.setProperty('--quality-side', sideColor(side, [0, 1, 2]))
+          const computed = getComputedStyle(segment)
+          const backing = paintedBackground(bar)
+          const mark = computed.borderTopStyle === 'solid' && parseFloat(computed.borderTopWidth) >= 1
+            ? computed.borderTopColor : computed.backgroundColor
+          expect.soft(contrast(composite(channels(mark), backing), backing), `side ${side} on ${surface}`).toBeGreaterThanOrEqual(3)
+        }
+      }
+    } finally {
+      root.remove()
+      style.remove()
+    }
+  })
+
   it('keeps the design guide aligned with individual events and sampled ranks', () => {
     const design = readFileSync(resolve('DESIGN.md'), 'utf8')
     expect.soft(design).not.toMatch(/\bdefaults?(?: to| is)? (?:the )?merged\b|\bmerged\b[^.\n]*\b(?:by default|(?:is|as) the default)\b/i)

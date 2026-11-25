@@ -36,6 +36,7 @@
 }
 .app-side-picker-compact-label { display: none; }
 .app-side-picker-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+[data-appearance="dark"] :is(.app-side-picker-dot, .kills-dot) { outline: 1px solid var(--color-bg); }
 .app-side-picker-chevron {
   flex: none;
   width: 6px;

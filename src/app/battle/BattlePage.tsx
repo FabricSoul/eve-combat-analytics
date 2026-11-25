@@ -7,6 +7,7 @@ import { AppShell } from '../shell/AppShell'
 import { battleTitle } from '../shell/battle-title'
 import { PhonePersonPage } from '../shell/PhonePersonPage'
 import { useBattleLayout } from '../shell/useBattleLayout'
+import { useFullPageWorkspace } from '../shell/useFullPageWorkspace'
 import { useWindowViewport } from '../shell/windows/DesktopWindows'
 import { ModuleControls, ModuleWorkspace, StageGrip } from '../shell/windows/ModuleWorkspace'
 import { clampStage, loadModules, moduleLayoutReducer, replayHeightBounds, saveModules, timelineMinHeight, type ModuleId } from '../shell/windows/modules'
@@ -65,6 +66,7 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   const picker = useRef<HTMLInputElement>(null)
   const openPicker = () => picker.current?.click()
   const desk = useRef<HTMLDivElement>(null)
+  useFullPageWorkspace(desk, Boolean(summary))
   const timeline = useRef<HTMLElement>(null)
   const workspace = layout !== 'phone'
   const moduleColumns = layout === 'desktop' ? 3 : 2
@@ -148,7 +150,9 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
       if (opener instanceof HTMLElement && opener.isConnected && opener !== document.body) {
         const replayToolbar = opener.closest('.replay-pilot')?.closest<HTMLElement>('[role="toolbar"]')
         const target = replayToolbar ?? opener
-        target.focus({ preventScroll: true })
+        const restore = () => target.focus({ preventScroll: true })
+        if (target.closest('[inert]')) setTimeout(restore, 0)
+        else restore()
       } else {
         desk.current?.querySelector<HTMLElement>('.battle-window-titlebar')
           ?.focus({ preventScroll: true })
@@ -171,8 +175,9 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
       const openMenu = [...document.querySelectorAll<HTMLDetailsElement>(
         '.battle-module-controls[open], .replay-noise[open], .u7-compare-controls > details[open],'
         + ' .u7-compare-pick[open], .hit-analysis-controls > details[open]',
-      )].filter((menu) => menu.getClientRects().length > 0).at(-1)
-      const expanded = [...document.querySelectorAll<HTMLButtonElement>('[data-full-page-close]')].filter((button) => button.getClientRects().length > 0).at(-1)
+      )].filter((menu) => !menu.closest('[inert]') && menu.getClientRects().length > 0).at(-1)
+      const expanded = [...document.querySelectorAll<HTMLButtonElement>('[data-full-page-close]')]
+        .filter((button) => !button.closest('[inert]') && button.getClientRects().length > 0).at(-1)
       // The replay layer stacks above module floats. Its children have their own z-order.
       const replayWindowClose = [...document.querySelectorAll<HTMLElement>('.battle-replay-layer > .battle-replay-overlay')]
         .filter((window) => window.getClientRects().length > 0)
@@ -188,7 +193,7 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
         menuTrigger.current?.focus()
       } else if (pilotMenu?.closePicker()) { /* closed the identity picker */ }
       else if (sidesOpen) closeSides()
-      else if (drawerOpen) view.select(null)
+      else if (drawerOpen && !expanded?.closest('.battle-drawer')) view.select(null)
       else if (expanded) expanded.click()
       else if (replayWindowClose) replayWindowClose.click()
       else if (lastFloat && workspace) dispatchModule({ type: 'dock', id: lastFloat })
@@ -224,11 +229,11 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
           onClick={() => setSearch(search === id ? null : id)}><WorkspaceAction icon="search">搜索</WorkspaceAction></button>
       </>
     }
-    if (id === 'kills') return <button title="整页查看击毁" aria-label="整页查看击毁" type="button"
+    if (id === 'kills') return <button title="整页查看击毁" aria-label="整页查看击毁" type="button" data-full-page-open
       onClick={() => setKillsExpanded(true)}><WorkspaceAction icon="expand">整页</WorkspaceAction></button>
     return <>
       <button title={id === 'compare' ? '整页查看对比' : '整页查看命中'}
-        aria-label={id === 'compare' ? '整页查看对比' : '整页查看命中'} type="button" onClick={(event) => {
+        aria-label={id === 'compare' ? '整页查看对比' : '整页查看命中'} type="button" data-full-page-open onClick={(event) => {
         const root = event.currentTarget.closest('[data-module]')
         root?.querySelector<HTMLButtonElement>(id === 'compare' ? '.u7-compare-controls > .app-button' : '.hit-analysis-header > .app-button')?.click()
       }}><WorkspaceAction icon="expand">整页</WorkspaceAction></button>

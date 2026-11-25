@@ -9,6 +9,7 @@
 .side-dot {
   display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--color-side-n);
 }
+[data-appearance="dark"] .side-dot { outline: 1px solid var(--color-bg); }
 .side-dot[data-hollow] { background: transparent; border: 1px solid var(--color-side-n); }
 .side-letter { color: var(--color-text-3); font-family: var(--font-mono); }
 

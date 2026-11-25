@@ -84,10 +84,14 @@
   font: var(--fs-s)/var(--lh) var(--font-ui);
 }
 .u7-compare-bar {
+  --compare-track: var(--color-raised);
   width: 36px; margin-inline-start: var(--space-1);
-  display: inline-block; position: relative; height: 8px; background: var(--color-raised);
+  display: inline-block; position: relative; height: 8px;
+  background: var(--compare-track);
+  outline: 1px solid var(--compare-track);
 }
-.u7-compare-bar > i { position: absolute; inset: 0 auto 0 0; opacity: .78; }
+[data-appearance="dark"] .u7-compare-bar { --compare-track: var(--color-surface); }
+.u7-compare-bar > i { position: absolute; inset: 0 auto 0 0; }
 .u7-compare-median { position: absolute; width: 1px; inset-block: -2px; background: var(--color-text-3); }
 .u7-compare-message { padding: var(--space-4); color: var(--color-text-2); }
 .u7-compare-pick { padding: 0 var(--space-4) var(--space-2); }
@@ -118,13 +122,14 @@
 .u7-distribution-axis > .u7-compare-median { background: none; border-inline-start: 1px dashed var(--color-text-3); inset-block: -10px; }
 .u7-distribution-point {
   position: absolute; top: 0; transform: translate(-50%, -50%); display: grid; place-items: center;
-  width: 20px; height: 20px; border: 1px solid var(--point-side); border-radius: 50%; opacity: .62; cursor: pointer;
+  width: 20px; height: 20px; border: 1px solid var(--point-side); border-radius: 50%; cursor: pointer;
+  background: var(--color-bg);
 }
-.u7-distribution-point[data-highlighted="true"], .u7-distribution-point:hover, .u7-distribution-point:focus-visible { opacity: 1; z-index: 1; }
-.u7-distribution-point[data-highlighted="true"] { border-color: var(--color-accent-line); }
+.u7-distribution-point[data-highlighted="true"] { outline: 1px solid var(--color-accent-line); outline-offset: 1px; z-index: 1; }
 .u7-distribution-point span:not(.app-image) { position: absolute; top: var(--label-top); width: max-content; max-width: 120px; overflow: hidden; text-overflow: ellipsis; font-size: 10px; }
 .u7-distribution-point:is([data-persistent-label="true"], :hover, :focus-visible) span:not(.app-image) { display: block; }
 .u7-distribution-point:is(:hover, :focus-visible) { z-index: 2; }
+.u7-distribution-point:focus-visible { outline: 2px solid var(--color-accent-line); outline-offset: 2px; }
 .u7-distribution-point[data-anchor="start"] span:not(.app-image) { left: 0; }
 .u7-distribution-point[data-anchor="end"] span:not(.app-image) { right: 0; }
 .u7-distribution-limits { display: flex; justify-content: space-between; font-size: var(--fs-s); }
