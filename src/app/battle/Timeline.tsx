@@ -160,12 +160,14 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
     </LayerChip>
   }
 
-  const hint = showHint && !touchRange && <div className="eca-timeline-hint">
-      <span>Shift+拖动可以只看一段</span>
-      <Button variant="ghost" aria-label="关闭时间轴提示" onClick={(event) => {
-        dismissHint()
-        if (event.detail === 0) chart.current?.focus({ preventScroll: true })
-      }}>×</Button>
+  const hint = showHint && <div className="eca-timeline-hint">
+      <span>{touchRange ? '拖动时间轴跳转，双指缩放地图' : 'Shift+拖动可以只看一段'}</span>
+      <Button variant="ghost" aria-label="关闭时间轴提示"
+        style={touchRange ? { minWidth: 'var(--row)', minHeight: 'var(--row)' } : undefined}
+        onClick={(event) => {
+          dismissHint()
+          if (event.detail === 0) chart.current?.focus({ preventScroll: true })
+        }}>×</Button>
     </div>
 
   return <div className="eca-timeline" data-compact={compact} data-workspace={separateLanes || undefined}>

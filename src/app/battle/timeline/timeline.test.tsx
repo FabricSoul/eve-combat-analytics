@@ -81,12 +81,13 @@ afterEach(async () => {
 })
 
 describe('timeline', () => {
-  it('offers a touch range editor from an unselected timeline and omits the Shift hint', async () => {
+  it('shows one touch hint and offers a touch range editor on coarse pointers', async () => {
     vi.stubGlobal('matchMedia', (query: string) => ({
       matches: query === '(pointer: coarse)', addEventListener: vi.fn(), removeEventListener: vi.fn(),
     }))
     await render()
-    expect(host.textContent).not.toContain('Shift+拖动可以只看一段')
+    expect([...host.querySelectorAll('.eca-timeline-hint span')].map((hint) => hint.textContent))
+      .toEqual(['拖动时间轴跳转，双指缩放地图'])
     await click('选段')
     const form = host.querySelector<HTMLFormElement>('form[aria-label="编辑选段"]')!
     const fields = [...form.querySelectorAll<HTMLInputElement>('input')]
@@ -104,10 +105,18 @@ describe('timeline', () => {
     expect(host.querySelector('[role="dialog"]')?.textContent).toContain('点「选段」输入开始和结束时间')
   })
 
-  it('offers the range editor rather than the keyboard hint in compact mode', async () => {
+  it('persists dismissal of the single touch hint from compact mode across layouts', async () => {
     await render(true)
     expect(button('选段')).toBeDefined()
-    expect(host.textContent).not.toContain('Shift+拖动可以只看一段')
+    expect([...host.querySelectorAll('.eca-timeline-hint span')].map((hint) => hint.textContent))
+      .toEqual(['拖动时间轴跳转，双指缩放地图'])
+    expect(host.querySelector('[role="dialog"]')?.hasAttribute('hidden')).toBe(true)
+    await click('关闭时间轴提示')
+    expect(host.querySelector('.eca-timeline-hint')).toBeNull()
+    await act(() => root.unmount())
+    root = createRoot(host)
+    await render()
+    expect(host.querySelector('.eca-timeline-hint')).toBeNull()
   })
 
   it('snaps Shift-drag to one second, snaps long drags to ten seconds, and bypasses snapping with Alt', async () => {

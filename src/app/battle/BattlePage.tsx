@@ -31,6 +31,7 @@ import { activityBounds } from './timeline/model'
 import { UploadDock } from './UploadDock'
 import { PilotActions, usePilotMenu } from './roster/PilotActions'
 import { BattleUndo } from './undo'
+import { useFitPrewarm } from '@/fit/use-fit-prewarm'
 
 const phoneTabs = [
   { value: 'roster', label: '名单' }, { value: 'events', label: '事件' }, { value: 'compare', label: '对比' }, { value: 'hits', label: '命中' },
@@ -47,6 +48,7 @@ function clearTextSelection() {
 function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElement | null) => void }) {
   const battle = useBattleContext()
   const { summary, analysis, status, error, live } = battle
+  useFitPrewarm(Boolean(summary && analysis))
   const reconnecting = 'reconnecting' in battle && battle.reconnecting === true
   const view = useView()
   const layout = useBattleLayout()

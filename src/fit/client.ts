@@ -18,6 +18,10 @@ export interface FitWorkerApi {
 
 let session: ReturnType<typeof createSession> | undefined
 
+function getSession() {
+  return session ??= createSession()
+}
+
 function createSession() {
   const worker = new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' })
   const api = wrap<FitWorkerApi>(worker)
@@ -51,10 +55,15 @@ function createSession() {
   return next
 }
 
+/** Start the same worker that will serve later fit calculations. */
+export async function prewarmFitEngine(): Promise<void> {
+  await getSession().ready
+}
+
 /** Calculate pyfa's All V, uniform-damage baseline for a pasted EFT fit. */
 export async function computeFitStats(eft: string): Promise<CalculatedFitStats> {
   const fit = parseEft(eft)
-  const engine = session ??= createSession()
+  const engine = getSession()
   await engine.ready
   const result = await engine.compute(fit)
   if (!result.ok) throw new EftFormatError(result.message)
