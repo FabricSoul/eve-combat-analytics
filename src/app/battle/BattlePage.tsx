@@ -48,7 +48,6 @@ function clearTextSelection() {
 function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElement | null) => void }) {
   const battle = useBattleContext()
   const { summary, analysis, status, error, live } = battle
-  useFitPrewarm(Boolean(summary && analysis))
   const reconnecting = 'reconnecting' in battle && battle.reconnecting === true
   const view = useView()
   const layout = useBattleLayout()
@@ -60,6 +59,7 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   const sidesTrigger = useRef<HTMLButtonElement | null>(null)
   const desktopDrawer = useRef<HTMLElement>(null)
   const drawerOpen = Boolean(summary && view.selected)
+  useFitPrewarm(Boolean(summary && analysis), drawerOpen)
   const desktopDrawerOpen = drawerOpen && layout !== 'phone'
   const pilotMenu = usePilotMenu()
   const picker = useRef<HTMLInputElement>(null)
