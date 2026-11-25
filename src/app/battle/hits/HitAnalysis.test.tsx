@@ -225,6 +225,9 @@ it('shows unidentified hit observations only in their own group and preserves pi
     expect(ranked()).toEqual(before)
     const group = host.querySelector('[aria-label="未识别"]')
     expect(group?.querySelectorAll('li[data-pilot-key]')).toHaveLength(unidentified.length)
+    const placeholders = [...group!.querySelectorAll<HTMLElement>('li button span.app-portrait[aria-hidden="true"]')]
+    expect(placeholders).toHaveLength(unidentified.length)
+    expect(placeholders.every(({ style }) => style.width === '20px' && style.height === '20px')).toBe(true)
     expect(group?.parentElement?.lastElementChild).toBe(group)
     expect(host.querySelector('.hit-pilot-ranks h3')?.textContent).toContain(`${countPilots} 人 · ${unidentified.length} 项未识别`)
     act(() => toggle.click())

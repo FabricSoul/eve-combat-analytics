@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { act, useEffect, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -62,6 +63,25 @@ function pointer(type: string, clientX: number, shiftKey = false, pointerId = 1,
   return act(() => chart().dispatchEvent(new PointerEvent(type, {
     bubbles: true, clientX, pointerId, shiftKey, pointerType, altKey,
   })))
+}
+
+function colorChannels(css: string) {
+  return (css.match(/[\d.]+/g) ?? []).map(Number)
+}
+
+function paintedBackground(element: Element): number[] {
+  const [red = 0, green = 0, blue = 0, alpha = 1] = colorChannels(getComputedStyle(element).backgroundColor)
+  const channels = [red, green, blue]
+  if (alpha === 1) return channels
+  return paintedBackground(element.parentElement!).map((back, i) => channels[i]! * alpha + back * (1 - alpha))
+}
+
+function luminance(channels: number[]) {
+  const [red, green, blue] = channels.map((byte) => {
+    const channel = byte / 255
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * red! + 0.7152 * green! + 0.0722 * blue!
 }
 
 beforeEach(() => {
@@ -486,6 +506,47 @@ describe('timeline', () => {
     await click('C 方伤害')
     expect(curve(2)).toBeNull()
     expect(curve(0)).not.toBeNull()
+  })
+
+  it.each(['light', 'dark'])('keeps every side swatch at 3:1 on %s timeline controls', async (theme) => {
+    // Synthetic extra sides exercise the magenta and neutral swatches.
+    const analysis = {
+      ...fixture.analysis,
+      coverage: [...fixture.analysis.coverage, ...[2, 3].map((side) => ({ side, known: 1, withLog: 0 }))],
+    }
+    const styles = document.createElement('style')
+    const tokens = readFileSync(resolve('src/app/styles/tokens.css'), 'utf8')
+    const timeline = readFileSync(resolve('src/app/battle/timeline/timeline.css'), 'utf8')
+    // jsdom has no pointer hover state. Activate the actual hover rules with an attribute.
+    styles.textContent = tokens + timeline.replaceAll(':hover', '[data-test-hover]')
+    document.head.appendChild(styles)
+    host.dataset.appearance = theme
+    try {
+      await render(false, { ...fixture, analysis })
+      for (const surface of ['bg', 'surface']) {
+        host.style.backgroundColor = `var(--color-${surface})`
+        for (const label of ['我方伤害', '敌方伤害', 'C 方伤害', 'D 方伤害']) {
+          const chip = button(label)
+          const dot = chip.querySelector('.eca-timeline-dot')!
+          for (const pressed of [true, false]) {
+            expect(chip.getAttribute('aria-pressed')).toBe(String(pressed))
+            for (const hovered of [false, true]) {
+              chip.toggleAttribute('data-test-hover', hovered)
+              const style = getComputedStyle(dot)
+              const foreground = luminance(colorChannels(style.backgroundColor))
+              const backing = style.outlineStyle === 'solid' && parseFloat(style.outlineWidth) >= 1
+                ? colorChannels(style.outlineColor) : paintedBackground(chip)
+              const background = luminance(backing)
+              const ratio = (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05)
+              expect.soft(ratio, `${label} on ${surface}, pressed=${pressed}, hovered=${hovered}`).toBeGreaterThanOrEqual(3)
+            }
+            await click(label)
+          }
+        }
+      }
+    } finally {
+      styles.remove()
+    }
   })
 
   it('renders primary groups for different sides at the same target and time without a key warning', async () => {

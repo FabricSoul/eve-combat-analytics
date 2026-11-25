@@ -137,10 +137,8 @@ export function deriveSideOverrides(
       } else evidence.set(key, createEvidence(charId, new Set([id]), uploadedAt))
     }
   } else {
-    for (const { key, charId, side, hasLog, sideSource } of entities.values()) {
-      // Indirect evidence places unassigned characters. A known affiliation
-      // is retained unless an uploader's own evidence can overturn it.
-      if (charId !== null && !hasLog && side < 0 && sideSource !== 'manual') {
+    for (const { key, charId, hasLog, sideSource } of entities.values()) {
+      if (charId !== null && !hasLog && sideSource !== 'manual') {
         evidence.set(key, createEvidence(charId, null, 0))
       }
     }

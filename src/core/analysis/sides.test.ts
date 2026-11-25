@@ -166,7 +166,34 @@ it.each([0, 1])('keeps original side %i when qualifying repair and damage eviden
   expect(result.sideOverrides).toEqual([])
 })
 
-it('infers unassigned pilots from damage or repairs witnessed by uploaders and honors manual and BR membership', () => {
+it.each([
+  { label: 'unknown affiliation', esi: -1, side: 0, source: 'log' },
+  { label: 'contrary ESI', esi: 1, side: 0, source: 'log' },
+  { label: 'contrary killmail affiliation', esi: 0, historical: true, side: 0, source: 'log' },
+  { label: 'manual pilot', esi: 0, override: 'char:8', side: 1, source: 'manual' },
+  { label: 'manual corporation', esi: 0, override: 'corp:200', side: 1, source: 'manual' },
+  { label: 'manual alliance', esi: 0, override: 'ally:500', side: 1, source: 'manual' },
+] satisfies { label: string; esi: number; historical?: boolean; override?: SideSubject; side: number; source: string }[])(
+  'places the synthetic observed Healer with $label according to evidence precedence',
+  ({ esi, historical, override, side, source }) => {
+    // X6 synthetic Healer probe: the same 24 incoming repairs in every variant.
+    const repairs = Array.from({ length: 24 }, (_, i) => event(i, 'Healer', {
+      kind: 'repair', dir: 'in', amount: 10, repairType: 'armor', module: null,
+    }))
+    const state = battle([log(1, 'Ace', 0, repairs)], historical ? [kill(1, 1, pilot(8, 200, 1000), [])] : [])
+    state.names = { ...state.names, Healer: { charId: 8, side: esi, corpId: 200, allyId: 500 } }
+    if (override) state.sideOverrides = [manual(override, 1, 0)]
+
+    const result = analyze(state)
+    expect(result.entities['char:8']).toMatchObject({ side, sideSource: source, hasLog: false })
+    if (source === 'log') expect(result.sideOverrides).toMatchObject([
+      { subject: 'char:8', side: 0, source: 'log', reason: 'repaired side 0: 24 events, damaged side 1: 0 events' },
+    ])
+    else expect(result.sideOverrides).toEqual([])
+  },
+)
+
+it('uses observed damage or repairs for pilots without a manual override', () => {
   const incoming = (kind: 'damage' | 'repair', name: string, count: number, start: number) =>
     Array.from({ length: count }, (_, i) => kind === 'damage'
       ? hit(start + i, name, 10, { dir: 'in' })
@@ -186,10 +213,11 @@ it('infers unassigned pilots from damage or repairs witnessed by uploaders and h
   expect(result.sideOverrides).toMatchObject([
     { subject: 'char:7', side: 1, source: 'log', reason: 'repaired side 1: 0 events, damaged side 0: 50 events' },
     { subject: 'char:8', side: 0, source: 'log', reason: 'repaired side 0: 20 events, damaged side 1: 0 events' },
+    { subject: 'char:10', side: 1, source: 'log', reason: 'repaired side 1: 0 events, damaged side 0: 50 events' },
   ])
   expect(result.entities).toMatchObject({
     'char:9': { side: 0, sideSource: 'manual' },
-    'char:10': { side: 0, sideSource: 'br' },
+    'char:10': { side: 1, sideSource: 'log' },
     'char:11': { side: -1 },
   })
 })
