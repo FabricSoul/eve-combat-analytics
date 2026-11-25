@@ -228,6 +228,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     }
 
     let overlayRects: Rect[] | null = null
+    let placementChrome: Rect[] | null = null
     const obstacles = watchLabelObstacles(element, () => {
       overlayRects = null
       labelKey = ''
@@ -260,6 +261,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       paintedCamera = camera
       bracket.current?.toggleAttribute('data-camera-change', cameraChanged)
       overlayRects ??= obstacles.measure()
+      // The camera projects settled world positions. Chrome that moves during zoom only affects screen-space labels.
+      if (!placementChrome || camera.scale === 1 && camera.x === 0 && camera.y === 0) placementChrome = overlayRects
       const now = performance.now()
       let pause = pauseClock.current
       if (!pause || pause.t !== t || pause.playing !== playing) {
@@ -279,8 +282,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       }
 
       const live = painter.liveEdges(scene.edges, t)
-      const pilotsChanged = layout.placeVisible(present, live, overlayRects)
-      layout.placeUnassigned(present)
+      const pilotsChanged = layout.placeVisible(present, live, placementChrome)
       const { related, positions, bounds, misses, modules, drawModuleNames, animating, burst } = painter.paint(
         layout, live, scene.pointSpans, present, { ...current, t, reducedMotion, pausedElapsed }, width, height, camera,
       )
@@ -342,7 +344,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
           if (inView) {
             const priority = key === selected || key === detailKey ? 3 : node.entity.hasLog ? 2 : opponents.has(key) ? 1 : 0
             const center = projectPoint(camera, node)
-            labels.push({ element: label, node, center, priority, required: priority >= 2 || camera.scale >= allNamesZoom })
+            labels.push({ element: label, node, center, priority, required: priority >= 2 })
             nextLabelKey += `|${node.ordinal}:${node.x}:${node.y}:${node.radius}:${priority}:${key === selected}`
           } else label.removeAttribute('data-positioned')
         }
@@ -374,7 +376,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         // Keep compact overview labels out of the other fleet. The empty space
         // between fleets can hold labels from either side.
         const showAll = camera.scale >= allNamesZoom
-        const labelFrame = showAll || layout.shortMap ? { ...bounds, y: 0, height: bounds.y + bounds.height } : bounds
+        const labelFrame = showAll ? { ...bounds, y: 0, height: bounds.y + bounds.height } : bounds
         const split = camera.scale === 1 ? layout.split : null
         const span = split === 'x' ? 'width' : 'height'
         const min = split ? bounds[split] : 0
@@ -480,7 +482,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
   </div>
   return (
     <div ref={host} className="replay-stage" data-zoomed={camera.scale > 1 || undefined}
-      data-short-map={layout?.shortMap || undefined}
+      data-packed-controls={stage && height > 0 && height < 100 || undefined}
       data-all-names={camera.scale >= allNamesZoom || undefined} {...handlers}
       onPointerMove={movePointer} onPointerLeave={() => { pointer.current = null; updateEffectTooltip(width) }}>
       <canvas ref={under} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer" aria-hidden="true" />

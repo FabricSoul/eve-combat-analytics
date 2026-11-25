@@ -29,6 +29,15 @@ it('uses the clear space between fleets if all three fight window corners cover 
   expect(window.x + window.width).toBeLessThanOrEqual(650)
 })
 
+it('keeps the zoom bar clickable even when a fight window corner would cover fewer hulls', () => {
+  const stage = { x: 0, y: 0, width: 900, height: 350 }
+  const size = { width: 320, height: 164 }
+  const pilots = [{ x: 650, y: 87, width: 18, height: 18 }, { x: 650, y: 255, width: 18, height: 18 }]
+  const zoom = { x: 8, y: 80, width: 153, height: 30 }
+  const window = placeFightsWindow(stage, 36, 80, size, pilots, [zoom])
+  expect(window.x >= zoom.x + zoom.width || window.y >= zoom.y + zoom.height).toBe(true)
+})
+
 it('clamps a saved overlay below the short map without changing its stored rectangle', () => {
   const saved = { x: 133, y: 90, width: 336, height: 540 }
   expect(placeShortMapWindow(saved, 156, 680)).toEqual({ ...saved, y: 156, height: 524 })
@@ -37,13 +46,13 @@ it('clamps a saved overlay below the short map without changing its stored recta
   expect(placeShortMapWindow(below, 156, 680)).toEqual(below)
 })
 
-it('packs full-size hulls around the replay controls in a short map', () => {
+it.each([79, 120, 183, 397])('fits hulls and badges around controls at a map height of %s px', (height) => {
   const pilots = Array.from({ length: 49 }, (_, index) => pilot(`char:${index}`, index < 23 ? 0 : 1))
   for (const ship of pilots.slice(0, 23)) ship.entity.hasLog = true
-  const layout = makeLayout(pilots, [0, 1], 882, 79, 62)
+  const layout = makeLayout(pilots, [0, 1], 882, height, 62)
   const chrome = [
     { x: 24, y: 12, width: 115, height: 16 }, { x: 661, y: 12, width: 197, height: 16 },
-    { x: 24, y: 36, width: 226, height: 26 }, { x: 745, y: 45, width: 129, height: 26 },
+    { x: 24, y: 36, width: 226, height: 26 }, { x: 8, y: height - 34, width: 153, height: 26 },
   ]
   layout.placeVisible(new Set(pilots.map(({ entity }) => entity.key)), [], chrome)
   for (const [i, ship] of layout.nodes.entries()) {
@@ -52,7 +61,9 @@ it('packs full-size hulls around the replay controls in a short map', () => {
     expect(ship.x - ring).toBeGreaterThanOrEqual(0)
     expect(ship.x + ring).toBeLessThanOrEqual(882)
     expect(ship.y - ring).toBeGreaterThanOrEqual(0)
-    expect(ship.y + ring).toBeLessThanOrEqual(79)
+    expect(ship.y + ring).toBeLessThanOrEqual(height)
+    expect(ship.x - ship.radius - 5).toBeGreaterThanOrEqual(0)
+    expect(ship.y + ship.radius + 5).toBeLessThanOrEqual(height)
     for (const obstacle of chrome) {
       expect(ship.x >= obstacle.x && ship.x <= obstacle.x + obstacle.width
         && ship.y >= obstacle.y && ship.y <= obstacle.y + obstacle.height).toBe(false)
@@ -133,6 +144,26 @@ describe('pilot label placement', () => {
     expect(rect.x).toBeLessThanOrEqual(85)
     expect(rect.y).toBeGreaterThanOrEqual(34)
   })
+
+  it.each([79, 120, 183, 397])('keeps dense zoom labels within reach without overlap at %s px', (height) => {
+    const stage = { x: 0, y: 0, width: 410, height }
+    const labels = Array.from({ length: 25 }, (_, index) => ({
+      center: { x: 25 + index % 9 * 36, y: height / 2 + (Math.floor(index / 9) - 1) * 23 },
+      radius: 12, size: { width: 80, height: 16 }, bounds: stage, priority: 2, uploader: true, required: true,
+    }))
+    const rings = labels.map(({ center: { x, y } }) => ({ x: x - 12, y: y - 12, width: 24, height: 24 }))
+    const controls = [{ x: 0, y: 0, width: 135, height: 18 }]
+    const placements = placeReplayLabels(labels, [...rings, ...controls], stage, true, { bounds: stage, obstacles: controls })
+    const placed = [...placements.values()]
+    expect(placed).toHaveLength(labels.length)
+    for (const [label, rect] of placements) {
+      const dx = Math.max(0, rect.x - label.center.x, label.center.x - rect.x - rect.width)
+      const dy = Math.max(0, rect.y - label.center.y, label.center.y - rect.y - rect.height)
+      expect(Math.hypot(dx, dy)).toBeLessThanOrEqual(40)
+      expect([...placed, ...controls].some((other) => other !== rect && other.x < rect.x + rect.width
+        && other.x + other.width > rect.x && other.y < rect.y + rect.height && other.y + other.height > rect.y)).toBe(false)
+    }
+  })
 })
 
 it('rejects a free slot more than 40 px away from a pilot', () => {
@@ -169,11 +200,26 @@ describe('replay popover placement', () => {
 })
 
 describe('unassigned replay row', () => {
+  it.each([79, 120, 183, 397])('keeps eight neutral hulls below the midpoint at %s px', (height) => {
+    const pilots = Array.from({ length: 49 }, (_, index) =>
+      pilot(`char:${index}`, index < 25 ? 0 : index < 41 ? 1 : -1))
+    const layout = makeLayout(pilots, [0, 1], 882, height)
+    const visible = new Set(pilots.map(({ entity }) => entity.key))
+    layout.placeVisible(visible, [])
+    for (const node of layout.nodes.filter(({ entity }) => entity.side < 0)) {
+      expect(node.y).toBeGreaterThan(height / 2)
+      expect(node.y + node.radius + 5).toBeLessThanOrEqual(height)
+      for (const other of layout.nodes.filter((other) => other !== node)) {
+        expect(Math.hypot(node.x - other.x, node.y - other.y)).toBeGreaterThanOrEqual(Math.max(node.radius, other.radius) + 2)
+      }
+    }
+  })
+
   it('keeps the seat of an unassigned ship as other ships enter and leave', () => {
     const layout = makeLayout([
       pilot('char:1', 0), pilot('char:2', -1), pilot('char:3', -1), pilot('char:4', -1),
     ], [0], 400, 340)
-    layout.placeUnassigned(new Set(['char:2', 'char:4']))
+    layout.placeVisible(new Set(['char:2', 'char:4']), [])
     const left = layout.byKey.get('char:2')!
     const right = layout.byKey.get('char:4')!
     const x = right.x
@@ -181,7 +227,7 @@ describe('unassigned replay row', () => {
     expect(right.y).toBeGreaterThan(300)
     expect(right.x - left.x).toBeGreaterThan(16)
 
-    layout.placeUnassigned(new Set(['char:3', 'char:4']))
+    layout.placeVisible(new Set(['char:3', 'char:4']), [])
     expect(right.x).toBe(x)
     expect(layout.byKey.get('char:3')!.x).toBe(left.x)
   })
@@ -189,16 +235,16 @@ describe('unassigned replay row', () => {
   it('keeps occupied seat centers when the row has to fit more ships', () => {
     const pilots = Array.from({ length: 12 }, (_, index) => pilot(`char:${index}`, -1))
     const layout = makeLayout(pilots, [], 180, 300)
-    layout.placeUnassigned(new Set(['char:0', 'char:1', 'char:2', 'char:3', 'char:4']))
+    layout.placeVisible(new Set(['char:0', 'char:1', 'char:2', 'char:3', 'char:4']), [])
     const initial = layout.nodes.slice(0, 5).map(({ x }) => x)
-    layout.placeUnassigned(new Set(pilots.map(({ entity }) => entity.key)))
+    layout.placeVisible(new Set(pilots.map(({ entity }) => entity.key)), [])
     initial.forEach((x, index) => expect(layout.nodes[index]!.x).toBeCloseTo(x))
   })
 
   it('adds seats above a full row without shrinking or overlapping the ship rings', () => {
     const pilots = Array.from({ length: 12 }, (_, index) => pilot(`char:${index}`, -1))
     const layout = makeLayout(pilots, [], 180, 300)
-    layout.placeUnassigned(new Set(pilots.map(({ entity }) => entity.key)))
+    layout.placeVisible(new Set(pilots.map(({ entity }) => entity.key)), [])
     const visible = layout.nodes
     expect(visible).toHaveLength(12)
     for (const [index, node] of visible.entries()) {

@@ -252,6 +252,18 @@
   font: var(--fs-s)/16px var(--font-ui);
 }
 
+@container (min-width: 650px) {
+  /* If the two control rows would collide, start the upper row after the zoom bar. */
+  .replay-stage[data-packed-controls] .replay-header {
+    display: flex;
+    gap: var(--space-2);
+    inset-inline-start: 11rem;
+  }
+  .replay-stage[data-packed-controls] .replay-header-actions { order: -1; margin-block-start: 0; }
+  .replay-stage[data-packed-controls] .replay-legend { flex: 1; align-self: center; inset-block-start: 0; }
+  .replay-stage[data-packed-controls][data-all-names] .replay-legend { inset-block-start: 2px; }
+}
+
 .replay-zoom {
   display: inline-flex;
   margin-inline-start: auto;
@@ -264,10 +276,6 @@
 .replay-zoom button { padding: var(--space-1) var(--space-2); color: inherit; cursor: pointer; }
 .replay-zoom button + button { border-inline-start: 1px solid var(--color-hair); }
 .replay-zoom button:disabled { opacity: .45; cursor: default; }
-
-.replay-stage[data-short-map] .replay-header { inset-block-start: var(--space-1); }
-.replay-stage[data-short-map] .replay-header-actions { margin-block-start: var(--space-1); }
-.replay-stage[data-short-map] .replay-stage-zoom { inset-inline: auto var(--space-2); }
 
 .replay-menu, .replay-control-trigger { position: relative; pointer-events: auto; }
 .replay-menu summary, .replay-control-trigger {

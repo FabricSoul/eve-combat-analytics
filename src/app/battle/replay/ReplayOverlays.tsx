@@ -19,6 +19,8 @@ export const ReplayOverlayWorkspace = createContext<{
 
 const titles = { legend: '交互图例', fights: '此刻交火' }
 const overlayGap = 8
+const legendWidth = 236
+const legendHeight = 424
 const fightsWidth = 336
 const fightsHeight = 164
 const compactFightsWidth = 1200
@@ -64,10 +66,15 @@ export function ReplayOverlays({ stage, closeFights, fightTime, placementTime, o
       const minimized = fightsPreference ?? stageBox.width < compactFightsWidth
       const pilots = !mapFloor && fightsOpen && hasFights && !savedFights
         ? [...host.querySelectorAll('.replay-marker[data-present] .replay-pilot')].map((pilot) => pilot.getBoundingClientRect()) : []
+      const zoom = host.querySelector('.replay-stage-zoom')?.getBoundingClientRect()
+      const triggerLeft = trigger.getBoundingClientRect().left
+      const legendSharesZoomColumn = zoom && !mapFloor && legendTop < zoom.bottom && legendTop + legendHeight > zoom.top
+        && triggerLeft < zoom.right && triggerLeft + legendWidth > zoom.left
+      const legendLeft = legendSharesZoomColumn ? Math.min(window.innerWidth - legendWidth, Math.ceil(zoom.right) + overlayGap) : triggerLeft
       const fights = placeFightsWindow(stageBox, topRight, legendTop,
-        { width: fightsWidth, height: minimized ? windowHeight : fightsHeight }, pilots)
+        { width: fightsWidth, height: minimized ? windowHeight : fightsHeight }, pilots, zoom ? [zoom] : [])
       const next = { width: window.innerWidth, height: window.innerHeight,
-        left: trigger.getBoundingClientRect().left, stageWidth: stageBox.width, legendTop, mapFloor,
+        left: legendLeft, stageWidth: stageBox.width, legendTop, mapFloor,
         fights: { ...fights, height: fightsHeight } }
       setGeometry((previous) => previous.width === next.width && previous.height === next.height
         && previous.left === next.left && previous.stageWidth === next.stageWidth && previous.legendTop === next.legendTop && previous.mapFloor === mapFloor
@@ -108,7 +115,7 @@ export function ReplayOverlays({ stage, closeFights, fightTime, placementTime, o
     const collapsed = sizeRequiresCollapse || (state.collapsed ?? (id === 'fights' && geometry.stageWidth < compactFightsWidth))
     const domId = `${baseId}-${id}`
     const preferred = state.rect ?? (id === 'legend'
-      ? { x: geometry.left, y: geometry.legendTop, width: 236, height: Math.min(424, geometry.height - geometry.legendTop - overlayGap) }
+      ? { x: geometry.left, y: geometry.legendTop, width: legendWidth, height: Math.min(legendHeight, geometry.height - geometry.legendTop - overlayGap) }
       : geometry.fights)
     const clampToMap = (rect: typeof preferred) => geometry.mapFloor
       ? placeShortMapWindow(rect, geometry.mapFloor, geometry.height, collapsed ? windowHeight : 0) : rect

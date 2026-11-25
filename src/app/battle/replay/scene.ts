@@ -3,8 +3,8 @@ import type { SimulationLinkDatum, SimulationNodeDatum } from 'd3-force'
 import type { Analysis, Entity, EntityKey, Interaction, Killmail } from '@/core/contract'
 import shipTypes from '@/core/data/ship-types.json'
 import { sideColor, sideLetter } from '@/app/lib/sides'
-import { interactionScales, sideAnchors } from './layout-effects'
-import { compactHullSeats, shortMapHeight, type Rect } from './placement'
+import { interactionScales, sideAnchors, type Point } from './layout-effects'
+import { findHullCenter, type Rect } from './placement'
 import { makePresence } from './presence'
 
 const shipById = new Map(shipTypes.map((ship) => [ship.id, ship]))
@@ -112,7 +112,6 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   const anchors = sideAnchors(order, width, height, populations)
   const anchorOrder = [...anchors.keys()].join(',')
   const compact = height < 420
-  const shortMap = height < shortMapHeight
   // Match the compact controls breakpoint. Use the longer axis for the two fleets.
   const split: 'x' | 'y' | null = width <= 430 && order.length === 2 ? (width >= height ? 'x' : 'y') : null
   // Give the fleet with more required names a little extra space.
@@ -160,6 +159,27 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   const unassigned = nodes.filter(({ entity }) => entity.side === -1)
   const anchorFor = ({ entity }: ReplayNode) => anchors.get(entity.side) ?? anchors.get(-1)!
 
+  function formationApproach(exchanges: Iterable<readonly [number, number]>) {
+    const offsets = new Map<number, Point>()
+    const opponents = new Map<number, Point[]>()
+    for (const [a, b] of exchanges) {
+      const own = anchors.get(a)
+      const other = anchors.get(b)
+      if (!own || !other) continue
+      opponents.set(a, [...opponents.get(a) ?? [], other])
+      opponents.set(b, [...opponents.get(b) ?? [], own])
+    }
+    for (const [side, targets] of opponents) {
+      const anchor = anchors.get(side)!
+      const dx = targets.reduce((sum, target) => sum + target.x - anchor.x, 0) / targets.length
+      const dy = targets.reduce((sum, target) => sum + target.y - anchor.y, 0) / targets.length
+      // Advance the engaged formations together. Per-pilot links still pull the individual exchanges.
+      const fraction = Math.min(0.18, 72 / Math.max(1, Math.hypot(dx, dy)))
+      offsets.set(side, { x: dx * fraction, y: dy * fraction })
+    }
+    return offsets
+  }
+
   function confine(node: ReplayNode, x: number, y: number) {
     const inset = node.radius + 5
     const ours = node.entity.side === order[0]
@@ -176,7 +196,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   const velocityDecay = 0.35
   const velocityFactor = 1 - velocityDecay
   const links = forceLink<ReplayNode, CombatLink>()
-    .distance(({ source, target }) => source.entity.side === target.entity.side ? 70 : Math.min(width * 0.5, 420))
+    .distance(({ source, target }) => source.entity.side === target.entity.side ? 70 : Math.min(width * 0.28, 280))
     .strength(({ count }) => Math.min(0.12, 0.02 * count))
   const simulation = forceSimulation<ReplayNode>([]).stop()
     .force('x', forceX<ReplayNode>((node) => anchorFor(node).x).strength(0.09))
@@ -197,100 +217,95 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     .alphaDecay(0.032)
     .velocityDecay(velocityDecay)
 
-  let compactChrome: readonly Rect[] | undefined
-  function placeCompact(next: ReplayNode[], chrome: readonly Rect[]) {
-    compactChrome = chrome
-    activeNodes = next
-    if (!next.length) return true
-    const radius = Math.max(...next.map((node) => node.radius + 2))
-    const seats = compactHullSeats(width, height, radius, next.length, chrome)
-    const free = new Set(seats)
-    const entrants = next.filter((node) => {
-      if (!placed.has(node.entity.key)) return true
-      const retained = seats.find((seat) => seat.x === node.x && seat.y === node.y)
-      return !retained || !free.delete(retained)
-    })
-    for (const node of entrants) {
-      const anchor = anchorFor(node)
-      let nearest = seats[0]!
-      let distance = Infinity
-      for (const seat of free) {
-        const score = (seat.x - anchor.x) ** 2 + (seat.y - anchor.y) ** 2
-        if (score >= distance) continue
-        nearest = seat
-        distance = score
-      }
-      free.delete(nearest)
-      Object.assign(node, nearest)
-      placed.add(node.entity.key)
-    }
-    return true
-  }
+  let lastChrome: readonly Rect[] | undefined
+  let activeExchanges = new Map<string, readonly [number, number]>()
 
-  function clearCoveredCenter(node: ReplayNode) {
-    const neighbors = activeNodes.filter((other) => other !== node)
-    const coversCenter = neighbors.some((other) => Math.hypot(node.x - other.x, node.y - other.y)
-      < Math.max(node.radius, other.radius) + 2)
-    if (!coversCenter) return
-    // The final boundary clamp can put two hulls together. Move only the entrant whose center is affected.
-    for (let distance = 4; distance <= 32; distance += 4) {
-      for (let direction = 0; direction < 8; direction++) {
-        const angle = direction * Math.PI / 4
-        const point = confine(node, node.x + Math.cos(angle) * distance, node.y + Math.sin(angle) * distance)
-        if (neighbors.some((other) => Math.hypot(point.x - other.x, point.y - other.y) < node.radius + other.radius + 4)) continue
-        Object.assign(node, point)
-        return
-      }
-    }
+  function hullBounds(node: ReplayNode, chrome: readonly Rect[]): Rect {
+    const insetX = Math.min(node.radius + 5, width / 2)
+    const insetY = Math.min(node.radius + 5, height / 2)
+    const ownSide = node.entity.side === order[0]
+    const neutral = node.entity.side < 0
+    const minX = split === 'x' && !ownSide && !neutral ? width * splitRatio + insetX : insetX
+    const maxX = split === 'x' && ownSide ? width * splitRatio - insetX : width - insetX
+    const headerFloor = chrome.length && spacingScale < 1 ? insetY : Math.min(height - insetY, top + insetY)
+    const minY = neutral ? Math.min(height - insetY, height / 2 + 1)
+      : split === 'y' && !ownSide ? Math.max(headerFloor, verticalDivider + insetY) : headerFloor
+    const maxY = split === 'y' && ownSide ? Math.min(height - insetY, verticalDivider - insetY) : height - insetY
+    return { x: Math.min(minX, maxX), y: Math.min(minY, maxY), width: Math.max(0, maxX - minX), height: Math.max(0, maxY - minY) }
   }
 
   function placeVisible(visible: ReadonlySet<EntityKey>, live: readonly ReplayEdge[], chrome: readonly Rect[] = []) {
-    const next = (shortMap ? nodes : assigned).filter(({ entity }) => visible.has(entity.key))
+    const next = assigned.filter(({ entity }) => visible.has(entity.key))
     const unchanged = next.length === activeNodes.length && next.every((node, index) => node === activeNodes[index])
-    if (shortMap) return (!unchanged || chrome !== compactChrome) && placeCompact(next, chrome)
-    if (unchanged) return false
+    const exchanges = new Map<string, readonly [number, number]>()
+    for (const { from, to } of live) {
+      const source = byKey.get(from)
+      const target = byKey.get(to)
+      if (!source || !target || !visible.has(from) || !visible.has(to)) continue
+      const a = source.entity.side
+      const b = target.entity.side
+      if (a >= 0 && b >= 0 && a !== b) exchanges.set(a < b ? `${a}/${b}` : `${b}/${a}`, [a, b])
+    }
+    const exchangeStarted = [...exchanges.keys()].some((pair) => !activeExchanges.has(pair))
+    activeExchanges = exchanges
+    const chromeChanged = chrome !== lastChrome && (!lastChrome || chrome.length !== lastChrome.length || chrome.some((rect, index) => {
+      const prior = lastChrome![index]!
+      return rect.x !== prior.x || rect.y !== prior.y || rect.width !== prior.width || rect.height !== prior.height
+    }))
+    lastChrome = chrome
+    const seated = placeUnassigned(visible, chrome, chromeChanged)
+    if (unchanged && !exchangeStarted && !chromeChanged && !seated) return false
 
     const survivors = new Set(activeNodes)
     // The first batch after an analysis rebuild keeps coordinates from the previous scene.
     if (!activeNodes.length) for (const node of next) if (placed.has(node.entity.key)) survivors.add(node)
-    const entrants = next.filter((node) => !survivors.has(node))
     activeNodes = next
-    if (!entrants.length) return true
+    const settling = next.filter((node) => !survivors.has(node) || exchangeStarted && unchanged)
+    const pinned = next.filter((node) => !settling.includes(node))
+    if (settling.length) {
+      links.links([])
+      simulation.nodes(next)
+      for (const node of pinned) {
+        node.fx = node.x
+        node.fy = node.y
+      }
+      for (const node of settling) {
+        if (confineDuringSettling) Object.assign(node, confine(node, node.x, node.y))
+        node.vx = node.vy = 0
+      }
 
-    links.links([])
-    simulation.nodes(next)
-    const pinned = next.filter((node) => survivors.has(node))
-    for (const node of pinned) {
-      node.fx = node.x
-      node.fy = node.y
-    }
-    for (const node of entrants) {
-      if (confineDuringSettling) Object.assign(node, confine(node, node.x, node.y))
-      node.vx = node.vy = 0
+      const pairs = new Map<string, CombatLink>()
+      for (const { from, to } of live) {
+        if (from === to || !visible.has(from) || !visible.has(to)) continue
+        const source = byKey.get(from)
+        const target = byKey.get(to)
+        if (!source || !target || source.entity.side < 0 || target.entity.side < 0) continue
+        const key = `${source.ordinal}/${target.ordinal}`
+        const pair = pairs.get(key)
+        if (pair) pair.count++
+        else pairs.set(key, { source, target, count: 1 })
+      }
+      links.links([...pairs.values()])
+      // Settle synchronously once as pilots arrive or a new exchange starts.
+      simulation.alpha(0.2).tick(pinned.length ? 70 : 145).alpha(0)
+      for (const node of pinned) node.fx = node.fy = null
+      const approach = formationApproach(exchanges.values())
+      for (const node of settling) {
+        const offset = approach.get(node.entity.side)
+        Object.assign(node, confine(node, node.x + (offset?.x ?? 0), node.y + (offset?.y ?? 0)))
+      }
     }
 
-    const pairs = new Map<string, CombatLink>()
-    for (const { from, to } of live) {
-      if (from === to || !visible.has(from) || !visible.has(to)) continue
-      const source = byKey.get(from)
-      const target = byKey.get(to)
-      if (!source || !target || source.entity.side === -1 || target.entity.side === -1) continue
-      const key = `${source.ordinal}/${target.ordinal}`
-      const pair = pairs.get(key)
-      if (pair) pair.count++
-      else pairs.set(key, { source, target, count: 1 })
-    }
-    links.links([...pairs.values()])
-    // Settle only the entering nodes, in one batch. Per-frame simulation drift is visible even while paused.
-    simulation.alpha(0.2).tick(pinned.length ? 70 : 145).alpha(0)
-    for (const node of pinned) node.fx = node.fy = null
-    for (const node of entrants) {
-      Object.assign(node, confine(node, node.x, node.y))
-      node.vx = node.vy = 0
+    const occupied = unassigned.filter(({ entity }) => visible.has(entity.key))
+    let repositioned = false
+    for (const node of [...pinned, ...settling]) {
+      const point = findHullCenter(node, node.radius, hullBounds(node, chrome), occupied, chrome)
+      if (point.x !== node.x || point.y !== node.y) repositioned = true
+      Object.assign(node, { x: point.x, y: point.y, vx: 0, vy: 0 })
+      occupied.push(node)
       placed.add(node.entity.key)
     }
-    if (!split) for (const node of entrants) clearCoveredCenter(node)
-    return true
+    return !unchanged || exchangeStarted || repositioned || seated
   }
 
   const rowWidth = Math.max(0, width - 12)
@@ -316,14 +331,13 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     }
   }
 
-  function placeUnassigned(visible: ReadonlySet<EntityKey>) {
-    if (shortMap) return
+  function placeUnassigned(visible: ReadonlySet<EntityKey>, chrome: readonly Rect[], chromeChanged: boolean) {
     const seated = unassigned.filter(({ entity }) => visible.has(entity.key))
     const { seats } = row
     for (const key of seats.keys()) if (!visible.has(key)) seats.delete(key)
     if (!seated.length) {
       row.slots = columns
-      return
+      return false
     }
     row.slots = Math.max(row.slots, Math.ceil(seated.length / columns) * columns)
     const newcomers = seated.filter(({ entity }) => !seats.has(entity.key))
@@ -339,15 +353,22 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
       newcomers.forEach(({ entity }, index) => seats.set(entity.key, free[index]!))
     }
 
+    if (!newcomers.length && !chromeChanged) return false
     const step = rowWidth / columns
+    const occupied: ReplayNode[] = []
     for (const node of seated) {
       const seat = seats.get(node.entity.key)!
-      node.x = (width - rowWidth) / 2 + (seat % columns + 0.5) * step
-      node.y = Math.max(seatRadius, height - Math.max(seatRadius + 3, 25 * spacingScale) - Math.floor(seat / columns) * slotSize)
+      const target = {
+        x: (width - rowWidth) / 2 + (seat % columns + 0.5) * step,
+        y: height - Math.max(seatRadius + 3, 25 * spacingScale) - Math.floor(seat / columns) * slotSize,
+      }
+      Object.assign(node, findHullCenter(target, node.radius, hullBounds(node, chrome), occupied, chrome))
+      occupied.push(node)
     }
+    return true
   }
 
-  return { nodes, byKey, row, placed, width, height, topInset, split, shortMap, ours: order[0], anchorOrder, placeVisible, placeUnassigned, inheritPositions }
+  return { nodes, byKey, row, placed, width, height, topInset, split, ours: order[0], anchorOrder, placeVisible, inheritPositions }
 }
 
 export type ReplayLayout = ReturnType<typeof makeLayout>
