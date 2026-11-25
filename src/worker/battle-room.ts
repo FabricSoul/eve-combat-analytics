@@ -96,6 +96,10 @@ async function readFit(request: Request): Promise<Pick<FitEntry, 'eft' | 'mutate
   return { eft: data.eft, ...(mutated.length ? { mutated: [...new Set<string>(mutated)] } : {}) }
 }
 
+function normalizeLegacyEft(eft: string): string {
+  return eft.split(/\r\n|\r|\n/).map((line) => line.trimEnd()).join('\n').replace(/^\n+|\n+$/g, '')
+}
+
 async function readEdit(request: Request, kind: 'side' | 'identity' | 'side batch'): Promise<unknown> {
   const limit = kind === 'side batch' ? SIDE_BATCH_LIMIT : 1024
   try {
@@ -492,19 +496,20 @@ export class BattleRoom extends DurableObject<Env> {
 
   private async recoverLegacyFits(meta: BattleMeta): Promise<void> {
     const candidates = this.store.legacyFits().flatMap((fit) => {
+      const eft = normalizeLegacyEft(fit.eft)
       // The canonical header identifies the one loss to check, even for pilots with several losses.
-      const id = Number(/^\[[^\r\n]+, Killmail ([1-9]\d{0,14})\](?=\n|$)/.exec(fit.eft)?.[1])
+      const id = Number(/^\[[^\n]+, Killmail ([1-9]\d{0,14})\](?=\n|$)/.exec(eft)?.[1])
       const loss = meta.killmails.find((kill) => kill.id === id && kill.victim.charId === fit.charId)
-      return loss && /^[a-f0-9]{40}$/i.test(loss.hash) ? [{ fit, loss }] : []
+      return loss && /^[a-f0-9]{40}$/i.test(loss.hash) ? [{ fit, eft, loss }] : []
     })
     const queue = candidates.values()
     const workers = Array.from({ length: Math.min(candidates.length, FIT_RECOVERY_CONCURRENCY) }, async () => {
-      for (const { fit, loss } of queue) {
+      for (const { fit, eft, loss } of queue) {
         const canonical = await withDeadline(FIT_RECOVERY_TIMEOUT_MS, (signal) =>
           fetchKillmailFit(loss.id, loss.hash.toLowerCase(), (input, init) => fetch(input, { ...init, signal })),
         ).catch(() => undefined)
-        if (!canonical) continue // Leave the legacy row eligible for retry when ESI is available.
-        const mutated = canonical.charId === fit.charId && canonical.eft === fit.eft ? canonical.mutated ?? [] : []
+        if (!canonical || canonical.charId !== fit.charId) continue
+        const mutated = normalizeLegacyEft(canonical.eft) === eft ? canonical.mutated ?? [] : []
         if (this.store.recoverFitMutations(fit, mutated) && mutated.length) {
           this.broadcast({ type: 'fit_set', fit: { ...fit, mutated } })
         }

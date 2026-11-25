@@ -300,10 +300,9 @@ it('persists killmail substitutions for reload and a second live viewer, then cl
   }
 })
 
-it.each([
-  { room: 992, edited: false },
-  { room: 993, edited: true },
-])('recovers legacy fits in the background with one ESI lookup (edited: $edited)', async ({ room, edited }) => {
+const editLegacyModule = (eft: string) => eft.replace('Entropic Radiation Sink II', 'Damage Control II')
+
+async function prepareLegacyLeshakFit(room: number, variant: (eft: string) => string, oldEmpty = false) {
   const id = await prepare(room)
   const stub = env.BATTLE.getByName(id)
   const killmail = env.REAL_FIGHT_INFO.meta.killmails.find(({ id }) => id === leshak.killmail_id)!
@@ -313,25 +312,41 @@ it.each([
     return Response.json(leshak)
   })
   const imported = await createWorker(esiFetch).fetch(
-    new Request(`https://import.example/api/killmails/${killmail.id}/${killmail.hash}/fit`), env,
+    new Request(`https://${id}.example/api/killmails/${killmail.id}/${killmail.hash}/fit`), env,
   )
   expect(imported.status).toBe(200)
   const { eft } = await imported.json<KillmailFit>()
-  const oldFit: FitEntry = {
-    charId: leshak.victim.character_id, eft: edited ? `${eft}\nDamage Control II` : eft, setAt: now - 1,
-  }
+  const oldFit: FitEntry = { charId: leshak.victim.character_id, eft: variant(eft), setAt: now - 1 }
   const chunks = await packJson({ ...meta, brId: id, killmails: [killmail] })
   await runInDurableObject(stub, (_, { storage }) => {
     storage.sql.exec('DELETE FROM meta_chunks')
     chunks.forEach((chunk, seq) => storage.sql.exec('INSERT INTO meta_chunks VALUES (?, ?)', seq, chunk))
     storage.sql.exec('INSERT INTO fits (charId, eft, setAt) VALUES (?, ?, ?)', oldFit.charId, oldFit.eft, oldFit.setAt)
+    if (oldEmpty) {
+      storage.sql.exec('ALTER TABLE fits ADD COLUMN mutated TEXT')
+      storage.sql.exec('UPDATE fits SET mutated = ? WHERE charId = ?', '[]', oldFit.charId)
+    }
   })
+  esiFetch.mockClear()
+  return { id, stub, oldFit, esiFetch }
+}
 
+it.each([
+  { room: 992, name: 'canonical', variant: (eft: string) => eft },
+  { room: 993, name: 'changed module', variant: editLegacyModule, edited: true },
+  { room: 994, name: 'trailing newline', variant: (eft: string) => `${eft}\n` },
+  { room: 995, name: 'CRLF', variant: (eft: string) => eft.replaceAll('\n', '\r\n') },
+  { room: 996, name: 'CR', variant: (eft: string) => eft.replaceAll('\n', '\r') },
+  { room: 997, name: 'trailing spaces', variant: (eft: string) => eft.split('\n').map((line) => `${line} \t`).join('\n') },
+  { room: 998, name: 'surrounding blank lines', variant: (eft: string) => `\n \t\n${eft}\n\n \t` },
+  { room: 999, name: 'previously checked whitespace variant', variant: (eft: string) => `${eft}\n`, oldEmpty: true },
+  { room: 1000, name: 'previously checked module edit', variant: editLegacyModule, oldEmpty: true, edited: true },
+])('checks legacy Leshak fits in the background with one ESI lookup ($name)', async ({ room, variant, edited, oldEmpty }) => {
+  const { id, stub, oldFit, esiFetch } = await prepareLegacyLeshakFit(room, variant, oldEmpty)
   const expected = edited ? oldFit : { ...oldFit, mutated: ['Entropic Radiation Sink II'] }
   let releaseEsi!: () => void
   const paused = new Promise<void>((resolve) => { releaseEsi = resolve })
   const reply = esiFetch.getMockImplementation()!
-  esiFetch.mockClear()
   esiFetch.mockImplementation(async (...args) => {
     await paused
     return reply(...args)
@@ -350,13 +365,13 @@ it.each([
       expect(esiFetch).toHaveBeenCalledTimes(1)
 
       releaseEsi()
-      if (!edited) expect(await live.next()).toEqual({ type: 'fit_set', fit: expected })
       await vi.waitFor(async () => {
         const row = await runInDurableObject(stub, (_, { storage }) =>
           storage.sql.exec<{ mutated: string }>('SELECT mutated FROM fits WHERE charId = ?', oldFit.charId).one(),
         )
         expect(JSON.parse(row.mutated)).toEqual(expected.mutated ?? [])
       })
+      if (!edited) expect(await live.next()).toEqual({ type: 'fit_set', fit: expected })
     } finally {
       live.close()
     }
@@ -373,6 +388,41 @@ it.each([
     }
   } finally {
     releaseEsi()
+    vi.unstubAllGlobals()
+  }
+})
+
+it.each([
+  { room: 1001, name: 'failed', timeout: false },
+  { room: 1002, name: 'timed-out', timeout: true },
+])('retries a $name legacy Leshak lookup on a later read', { timeout: 10_000 }, async ({ room, timeout }) => {
+  const { id, stub, oldFit, esiFetch } = await prepareLegacyLeshakFit(room, (eft) => `${eft}\r\n`, true)
+  let firstAttemptFinished = false
+  esiFetch.mockImplementationOnce(async (_input, init) => {
+    try {
+      if (timeout) {
+        const signal = init!.signal!
+        await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+        signal.throwIfAborted()
+      }
+      return new Response(null, { status: 503 })
+    } finally {
+      firstAttemptFinished = true
+    }
+  })
+  vi.stubGlobal('fetch', esiFetch)
+  try {
+    expect((await state(id)).fits).toEqual([oldFit])
+    await vi.waitFor(() => expect(firstAttemptFinished).toBe(true), { timeout: 5_000 })
+    const row = await runInDurableObject(stub, (_, { storage }) =>
+      storage.sql.exec<{ mutated: string }>('SELECT mutated FROM fits WHERE charId = ?', oldFit.charId).one(),
+    )
+    expect(row.mutated).toBe('[]')
+    await vi.waitFor(async () => {
+      expect((await state(id)).fits).toEqual([{ ...oldFit, mutated: ['Entropic Radiation Sink II'] }])
+    })
+    expect(esiFetch).toHaveBeenCalledTimes(2)
+  } finally {
     vi.unstubAllGlobals()
   }
 })

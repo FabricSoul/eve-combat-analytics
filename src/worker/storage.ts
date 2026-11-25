@@ -45,6 +45,7 @@ export function needsAnalysis(status: AnalysisStatus): boolean {
 const CHUNK_BYTES = 1024 * 1024
 const SIDE_EDIT_LIMIT = 30
 const SIDE_EDIT_WINDOW_MS = 60_000
+const LEGACY_FIT_MUTATIONS = "(mutated IS NULL OR mutated = '[]')"
 
 function unpackAffiliation(value: string | null): StoredAffiliation {
   return value === null ? {} : JSON.parse(value)
@@ -230,7 +231,10 @@ export class BattleStorage {
   private fitRows(legacyOnly = false): FitRow[] {
     const hasMutations = this.hasColumn('fits', 'mutated')
     const mutations = hasMutations ? 'mutated' : 'NULL AS mutated'
-    const where = hasMutations && legacyOnly ? 'WHERE mutated IS NULL' : ''
+    const checked = legacyOnly && hasMutations && this.hasColumn('fits', 'mutationsChecked')
+    const where = hasMutations && legacyOnly
+      ? `WHERE ${LEGACY_FIT_MUTATIONS}${checked ? ' AND mutationsChecked = 0' : ''}`
+      : ''
     return this.sql.exec<FitRow>(`SELECT charId, eft, setAt, ${mutations} FROM fits ${where} ORDER BY charId`).toArray()
   }
 
@@ -444,16 +448,21 @@ export class BattleStorage {
     return { id, charId, charName, side, corpId, allyId, events: parsed.events.length, uploadedAt, ...details }
   }
 
-  private ensureFitMutationColumn(): void {
+  private ensureFitMutationColumns(): void {
     if (!this.hasColumn('fits', 'mutated')) this.sql.exec('ALTER TABLE fits ADD COLUMN mutated TEXT')
+    // An old empty list can record a byte-for-byte mismatch that the normalized check would accept.
+    if (!this.hasColumn('fits', 'mutationsChecked')) {
+      this.sql.exec('ALTER TABLE fits ADD COLUMN mutationsChecked INTEGER NOT NULL DEFAULT 0')
+    }
   }
 
   recoverFitMutations({ charId, eft, setAt }: FitEntry, mutated: string[]): boolean {
     return this.storage.transactionSync(() => {
-      this.ensureFitMutationColumn()
+      this.ensureFitMutationColumns()
       // The fit may have been edited or removed while ESI was in flight.
       return this.sql.exec(
-        'UPDATE fits SET mutated = ? WHERE charId = ? AND eft = ? AND setAt = ? AND mutated IS NULL',
+        `UPDATE fits SET mutated = ?, mutationsChecked = 1
+         WHERE charId = ? AND eft = ? AND setAt = ? AND mutationsChecked = 0 AND ${LEGACY_FIT_MUTATIONS}`,
         JSON.stringify(mutated), charId, eft, setAt,
       ).rowsWritten > 0
     })
@@ -461,11 +470,11 @@ export class BattleStorage {
 
   setFit({ charId, eft, setAt, mutated }: FitEntry): void {
     this.storage.transactionSync(() => {
-      this.ensureFitMutationColumn()
+      this.ensureFitMutationColumns()
       this.sql.exec(
-        `INSERT INTO fits (charId, eft, setAt, mutated) VALUES (?, ?, ?, ?)
-          ON CONFLICT(charId) DO UPDATE SET eft = excluded.eft, setAt = excluded.setAt, mutated = excluded.mutated`,
-        // NULL identifies legacy rows. An empty list records a save without substitutions.
+        `INSERT INTO fits (charId, eft, setAt, mutated, mutationsChecked) VALUES (?, ?, ?, ?, 1)
+          ON CONFLICT(charId) DO UPDATE SET eft = excluded.eft, setAt = excluded.setAt,
+            mutated = excluded.mutated, mutationsChecked = excluded.mutationsChecked`,
         charId, eft, setAt, JSON.stringify(mutated ?? []),
       )
       this.markAnalysisDirty()
