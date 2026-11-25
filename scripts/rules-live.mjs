@@ -152,6 +152,17 @@ async function rule5(page) {
   }
 }
 
+async function settleAnalysis(origin) {
+  // Wait until analysisVersion has stayed the same for 3 s (at most 30 s).
+  let last = -1, since = Date.now()
+  for (const end = Date.now() + 30_000; Date.now() < end;) {
+    const { analysisVersion } = await (await fetch(`${origin}/api/battles/${brId}`)).json()
+    if (analysisVersion !== last) { last = analysisVersion; since = Date.now() }
+    else if (Date.now() - since >= 3_000) return
+    await new Promise((done) => setTimeout(done, 500))
+  }
+}
+
 async function rule6(page) {
   const feed = moduleAt(page, 'feed')
   await feed.getByRole('button', { name: '弹出 事件' }).click()
@@ -239,6 +250,9 @@ try {
       console.log('SKIP rule 5 — the undo toast requires a shared edit; use --local')
       continue
     }
+    // A previous rule's shared edit (rule 5) triggers a re-analysis. Start each rule on a settled battle, or the new
+    // analysis lands mid-rule and the page rebuilds under the keyboard steps (seen on zion).
+    if (local) await settleAnalysis(url.origin)
     const context = await browser.newContext({ baseURL: url.origin, viewport: { width: 1630, height: 940 }, serviceWorkers: 'block' })
     const blocked = []
     try {
