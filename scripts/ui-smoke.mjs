@@ -52,20 +52,134 @@ try {
     }))
   }
 
-  async function auditIconButtonHints(page, layout) {
-    const missing = await page.locator('button:visible, [role="button"]:visible').evaluateAll((buttons) => {
-      return buttons.filter((button) => {
-        if (!button.checkVisibility({ visibilityProperty: true, opacityProperty: true }) || button.closest('[inert]')) return false
+  async function auditIconButtonHints(surface, layout) {
+    const missing = await surface.locator('button:visible, [role="button"]:visible').evaluateAll((buttons) => {
+      return buttons.flatMap((button) => {
+        if (!button.checkVisibility({ visibilityProperty: true, opacityProperty: true }) || button.closest('[inert]')) return []
         const content = button.cloneNode(true)
         content.querySelectorAll('svg, [aria-hidden="true"]').forEach((icon) => icon.remove())
-        if (/[\p{L}\p{N}]/u.test(content.textContent)) return false
+        if (/[\p{L}\p{N}]/u.test(content.textContent)) return []
+        const label = button.getAttribute('aria-label')?.trim() || button.getAttribute('aria-labelledby')?.split(/\s+/)
+          .map((id) => document.getElementById(id)?.textContent.trim()).filter(Boolean).join(' ')
         const tooltip = button.getAttribute('aria-describedby')?.split(/\s+/).some((id) =>
           document.getElementById(id)?.matches('[role="tooltip"]'))
-        return !button.getAttribute('title')?.trim() && !tooltip
-      }).map((button) => button.getAttribute('aria-label') ?? button.outerHTML)
+        return label && (button.getAttribute('title')?.trim() || tooltip) ? [] : [label || button.outerHTML]
+      })
     })
-    assert.deepEqual(missing, [], `${layout} icon-only buttons expose a hover title or tooltip`)
+    assert.deepEqual(missing, [], `${layout} icon-only buttons expose an accessible name and a hover title or tooltip`)
     console.log(`Icon-button hover hints: ${layout} passed`)
+  }
+
+  async function checkReplayStageEdges() {
+    const issues = []
+    const verify = (ok, message) => { if (!ok) issues.push(message) }
+    for (const [width, height, coarse, mapFloor] of [
+      [900, 680, false, 79], [1280, 800, false, 79], [1630, 940, false, 79], [900, 800, true, 140],
+    ]) {
+      const name = `${width}x${height}-${coarse ? 'coarse' : 'fine'}`
+      const { context, page, errors } = await open(width, height, 'dark', 'reduce', '?t=1750606982420', coarse)
+      try {
+        const stage = page.getByRole('region', { name: '回放舞台' })
+        const grip = stage.getByRole('separator', { name: '调整舞台高度' })
+        const timeline = stage.getByRole('region', { name: '时间轴' })
+        const replay = stage.getByRole('region', { name: '回放', exact: true })
+        const helpTrigger = timeline.getByRole('button', { name: '时间轴用法' })
+        const help = page.getByRole('dialog', { name: '时间轴使用说明' })
+        const close = help.getByRole('button', { name: '关闭时间轴使用说明' })
+        const centerHits = (locator) => locator.evaluate((element) => {
+          const { x, y, width, height } = element.getBoundingClientRect()
+          return element.contains(document.elementFromPoint(x + width / 2, y + height / 2))
+        })
+        async function dragTo(y) {
+          const box = await grip.boundingBox()
+          const x = box.x + box.width / 2
+          await page.mouse.move(x, box.y + box.height / 2)
+          await page.mouse.down()
+          await page.mouse.move(x, y, { steps: 6 })
+          await page.mouse.up()
+        }
+        async function checkHelp(size) {
+          await helpTrigger.click()
+          await help.waitFor()
+          const box = await help.boundingBox()
+          await page.screenshot({ path: join(output, `x14-help-${name}-${size}.png`) })
+          verify(box.x >= 0 && box.y >= 0 && box.x + box.width <= width && box.y + box.height <= height,
+            `${name} ${size} Help must fit the viewport (${JSON.stringify(box)})`)
+          const hits = await centerHits(close)
+          verify(hits, `${name} ${size} Help Close must receive a pointer hit`)
+          try { await auditIconButtonHints(help, `${name} open Help (${size})`) } catch (error) { issues.push(error.message) }
+          if (hits) await close.click()
+          else await page.keyboard.press('Escape')
+          await help.waitFor({ state: 'hidden' })
+          assert.ok(await helpTrigger.evaluate((node) => node === document.activeElement), `${name} Help restores trigger focus`)
+        }
+
+        await stage.locator('.replay-marker[data-present] .replay-pilot').first().waitFor()
+        const initial = (await stage.boundingBox()).height
+        if (name === '900x680-fine') assert.equal(initial, 402, 'the default leaves 220 px for modules')
+        await dragTo(1)
+        if (!coarse) assert.equal((await stage.boundingBox()).height, 300, `${name} ordinary minimum is 300 px`)
+        await checkHelp('minimum')
+        await dragTo(height - 1)
+        assert.equal((await stage.boundingBox()).height, Math.floor(height * .75), `${name} maximum is 75%`)
+        await checkHelp('maximum')
+        await grip.dblclick()
+        assert.equal((await stage.boundingBox()).height, initial, `${name} double-click restores the default`)
+
+        const layers = timeline.getByRole('group', { name: '时间轴图层' })
+        for (const name of ['我方维修', '点人', '击毁用舰船图标']) {
+          await layers.getByRole('button', { name, exact: true }).click()
+        }
+        assert.equal(await layers.getByRole('button', { pressed: false }).count(), 0)
+        await dragTo(1)
+        await page.screenshot({ path: join(output, `x14-stage-${name}-all-layers.png`) })
+        const geometry = await stage.evaluate((node) => {
+          const height = (element) => element.getBoundingClientRect().height
+          const grip = node.querySelector('[role="separator"]')
+          const css = getComputedStyle(node)
+          const chrome = ['borderTopWidth', 'borderBottomWidth', 'paddingTop', 'paddingBottom']
+            .reduce((total, property) => total + parseFloat(css[property]), 0)
+          return { stage: height(node), replay: height(node.querySelector('.battle-replay')), chrome,
+            timeline: height(node.querySelector('.battle-timeline')), ariaNow: +grip.getAttribute('aria-valuenow'),
+            ariaMin: +grip.getAttribute('aria-valuemin'), ariaMax: +grip.getAttribute('aria-valuemax') }
+        })
+        console.log(`All-layers stage ${name}: ${JSON.stringify(geometry)}`)
+        verify(geometry.replay >= mapFloor && geometry.stage === Math.max(300, Math.ceil(geometry.timeline + geometry.chrome + mapFloor)),
+          `${name} map floor is ${mapFloor} px at the all-layers minimum, measured ${geometry.replay}`)
+        verify(geometry.stage === geometry.ariaMin && geometry.stage === geometry.ariaNow
+          && geometry.ariaMax === Math.max(geometry.ariaMin, Math.floor(height * .75)), `${name} stage bounds agree with ARIA`)
+        const zoom = replay.getByRole('button', { name: '放大', exact: true })
+        const hits = await centerHits(zoom)
+        verify(hits, `${name} map Zoom + must receive a pointer hit at the all-layers minimum`)
+        if (hits) {
+          await (coarse ? zoom.tap() : zoom.click())
+          await replay.getByRole('group', { name: '回放缩放' }).getByText('125%', { exact: true }).waitFor()
+        }
+        await checkHelp('all-layers')
+        if (width === 1280) {
+          const chart = timeline.getByRole('slider', { name: '回放时间' })
+          const box = await chart.boundingBox()
+          const full = await chart.getAttribute('data-domain-start')
+          const clientX = box.x + 72 + (box.width - 72 - 12) * .88
+          await chart.dispatchEvent('wheel', { clientX, deltaY: -540, bubbles: true, cancelable: true })
+          await page.waitForFunction((start) => document.querySelector('[data-timeline-chart]').dataset.domainStart !== start, full)
+          for (const key of ['Home', 'End']) {
+            await chart.press(key)
+            const edge = await chart.evaluate((node, atStart) => {
+              const axis = node.querySelector('[data-lane="damage"] line')
+              const gold = node.querySelector('line[stroke="var(--color-accent)"]')
+              return { time: +node.getAttribute('aria-valuenow'), bound: +(atStart ? node.dataset.domainStart : node.dataset.domainEnd),
+                x: gold?.getAttribute('x1'), edgeX: axis.getAttribute(atStart ? 'x1' : 'x2') }
+            }, key === 'Home')
+            console.log(`Timeline ${name} ${key}: ${JSON.stringify(edge)}`)
+            await page.screenshot({ path: join(output, `x14-cursor-${key.toLowerCase()}.png`) })
+            verify(edge.time === edge.bound && edge.x === edge.edgeX, `${name} ${key} puts the gold cursor exactly at its zoomed edge`)
+          }
+        }
+        assert.deepEqual(errors, [])
+      } finally { await context.close() }
+    }
+    assert.deepEqual(issues, [], 'Replay stage edges, map controls and open Help')
   }
 
   async function auditTagAndKillStyles() {
@@ -983,6 +1097,11 @@ try {
       const inViewHulls = new Set()
       const audit = async (view, target = page.locator('body')) => {
         await target.waitFor()
+        if (await target.evaluate((node) => node.closest(
+          'dialog, [role="dialog"], [role="listbox"], [role="menu"], [popover]:popover-open, details[open], .replay-noise-popover',
+        ))) {
+          await auditIconButtonHints(target, `${prefix} · ${view}`)
+        }
         await measureTouchTargets(target, `${prefix} · ${view}`)
         const keys = await page.locator('.replay-marker[data-present]').evaluateAll((markers) => markers.flatMap((marker) => {
           const hull = marker.firstElementChild.getBoundingClientRect()
@@ -1414,6 +1533,7 @@ try {
   const fullBattle = await (await fetch(`${origin}/api/battles/${brId}/analysis`)).json()
   assert.equal(fullBattle.coverage.find(({ side }) => side === 1)?.known, 41, 'J125990 has 41 known pilots on the uploaders’ side')
   console.log('J125990 battle-time affiliations: 我方 41 with all 17 uploads')
+  await checkReplayStageEdges()
   await checkH2StageLimitsAndTabletHeader()
   await checkPhoneFightsScrub()
   await checkTouchSurfaces()

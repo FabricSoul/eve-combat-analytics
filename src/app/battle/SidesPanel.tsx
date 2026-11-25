@@ -167,7 +167,8 @@ export function SidesPanel({ onClose }: SidesPanelProps) {
   }
 
   function menuButton(section: SideMenuSection, name: string) {
-    return <button type="button" className="sides-more" aria-label={`${name} 的操作`} aria-haspopup="menu"
+    const label = `${name} 的操作`
+    return <button type="button" className="sides-more" aria-label={label} title={label} aria-haspopup="menu"
       onClick={(event) => openMenu(section, event.currentTarget)}>⋯</button>
   }
 

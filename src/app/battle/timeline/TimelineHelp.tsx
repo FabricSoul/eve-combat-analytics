@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '@/app/ui/Button'
+import { clamp } from './model'
 
 const helpItems = [
   '点击跳到某一刻',
@@ -55,7 +56,37 @@ export function TimelineHelp({ touchRange }: { touchRange: boolean }) {
   const panel = useRef<HTMLDivElement>(null)
 
   useLayoutEffect(() => {
-    if (open) panel.current?.focus({ preventScroll: true })
+    const button = trigger.current
+    const dialog = panel.current
+    if (!open || !button || !dialog) return
+
+    const place = () => {
+      const anchor = button.getBoundingClientRect()
+      const { width, height } = dialog.getBoundingClientRect()
+      const style = getComputedStyle(dialog)
+      const margin = parseFloat(style.getPropertyValue('--space-4')) || 0
+      const gap = parseFloat(style.getPropertyValue('--space-2')) || 0
+      const above = anchor.top - gap - height
+      const left = clamp(anchor.right - width, margin, window.innerWidth - margin - width)
+      const top = clamp(above >= margin ? above : anchor.bottom + gap, margin, window.innerHeight - margin - height)
+      dialog.style.setProperty('--help-left', `${left}px`)
+      dialog.style.setProperty('--help-top', `${top}px`)
+    }
+    place()
+    dialog.focus({ preventScroll: true })
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place)
+    const bar = button.closest('.eca-timeline-bar')
+    const stage = button.closest('.battle-stage')
+    observer?.observe(dialog)
+    if (bar) observer?.observe(bar)
+    if (stage) observer?.observe(stage)
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
   }, [open])
 
   useEffect(() => {
@@ -86,7 +117,7 @@ export function TimelineHelp({ touchRange }: { touchRange: boolean }) {
       className="eca-timeline-help-popover">
       <div className="eca-timeline-help-header">
         <h2 id={`${id}-title`}>时间轴使用说明</h2>
-        <Button variant="ghost" type="button" aria-label="关闭时间轴使用说明" onClick={closeHelp}>×</Button>
+        <Button variant="ghost" type="button" aria-label="关闭时间轴使用说明" title="关闭时间轴使用说明" onClick={closeHelp}>×</Button>
       </div>
       <ul>
         {touchRange && <li>点「选段」输入开始和结束时间</li>}

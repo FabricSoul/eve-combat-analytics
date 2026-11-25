@@ -92,12 +92,14 @@ export function keyboardDrop(layout: ModuleLayout, id: ModuleId, key: string, co
 }
 
 export const timelineMinHeight = 150
+// The fine-pointer controls and replay hulls fit in the compact map at 79 px.
+const fineReplayMapMin = 79
 
 export function replayHeightBounds(viewportHeight: number, availableHeight: number, timelineHeight: number,
   chromeHeight = 2, mapMin = 0) {
   const fixedHeight = Math.max(timelineMinHeight, timelineHeight) + chromeHeight
   // The persisted height is the replay alone. Apply the limits to the whole stage.
-  const min = Math.max(300, Math.ceil(fixedHeight + mapMin)) - fixedHeight
+  const min = Math.max(300, Math.ceil(fixedHeight + Math.max(fineReplayMapMin, mapMin))) - fixedHeight
   // Keep the usable minimum even when it exceeds the percentage cap.
   const max = Math.max(min, Math.floor(viewportHeight * 0.75) - fixedHeight)
   const initial = Math.min(Math.round(viewportHeight * 0.62), Math.floor(availableHeight) - 220) - fixedHeight

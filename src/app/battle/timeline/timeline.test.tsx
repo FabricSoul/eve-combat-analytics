@@ -334,6 +334,24 @@ describe('timeline', () => {
     }
   })
 
+  it('seeks to both shared playhead edges after a fractional zoom', async () => {
+    await render(false, fixture, <PilotTimelineModule />, true)
+    await act(() => view.setPinned(new Set(['char:2121605780'])))
+    const lane = host.querySelector<SVGSVGElement>('.eca-pilot-chart')!
+    const wheel = new WheelEvent('wheel', { deltaY: -300, clientX: 878, bubbles: true, cancelable: true })
+    await act(() => chart().dispatchEvent(wheel))
+    for (const [key, edge] of [['Home', 'domainStart'], ['End', 'domainEnd']] as const) {
+      await act(() => chart().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })))
+      const expected = Number(chart().dataset[edge])
+      expect.soft(view.getTime()).toBe(expected)
+      for (const [svg, left, right] of [[chart(), 72, 12], [lane, 82, 10]] as const) {
+        const width = Number(svg.getAttribute('viewBox')!.split(' ')[2])
+        const playhead = svg.querySelector('line[stroke="var(--color-accent)"]')
+        expect.soft(playhead?.getAttribute('x1')).toBe(String(key === 'Home' ? left : width - right))
+      }
+    }
+  })
+
   it('shares roster menu pins, compare checkboxes, and the lane remove button', async () => {
     await render(false, fixture, <><Roster /><CompareTable /></>)
     const pilot = Object.values(fixture.analysis.entities).find(({ hasLog, charId }) => hasLog && charId !== null)!
@@ -432,6 +450,7 @@ describe('timeline', () => {
     expect(title?.textContent).toBe('时间轴使用说明')
     expect(dialog.getAttribute('aria-labelledby')).toBe(title?.id)
     expect(button('关闭时间轴使用说明').textContent).toBe('×')
+    expect(button('关闭时间轴使用说明').title).toBe('关闭时间轴使用说明')
     await click('关闭时间轴使用说明')
     expect(dialog.hasAttribute('hidden')).toBe(true)
     expect(document.activeElement).toBe(trigger)

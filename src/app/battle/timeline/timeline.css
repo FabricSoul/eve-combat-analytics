@@ -31,7 +31,7 @@
   gap: 6px;
 }
 
-.eca-timeline-help { position: relative; flex: none; }
+.eca-timeline-help { flex: none; }
 
 .eca-timeline-help .eca-timeline-help-trigger {
   min-width: var(--row);
@@ -40,11 +40,12 @@
 }
 
 .eca-timeline-help-popover {
-  position: absolute;
+  position: fixed;
   z-index: var(--layer-popover);
-  inset-inline-end: 0;
-  bottom: calc(100% + var(--space-2));
+  inset: var(--help-top, 0) auto auto var(--help-left, 0);
   width: min(320px, calc(100vw - 2 * var(--space-4)));
+  max-height: calc(100dvh - 2 * var(--space-4));
+  overflow: auto;
   padding: var(--space-3);
   border: 1px solid var(--color-hair);
   border-radius: var(--radius-card);
@@ -388,11 +389,8 @@
 
 @media (pointer: coarse), (max-width: 759px) {
   .eca-timeline-help-popover {
-    position: fixed;
     inset: 50% auto auto 50%;
     transform: translate(-50%, -50%);
-    max-height: calc(100dvh - 2 * var(--space-4));
-    overflow: auto;
   }
   .eca-timeline-help .eca-timeline-help-trigger,
   .eca-timeline-hint .app-button {

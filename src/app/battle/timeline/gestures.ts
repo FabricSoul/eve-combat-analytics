@@ -45,7 +45,8 @@ export function useTimelineGestures(
   const pinch = useRef<Pinch | null>(null)
   const [fullStart, fullEnd] = full
   const domain = zoom ? zoomDomain(full, zoom, 0, 1) : full
-  const [start, end] = domain
+  // Playback seeks in whole milliseconds, so both plots must publish seekable edges.
+  const [start, end] = [Math.round(domain[0]), Math.round(domain[1])]
 
   useEffect(() => {
     const element = chart.current

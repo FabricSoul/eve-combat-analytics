@@ -79,6 +79,12 @@ describe('battle modules', () => {
     })
   })
 
+  it('keeps a fine-pointer map at the all-layers minimum even when it consumes the module reserve', () => {
+    expect(replayHeightBounds(680, 622, 331, 2, 0)).toEqual({
+      min: 79, max: 177, initial: 79, fixedHeight: 333,
+    })
+  })
+
   it('remembers an explicit fights collapse override in the current layout', () => {
     const expanded = moduleLayoutReducer(defaultModules(), { type: 'replay', action: { type: 'collapse', id: 'fights', collapsed: false } })
     let saved = ''
