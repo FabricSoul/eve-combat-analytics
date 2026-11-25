@@ -1,19 +1,22 @@
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { BattleSummary, IdentityMerge, SideSubject } from '@/core/contract'
-import { normalizeRevision, type VersionedFit } from '../api/client'
+import { normalizeRevision, type EditRevision, type ObservedEdit, type VersionedFit } from '../api/client'
 import { useOptionalBattleContext, type EditRevisions } from '../state/battle-store'
 
 type Visible = (summary: BattleSummary) => boolean
 type ReadRevisions = () => EditRevisions | undefined
-type Revert = (publishedVersion: number, readRevisions: ReadRevisions) => Promise<Visible | { unavailable: string } | { reverted: number[] } | void>
+type Revert = (publishedVersion: number, readRevisions: ReadRevisions) => Promise<Visible | { unavailable: string } | { reverted: number[]; skipped?: string } | void>
+type ConflictStatus = { label: string; partial?: true }
 type Conflict = { label: string; when: (summary: BattleSummary, revisions?: EditRevisions) => boolean }
+  | { status: (summary: BattleSummary, revisions?: EditRevisions) => ConflictStatus | undefined }
 type Toast = { label: string; revert?: Revert; visible?: Visible; conflict?: Conflict; pending?: true }
 type Finish = ((result?: Toast) => void) & { id: number }
 type Begin = (optimistic?: Toast) => Finish
 type Notice = {
   id: number
   toast: Toast
+  conflictLabel?: string
   deadline?: number
   remaining: number
   undoStarted?: boolean
@@ -43,7 +46,7 @@ function canUndo({ toast, remaining }: Notice) {
 }
 
 function feedback(notice: Notice, toast: Toast): Notice {
-  return { ...notice, deadline: undefined, remaining: 0, toast }
+  return { ...notice, deadline: undefined, remaining: 0, conflictLabel: undefined, toast }
 }
 
 export function useBattleUndo() { return useContext(UndoContext) }
@@ -57,6 +60,7 @@ type Edit<T> = { id: number; before: Map<string, Head<T>>; tags: Map<string, str
 class EditHistory<T> {
   private heads = new Map<string, Head<T>>()
   private edits: Edit<T>[] = []
+  private observed = new Map<string, EditRevision>()
   private queue = Promise.resolve()
   private pending = new Map<string, number>()
 
@@ -77,6 +81,15 @@ class EditHistory<T> {
   clear() {
     this.heads.clear()
     this.edits = []
+    this.observed.clear()
+  }
+
+  observe(revisions: readonly ObservedEdit[]) {
+    for (const { target, revision, sequence } of revisions) {
+      if (sequence > (this.observed.get(target)?.sequence ?? -1)) {
+        this.observed.set(target, { revision: normalizeRevision(revision), sequence })
+      }
+    }
   }
 
   record(id: number, changes: { key: string; before: Revision<T>; after: Revision<T> & { tag: string } }[], related: readonly string[] = []) {
@@ -93,63 +106,88 @@ class EditHistory<T> {
     return edit
   }
 
-  private requiredEdits(target: Edit<T>, revisions?: EditRevisions) {
-    const selected = new Set<Edit<T>>()
-    const collect = (edit: Edit<T>): boolean => {
-      if (selected.has(edit)) return true
-      selected.add(edit)
-      for (const key of edit.before.keys()) {
-        const head = this.heads.get(key)
-        const observed = revisions?.get(key.slice(key.indexOf('/') + 1))
-        if (observed && head?.sequence !== undefined && observed.sequence > head.sequence && observed.revision !== head.tag) {
-          return false
-        }
-        let later = head?.edit
-        while (later && later !== edit) {
-          if (!collect(later)) return false
-          later = later.before.get(key)?.edit
-        }
-        if (later !== edit) return false
-      }
-      return true
+  private chain(target: Edit<T>, key: string, revisions?: EditRevisions) {
+    const head = this.heads.get(key)
+    const subject = key.slice(key.indexOf('/') + 1)
+    const live = revisions?.get(subject)
+    const remembered = this.observed.get(subject)
+    const observed = remembered && (!live || remembered.sequence > live.sequence) ? remembered : live
+    if (!head?.tag) return
+    if (observed && head.sequence !== undefined && observed.sequence > head.sequence && observed.revision !== head.tag) {
+      // A paused toast can outlive the battle store's recent revisions.
+      this.observed.set(subject, observed)
+      return
     }
-    if (collect(target)) return selected
+    const chain: Edit<T>[] = []
+    for (let edit = head.edit; edit; edit = edit.before.get(key)?.edit) {
+      chain.push(edit)
+      if (edit === target) return chain
+    }
+  }
+
+  eligibility(edit: Edit<T>, revisions?: EditRevisions) {
+    const excluded: T[] = []
+    let available = false
+    for (const [key, before] of edit.before) {
+      if (this.chain(edit, key, revisions)) available = true
+      else excluded.push(before.value)
+    }
+    return { available, excluded }
   }
 
   canRevert(edit: Edit<T>, revisions?: EditRevisions) {
-    return this.requiredEdits(edit, revisions) !== undefined
+    return this.eligibility(edit, revisions).available
   }
 
   plan(target: Edit<T>, revisions?: EditRevisions, includeRelated = true) {
-    const selected = this.requiredEdits(target, revisions)
-    if (!selected) return
-    const requiredCount = selected.size
-    for (const candidate of includeRelated ? this.edits : []) {
-      if (selected.has(candidate) || ![...selected].some((edit) =>
-        edit.id < candidate.id && (edit.related.some((key) => candidate.tags.has(key)) ||
-          candidate.related.some((key) => edit.tags.has(key))))) continue
-      // A different group is coupled only while all of its later same-tab edits can still be undone.
-      const coupled = this.requiredEdits(candidate, revisions)
-      if (coupled) for (const edit of coupled) selected.add(edit)
-    }
-    const restored = new Map<string, Head<T> & { through: string }>()
-    const newestFirst = [...selected].sort((left, right) => right.id - left.id)
-    for (const edit of newestFirst) {
-      for (const [key, before] of edit.before) {
-        restored.delete(key)
-        restored.set(key, { ...before, through: edit.tags.get(key)! })
+    const selected = new Map<Edit<T>, Set<string>>()
+    const restored = new Map<string, { before: Head<T>; edit: Edit<T> }>()
+    const collect = (edit: Edit<T>, key: string) => {
+      const current = restored.get(key)
+      if (current && current.edit.id <= edit.id) return
+      const chain = this.chain(edit, key, revisions)
+      if (!chain) return
+      restored.set(key, { before: edit.before.get(key)!, edit })
+      for (const member of chain) {
+        const keys = selected.get(member) ?? new Set<string>()
+        keys.add(key)
+        selected.set(member, keys)
       }
     }
+    for (const key of target.before.keys()) collect(target, key)
+    if (!restored.size) return
+    let includesRelated = false
+    // Map iteration also visits newly selected edits. Each subject has its own predecessor chain.
+    for (const [edit, keys] of selected) {
+      for (const key of edit.before.keys()) collect(edit, key)
+      if (!includeRelated) continue
+      for (const candidate of this.edits) {
+        if (candidate.id <= edit.id || !(edit.related.some((key) => candidate.tags.has(key)) ||
+          candidate.related.some((key) => keys.has(key)))) continue
+        const count = restored.size
+        for (const key of candidate.before.keys()) collect(candidate, key)
+        includesRelated ||= restored.size > count
+      }
+    }
+    const reverted = [...selected].flatMap(([edit, keys]) => keys.size === edit.before.size ? [edit.id] : [])
     return {
-      changes: [...restored].map(([key, { value, through }]) => ({ key, value, through, tag: this.heads.get(key)!.tag! })),
-      reverted: newestFirst.map(({ id }) => id),
-      includesRelated: selected.size > requiredCount,
+      changes: [...restored].map(([key, { before, edit }]) => ({
+        key, value: before.value, through: edit.tags.get(key)!, tag: this.heads.get(key)!.tag!,
+      })),
+      reverted,
+      includesRelated,
       commit: (read: (key: string, restored: T) => Revision<T>) => {
-        for (const [key, before] of restored) {
+        for (const [key, { before }] of restored) {
           const overwritten = this.heads.get(key)!.value
           this.heads.set(key, { ...read(key, before.value), edit: before.edit, overwritten })
         }
-        this.edits = this.edits.filter((edit) => !selected.has(edit))
+        for (const [edit, keys] of selected) {
+          for (const key of keys) {
+            edit.before.delete(key)
+            edit.tags.delete(key)
+          }
+        }
+        this.edits = this.edits.filter((edit) => edit.before.size > 0)
       },
     }
   }
@@ -245,11 +283,12 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
     const revert = edit?.toast.revert
     if (!edit || !revert || !canUndo(edit)) return
     if (edit.deadline !== undefined && Date.now() >= edit.deadline) return
-    update(id, (notice) => ({ ...notice, toast: reverting, undoStarted: true }))
+    update(id, (notice) => ({ ...notice, toast: reverting, conflictLabel: undefined, undoStarted: true }))
     try {
       const result = await revert(publishedVersion, () => liveRevisions.current)
       if (result && typeof result === 'object' && 'reverted' in result) {
-        const label = result.reverted.length > 1 ? `撤销了 ${result.reverted.length} 次修改` : '已撤销'
+        const restored = result.reverted.length > 1 ? `撤销了 ${result.reverted.length} 次修改` : '已撤销'
+        const label = result.skipped ? `${restored} · ${result.skipped}` : restored
         const reverted = new Set(result.reverted)
         show(current.current.flatMap((notice) => notice.id === id ? [feedback(notice, { label })]
           : reverted.has(notice.id) ? [] : [notice]))
@@ -310,9 +349,15 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
 function WatchUndoConflict({ id, conflict, update }: { id: number; conflict: Conflict; update: Update }) {
   const battle = useOptionalBattleContext()
   useLayoutEffect(() => {
-    if (battle?.summary && conflict.when(battle.summary, battle.editRevisions)) {
-      update(id, (notice) => notice.toast.conflict === conflict ? feedback(notice, { label: conflict.label }) : notice, true)
-    }
+    if (!battle?.summary) return
+    const { summary, editRevisions } = battle
+    const status = 'when' in conflict
+      ? (conflict.when(summary, editRevisions) ? { label: conflict.label, partial: false } : undefined)
+      : conflict.status(summary, editRevisions)
+    if (!status) return
+    if (status.partial) update(id, (notice) => notice.toast.conflict === conflict && notice.conflictLabel !== status.label
+      ? { ...notice, conflictLabel: status.label } : notice)
+    else update(id, (notice) => notice.toast.conflict === conflict ? feedback(notice, { label: status.label }) : notice, true)
   })
   return null
 }
@@ -381,7 +426,7 @@ function UndoNotice({ notice, update, domId, shown, onUndo }: {
     }}>
     {toast.conflict && <WatchUndoConflict id={id} conflict={toast.conflict} update={update} />}
     <div className="min-w-0 [overflow-wrap:anywhere]">
-      <span role="status">{toast.visible ? applying.label : toast.label}</span>
+      <span role="status">{toast.visible ? applying.label : notice.conflictLabel ?? toast.label}</span>
     </div>
     {remaining > 0 && (pending || undoable) && <span role="timer" aria-label={`撤销剩余时间 ${secondsLeft} 秒`}
       data-seconds={`${secondsLeft}s`}

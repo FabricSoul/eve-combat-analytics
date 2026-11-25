@@ -445,8 +445,6 @@ export class BattleStorage {
         }
         if (!cursor) return
       }
-      // An older undo can unwind a newer batch only as a whole.
-      if ([...visited.values()].some(({ snapshot, subjects }) => snapshot.previous.length !== subjects.size)) return
       const applied = restore.map(([subject, row, cursor]): SideOverride => {
         this.writeSideRevision(subject, etag, cursor)
         if (!row) {
@@ -458,7 +456,12 @@ export class BattleStorage {
           position, subject, row.side, row.setAt)
         return override
       })
-      for (const tag of visited.keys()) this.sql.exec('DELETE FROM side_undo WHERE tag = ?', tag)
+      // Other subjects can still point to the same batch receipt after this restore.
+      for (const [tag, { snapshot, subjects }] of visited) {
+        const previous = snapshot.previous.filter(([subject]) => !subjects.has(subject))
+        if (previous.length) this.sql.exec('UPDATE side_undo SET snapshot = ? WHERE tag = ?', JSON.stringify({ previous }), tag)
+        else this.sql.exec('DELETE FROM side_undo WHERE tag = ?', tag)
+      }
       const stamp = this.recordEdit(applied.map(({ subject }) => `side:${subject}`), etag, setAt)
       return { applied, overrides: this.sideOverrides(), stamp }
     })

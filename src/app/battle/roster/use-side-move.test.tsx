@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { webcrypto } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { SideOverride } from '@/core/contract'
+import type { SideOverride, SideSubject } from '@/core/contract'
 import type { BattleSnapshot } from '../../api/client'
 import { BattleProvider } from '../../state/battle-store'
 import { loadUiFixture } from '../../test/ui-fixture'
@@ -14,6 +14,7 @@ const { summary, analysis } = loadUiFixture()
 const subject = 'char:2121605780'
 const other = 'corp:98108724'
 const alliance = 'ally:1042504553'
+const otherPilot = 'char:2115158138'
 const first = { subject, side: 1, source: 'manual', setAt: 10_000 } satisfies SideOverride
 const second = { ...first, side: 0, setAt: 11_300 }
 const firstTag = '"side-first"'
@@ -41,6 +42,7 @@ async function mount() {
       <button onClick={() => void move(alliance, 1)}>Alliance</button>
       <button onClick={() => void move(subject, second.side)}>Second</button>
       <button onClick={() => void moveMany([{ subject, side: second.side }, { subject: other, side: 1 }])}>Batch</button>
+      <button onClick={() => void moveMany([{ subject, side: -1 }, { subject: otherPilot, side: -1 }])}>Restore BR</button>
       {error && <p role="alert">{error}</p>}
     </>
   }
@@ -82,6 +84,108 @@ it('queues undo from the first moment and submits it after a response held past 
     await act(async () => settle(receipt(first, -1, firstTag, null)))
     expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get('If-Match')).toBe(firstTag)
     expect(app.host.textContent).toContain('已撤销')
+  } finally {
+    await app.unmount()
+  }
+})
+
+it.each<{ mode: string; weak: boolean; external: SideSubject }>([
+  { mode: 'strong', weak: false, external: otherPilot },
+  { mode: 'weak', weak: true, external: otherPilot },
+  { mode: 'strong', weak: false, external: subject },
+  { mode: 'weak', weak: true, external: subject },
+])('keeps undo available per subject with $mode ETags when another editor changes $external', async ({ weak, external }) => {
+  const externalName = summary.meta.names[Number(external.split(':')[1])]!.name
+  const surviving = external === subject ? otherPilot : subject
+  const prior = { ...first, side: 2 }
+  const otherPrior: SideOverride = { ...first, subject: otherPilot }
+  const headers = (revision: string) => ({ headers: { ETag: weak ? `W/${revision}` : revision } })
+  const expected = surviving === subject ? prior : otherPrior
+  const fetch = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(Response.json({
+      ...first, revision: firstTag, sequence: 3, previous: [{ subject, side: prior.side }],
+      previousTags: { [subject]: '"prior"' },
+    }, headers(firstTag)))
+    .mockResolvedValueOnce(Response.json({
+      applied: [first, otherPrior].map((row) => ({ ...row, side: -1 })), revision: secondTag, sequence: 4,
+      previous: [first, otherPrior], previousTags: { [subject]: firstTag, [otherPilot]: '"other-prior"' },
+    }, headers(secondTag)))
+    .mockResolvedValueOnce(Response.json({ applied: [expected], revision: '"restored"', sequence: 6 }, headers('"restored"')))
+  const app = await mount()
+  try {
+    await app.render({ ...summary, sideOverrides: [prior, otherPrior] })
+    await app.move('First')
+    await app.move('Restore BR')
+    const notices = app.host.querySelectorAll('[data-battle-toast]')
+    const older = notices[0]!
+    const batch = notices[1]!
+    const externalEdit = { ...first, subject: external, side: 0 }
+    await app.render({ ...summary, sideOverrides: [externalEdit], editRevisions: [
+      { target: `side:${external}`, revision: '"external"', sequence: 5 },
+    ] })
+    expect(older.querySelector('button') !== null).toBe(external !== subject)
+    expect(batch.querySelector('button')).not.toBeNull()
+    expect(batch.textContent).toContain(`${externalName} 已被他人修改，其余可撤销`)
+    // A hovered notice can outlive the server's recent revision window.
+    await app.render({ ...summary, sideOverrides: [externalEdit], editRevisions: [] })
+    await act(async () => (surviving === subject ? older : batch).querySelector('button')!.click())
+    const request = fetch.mock.calls[2]?.[1]
+    expect(new Headers(request?.headers).get('If-Match')).toBe(secondTag)
+    expect(JSON.parse(String(request?.body))).toEqual({
+      restore: [{ subject: surviving, through: surviving === subject ? firstTag : secondTag }],
+    })
+    expect(app.buttons()).toHaveLength(0)
+    expect(app.host.textContent).toContain(externalName)
+  } finally {
+    await app.unmount()
+  }
+})
+
+it('retries the eligible batch subjects when a competing write reaches the Worker before its live frame', async () => {
+  const otherPrior = { ...first, subject: otherPilot }
+  const externalName = summary.meta.names[Number(otherPilot.split(':')[1])]!.name
+  const fetch = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(Response.json({
+      applied: [first, otherPrior].map((row) => ({ ...row, side: -1 })), revision: secondTag, sequence: 4,
+      previous: [first, otherPrior], previousTags: { [subject]: null, [otherPilot]: null },
+    }))
+    .mockResolvedValueOnce(Response.json({ error: 'bad_request' }, { status: 412 }))
+    .mockResolvedValueOnce(Response.json({ ...summary, editRevisions: [
+      { target: `side:${otherPilot}`, revision: '"external"', sequence: 5 },
+    ] }))
+    .mockResolvedValueOnce(Response.json({ applied: [first], revision: '"restored"', sequence: 6 }))
+  const app = await mount()
+  try {
+    await app.move('Restore BR')
+    await act(async () => app.buttons()[0]!.click())
+    expect(fetch.mock.calls[2]?.[0]).toBe(`/api/battles/${summary.meta.brId}`)
+    expect(JSON.parse(String(fetch.mock.calls[3]?.[1]?.body))).toEqual({ restore: [{ subject, through: secondTag }] })
+    expect(app.host.textContent).toContain(`已撤销 · ${externalName} 已被他人修改，无法撤销`)
+  } finally {
+    await app.unmount()
+  }
+})
+
+it('names both conflicting subjects when the last eligible batch subject changes during undo', async () => {
+  const otherPrior = { ...first, subject: otherPilot }
+  const otherConflict = { target: `side:${otherPilot}`, revision: '"external-b"', sequence: 5 }
+  const fetch = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(Response.json({
+      applied: [first, otherPrior].map((row) => ({ ...row, side: -1 })), revision: secondTag, sequence: 4,
+      previous: [first, otherPrior], previousTags: { [subject]: null, [otherPilot]: null },
+    }))
+    .mockResolvedValueOnce(Response.json({ error: 'bad_request' }, { status: 412 }))
+    .mockResolvedValueOnce(Response.json({ ...summary, editRevisions: [
+      otherConflict, { target: `side:${subject}`, revision: '"external-a"', sequence: 6 },
+    ] }))
+  const app = await mount()
+  try {
+    await app.move('Restore BR')
+    await app.render({ ...summary, editRevisions: [otherConflict] })
+    await act(async () => app.buttons()[0]!.click())
+    expect(fetch).toHaveBeenCalledTimes(3)
+    expect(app.host.textContent).toContain('Blanchard2213、dock Yanumano 已被他人修改，无法撤销')
+    expect(app.buttons()).toHaveLength(0)
   } finally {
     await app.unmount()
   }
@@ -247,14 +351,17 @@ it('restores the original group if a linked group was overtaken before its live 
       previous: [{ subject: alliance, side: -1 }], previousTags: { [alliance]: null },
     }))
     .mockResolvedValueOnce(Response.json({ error: 'bad_request', message: 'Side assignments have changed' }, { status: 412 }))
+    .mockResolvedValueOnce(Response.json({ ...summary, editRevisions: [
+      { target: `side:${alliance}`, revision: '"external"', sequence: 3 },
+    ] }))
     .mockResolvedValueOnce(Response.json({ applied: [], revision: '"restored"', sequence: 4 }))
   const app = await mount()
   try {
     await app.move('Corporation')
     await app.move('Alliance')
     await act(async () => app.buttons()[0]!.click())
-    expect(fetch).toHaveBeenCalledTimes(4)
-    expect(JSON.parse(String(fetch.mock.calls[3]?.[1]?.body))).toEqual({ restore: [{ subject: other, through: firstTag }] })
+    expect(fetch).toHaveBeenCalledTimes(5)
+    expect(JSON.parse(String(fetch.mock.calls[4]?.[1]?.body))).toEqual({ restore: [{ subject: other, through: firstTag }] })
     expect(app.host.textContent).toContain('已撤销')
   } finally {
     await app.unmount()

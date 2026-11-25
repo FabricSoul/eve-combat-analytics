@@ -899,7 +899,7 @@ it('restores the 30th side edit with its revision without consuming an edit slot
   })
 })
 
-it('checks an entire side receipt before restoring it and gives the older edit a fresh validator', async () => {
+it('validates a side batch before restoring it and gives the older edit a fresh validator', async () => {
   const id = await prepare(0xb93)
   const subject = 'char:250'
   const other = 'char:251'
@@ -914,7 +914,7 @@ it('checks an entire side receipt before restoring it and gives the older edit a
   await second.json()
   const throughLatest = [{ subject, through: latestTag }, { subject: other, through: latestTag }]
   const current = (await state(id)).sideOverrides
-  const rejected = await restoreSides(id, throughLatest.slice(0, 1), latestTag)
+  const rejected = await restoreSides(id, throughLatest, olderTag)
   expect(rejected.status).toBe(412)
   await rejected.json()
   expect((await state(id)).sideOverrides).toEqual(current)
@@ -927,6 +927,46 @@ it('checks an entire side receipt before restoring it and gives the older edit a
   await evictDurableObject(env.BATTLE.getByName(id))
   expect((await restoreSides(id, [{ subject, through: olderTag }], restoredTag)).status).toBe(200)
   expect((await state(id)).sideOverrides).toEqual([])
+})
+
+it('atomically restores requested subjects through a batch and retains its other undo entries', async () => {
+  const id = await prepare(0xb95)
+  const subject = 'char:250'
+  const other = 'char:251'
+  const third = 'char:252'
+  const receipt = { 'X-EVE-Undo': '1' }
+  const original = await editSide(id, subject, 2)
+  const otherOriginal = await editSide(id, other, 1)
+  const thirdOriginal = await editSide(id, third, 0)
+  const first = await putSide(id, { subject, side: 1 }, receipt)
+  expect(first.status).toBe(200)
+  const firstTag = (await first.json<{ revision: string }>()).revision
+  const batch = await putSideBatch(id, [subject, other, third].map((subject) => ({ subject, side: -1 })), receipt)
+  expect(batch.status).toBe(200)
+  const { revision: batchTag } = await batch.json<{ revision: string }>()
+  const viewer = await connect(id)
+  try {
+    expect(await viewer.next()).toMatchObject({ type: 'snapshot', state: { sideOverrides: [] } })
+    const firstRestore = { subject, through: firstTag }
+    const invalid = await restoreSides(id, [firstRestore, { subject: third, through: firstTag }], batchTag)
+    expect(invalid.status).toBe(412)
+    await invalid.json()
+    expect((await state(id)).sideOverrides).toEqual([])
+    const partial = await restoreSides(id, [firstRestore, { subject: third, through: batchTag }], batchTag)
+    expect(partial.status).toBe(200)
+    const stamp = await expectEdit(partial, { applied: [original, thirdOriginal] })
+    expect(await viewer.next()).toEqual({
+      type: 'sides_set', overrides: [original, thirdOriginal], ...stamp, targets: [`side:${subject}`, `side:${third}`],
+    })
+    expect((await state(id)).sideOverrides).toEqual([original, thirdOriginal])
+  } finally {
+    viewer.close()
+  }
+  await evictDurableObject(env.BATTLE.getByName(id))
+  const remaining = await restoreSides(id, [{ subject: other, through: batchTag }], batchTag)
+  expect(remaining.status).toBe(200)
+  await remaining.json()
+  expect((await state(id)).sideOverrides).toEqual([original, otherOriginal, thirdOriginal])
 })
 
 it('restores only its requested subject after a different group for the same pilot changes', async () => {
