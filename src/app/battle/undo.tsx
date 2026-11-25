@@ -1,13 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { BattleSummary } from '@/core/contract'
+import type { BattleSummary, SideBatchEdit } from '@/core/contract'
+import type { VersionedFit } from '../api/client'
 import { useBattleContext } from '../state/battle-store'
 
 type Visible = (summary: BattleSummary) => boolean
-type Revert = (publishedVersion: number) => Promise<Visible | { unavailable: string } | void>
+type Revert = (publishedVersion: number) => Promise<Visible | { unavailable: string } | { reverted: number[] } | void>
 type Conflict = { label: string; when: Visible }
 type Toast = { label: string; revert?: Revert; visible?: Visible; conflict?: Conflict }
-type Begin = (optimistic?: Toast) => (result?: Toast) => void
+type Finish = ((result?: Toast) => void) & { id: number }
+type Begin = (optimistic?: Toast) => Finish
 type Notice = {
   id: number
   toast: Toast
@@ -17,7 +19,8 @@ type Notice = {
 }
 type Update = (id: number, change: (notice: Notice) => Notice | undefined, promote?: boolean) => void
 
-const UndoContext = createContext<Begin>(() => () => {})
+const UndoContext = createContext<Begin>(() => Object.assign(() => {}, { id: 0 }))
+const EditHistoryContext = createContext<ReturnType<typeof createHistories> | null>(null)
 const applying: Toast = { label: '正在应用…' }
 const undoDuration = 10_000
 const feedbackDuration = 2500
@@ -43,8 +46,98 @@ function feedback(notice: Notice, toast: Toast): Notice {
 
 export function useBattleUndo() { return useContext(UndoContext) }
 
-export function visibleAfter(version: number, predicate: Visible): Visible {
-  return (state) => state.analysisVersion > version && predicate(state)
+type Revision<T> = { tag: string | null; value: T }
+type Head<T> = Revision<T> & { edit?: Edit<T>; overwritten?: T }
+type Edit<T> = { id: number; before: Map<string, Head<T>> }
+
+// A receipt links to a local edit only when the server confirms it was the immediate predecessor.
+// Keep the chain at the battle level so a toast can outlive its menu or drawer.
+class EditHistory<T> {
+  private heads = new Map<string, Head<T>>()
+  private queue = Promise.resolve()
+  private pending = new Map<string, number>()
+
+  current(key: string) { return this.heads.get(key) }
+  isPending(key: string) { return this.pending.has(key) }
+
+  run<R>(key: string, action: () => Promise<R>): Promise<R> {
+    this.pending.set(key, (this.pending.get(key) ?? 0) + 1)
+    const result = this.queue.then(action).finally(() => {
+      const remaining = this.pending.get(key)! - 1
+      if (remaining) this.pending.set(key, remaining)
+      else this.pending.delete(key)
+    })
+    this.queue = result.then(() => {}, () => {})
+    return result
+  }
+
+  clear() { this.heads.clear() }
+
+  record(id: number, changes: { key: string; before: Revision<T>; after: Revision<T> }[]) {
+    const edit: Edit<T> = { id, before: new Map() }
+    for (const { key, before, after } of changes) {
+      const head = this.heads.get(key)
+      edit.before.set(key, head && head.tag === before.tag ? { ...head, value: before.value } : before)
+      this.heads.set(key, { ...after, edit, overwritten: before.value })
+    }
+    return edit
+  }
+
+  contains(key: string, target: Edit<T>, head = this.heads.get(key)) {
+    for (let edit = head?.edit; edit; edit = edit.before.get(key)?.edit) {
+      if (edit === target) return true
+    }
+    return false
+  }
+
+  plan(target: Edit<T>) {
+    const restored = new Map<string, Head<T>>()
+    const reverted = new Set<Edit<T>>()
+    const visit = (edit: Edit<T>): boolean => {
+      if (reverted.has(edit)) return true
+      const headFor = (key: string) => restored.get(key) ?? this.heads.get(key)
+      if (![...edit.before.keys()].every((key) => this.contains(key, edit, headFor(key)))) return false
+      for (const key of edit.before.keys()) {
+        // A later batch may touch further subjects. Unwind it on all its subjects before proceeding.
+        let head = headFor(key)?.edit
+        while (head && head !== edit) {
+          if (!visit(head)) return false
+          head = restored.get(key)?.edit
+        }
+        if (head !== edit) return false
+      }
+      for (const [key, before] of edit.before) {
+        restored.delete(key)
+        restored.set(key, before)
+      }
+      reverted.add(edit)
+      return true
+    }
+    if (!visit(target)) return undefined
+    return {
+      changes: [...restored].map(([key, { value }]) => ({ key, value, tag: this.heads.get(key)!.tag! })),
+      reverted: [...reverted].map(({ id }) => id),
+      commit: (read: (key: string, restored: T) => Revision<T>) => {
+        for (const [key, before] of restored) {
+          const overwritten = this.heads.get(key)!.value
+          this.heads.set(key, { ...read(key, before.value), edit: before.edit, overwritten })
+        }
+      },
+    }
+  }
+}
+
+function createHistories() {
+  return {
+    fit: new EditHistory<VersionedFit | undefined>(),
+    side: new EditHistory<SideBatchEdit['edits'][number]>(),
+  }
+}
+
+export function useEditHistory<K extends keyof ReturnType<typeof createHistories>>(kind: K) {
+  const shared = useContext(EditHistoryContext)
+  const [local] = useState(createHistories)
+  return (shared ?? local)[kind]
 }
 
 export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, host }: {
@@ -54,6 +147,7 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
   host?: HTMLElement | null
 }) {
   const [notices, setNotices] = useState<Notice[]>([])
+  const [histories] = useState(createHistories)
   const [expanded, setExpanded] = useState(false)
   const expandedAtPointerDown = useRef<boolean | undefined>(undefined)
   const stackId = useId()
@@ -84,12 +178,17 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
     }
     // Completed feedback yields its space when another action begins.
     const active = current.current.filter((entry) => waiting(entry.toast) || canUndo(entry))
+    if (!active.length) {
+      histories.fit.clear()
+      histories.side.clear()
+    }
     show([...active, notice])
-    return (result) => update(id, (latest) => {
+    const finish: Finish = Object.assign((result?: Toast) => update(id, (latest) => {
       if (latest.undoStarted) return latest
       if (result) return { ...latest, toast: result }
-    })
-  }, [show, update])
+    }), { id })
+    return finish
+  }, [histories, show, update])
 
   useEffect(() => {
     if (!analyzedSummary) return
@@ -107,7 +206,12 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
     update(id, (notice) => ({ ...notice, toast: applying, undoStarted: true }))
     try {
       const result = await revert(publishedVersion)
-      if (typeof result === 'object') {
+      if (result && typeof result === 'object' && 'reverted' in result) {
+        const label = result.reverted.length > 1 ? `撤销了 ${result.reverted.length} 次修改` : '已撤销'
+        const reverted = new Set(result.reverted)
+        show(current.current.flatMap((notice) => notice.id === id ? [feedback(notice, { label })]
+          : reverted.has(notice.id) ? [] : [notice]))
+      } else if (typeof result === 'object') {
         update(id, (notice) => feedback(notice, { label: result.unavailable }), true)
       } else {
         update(id, (notice) => feedback(notice, { label: '已撤销', visible: result || undefined }))
@@ -153,12 +257,12 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
   const workspace = element && !host
     ? 'flex h-dvh flex-col [&>.app-shell--battle]:min-h-0! [&>.app-shell--battle]:flex-1'
     : 'contents'
-  return <UndoContext value={begin}>
+  return <UndoContext value={begin}><EditHistoryContext value={histories}>
     <div className={workspace}>
       {children}
       {host ? createPortal(element, host) : element}
     </div>
-  </UndoContext>
+  </EditHistoryContext></UndoContext>
 }
 
 function WatchUndoConflict({ id, conflict, update }: { id: number; conflict: Conflict; update: Update }) {
@@ -167,7 +271,7 @@ function WatchUndoConflict({ id, conflict, update }: { id: number; conflict: Con
     if (summary && conflict.when(summary)) {
       update(id, (notice) => notice.toast.conflict === conflict ? feedback(notice, { label: conflict.label }) : notice, true)
     }
-  }, [id, conflict, summary, update])
+  })
   return null
 }
 

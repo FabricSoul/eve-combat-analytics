@@ -190,7 +190,10 @@ describe('SidesPanel', () => {
     expect(remove).toBeDefined()
     act(() => items[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })))
     expect(document.activeElement).toBe(remove)
-    putSide.mockResolvedValueOnce({ subject: 'corp:10', side: -1, source: 'manual', setAt: 4 })
+    putSide.mockResolvedValueOnce({
+      subject: 'corp:10', side: -1, source: 'manual', setAt: 4, etag: '"removed"',
+      previous: [{ subject: 'corp:10', side: 0 }], previousTags: { 'corp:10': null },
+    }).mockResolvedValueOnce({ subject: 'corp:10', side: 0, source: 'manual', setAt: 5, etag: '"restored"' })
     await act(async () => remove.click())
     expect(putSide).toHaveBeenCalledWith('tiny', 'corp:10', -1)
     expect(document.activeElement).toBe(opener)
@@ -202,7 +205,7 @@ describe('SidesPanel', () => {
     const undo = toast.querySelector('button')!
     expect(undo.textContent).toBe('撤销')
     await act(async () => undo.click())
-    expect(putSide).toHaveBeenLastCalledWith('tiny', 'corp:10', 0)
+    expect(putSide).toHaveBeenLastCalledWith('tiny', 'corp:10', 0, '"removed"')
   })
 
   it('offers removal through the right-click menu only for rows with their own override', () => {
@@ -269,8 +272,10 @@ describe('SidesPanel', () => {
     const reinstated = summary.sideOverrides.map((override) => ({ ...override, setAt: 4 }))
     const edits = (overrides: BattleSummary['sideOverrides']) => overrides.map(({ subject, side }) => ({ subject, side }))
     const fetchBatch = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json({ applied: removed, previous: edits(summary.sideOverrides) }))
-      .mockResolvedValueOnce(Response.json({ applied: reinstated, previous: edits(removed) }))
+      .mockResolvedValueOnce(Response.json({
+        applied: removed, previous: edits(summary.sideOverrides), previousTags: { 'char:5': null, 'corp:10': null },
+      }, { headers: { ETag: '"removed"' } }))
+      .mockResolvedValueOnce(Response.json({ applied: reinstated, previous: edits(removed) }, { headers: { ETag: '"restored"' } }))
     vi.stubGlobal('fetch', fetchBatch)
     const panel = (analyzedSummary: BattleSummary) =>
       createElement(BattleUndo, {
@@ -294,6 +299,7 @@ describe('SidesPanel', () => {
     expect(fetchBatch).toHaveBeenLastCalledWith('/api/battles/tiny/sides/batch', expect.objectContaining({
       method: 'PUT', body: JSON.stringify({ edits: edits(summary.sideOverrides) }),
     }))
+    expect(new Headers(fetchBatch.mock.calls[1]?.[1]?.headers).get('If-Match')).toBe('"removed"')
     const undone = { ...published, analysisVersion: published.analysisVersion + 1, sideOverrides: reinstated }
     mounted.rerender(panel(undone), { summary: undone, analysis: tinyAnalysis })
     expect(mounted.container.querySelector('[data-battle-toast]')?.textContent).toBe('已撤销')

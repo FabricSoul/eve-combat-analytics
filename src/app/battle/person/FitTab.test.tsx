@@ -61,6 +61,7 @@ const firstReceipt = { ...firstFit, etag: firstTag }
 const newerFit = { charId: pilot.charId!, eft: '[Leshak, Other viewer]', setAt: 10_300 }
 const overwritten = '已被他人的新配装覆盖，无法撤销'
 const toast = () => host.querySelector('[data-battle-toast]')
+const undoButtons = () => [...host.querySelectorAll<HTMLButtonElement>('[data-battle-toast] button')]
 
 function withFits(...fits: FitEntry[]): BattleSummary {
   return { ...fixture.summary, fits }
@@ -76,6 +77,44 @@ async function submitFit(fit: FitEntry) {
   })
   await act(async () => button('保存配装').click())
 }
+
+it.each(['newer', 'older'] as const)('keeps same-tab fit saves undoable and can undo the %s save', async (which) => {
+  vi.useFakeTimers()
+  const second = { ...newerFit, eft: '[Leshak, Second save]', setAt: firstFit.setAt + 1300, etag: '"second"' }
+  const restored = { ...firstFit, setAt: second.setAt + 1, etag: '"restored"' }
+  let settle!: () => void
+  const pending = new Promise<typeof second & { previous: typeof firstReceipt }>((resolve) => {
+    settle = () => resolve({ ...second, previous: firstReceipt })
+  })
+  const put = vi.spyOn(api, 'putFit').mockResolvedValueOnce({ ...firstReceipt, previous: null })
+    .mockReturnValueOnce(pending).mockResolvedValueOnce(restored)
+  const remove = vi.spyOn(api, 'deleteFit').mockResolvedValue({ removed: firstFit.charId })
+  const before = withFits()
+  await renderFit({ ...fixture, summary: before })
+  await submitFit(firstFit)
+  await renderFit({ ...fixture, summary: withFits(firstReceipt) }, before)
+  await act(async () => vi.advanceTimersByTimeAsync(1300))
+  // WebSocket can deliver the second save before its HTTP response reaches the tab.
+  await submitFit(second)
+  await renderFit({ ...fixture, summary: withFits(second) }, before)
+  await act(async () => settle())
+  expect(host.textContent).not.toContain(overwritten)
+  expect(undoButtons()).toHaveLength(2)
+
+  if (which === 'newer') {
+    await act(async () => undoButtons()[1]!.click())
+    expect(put).toHaveBeenLastCalledWith(before.meta.brId, firstFit.charId, firstFit.eft, undefined, second.etag)
+    await renderFit({ ...fixture, summary: withFits(restored) }, before)
+    expect(undoButtons()).toHaveLength(1)
+    await act(async () => undoButtons()[0]!.click())
+    expect(remove).toHaveBeenCalledWith(before.meta.brId, firstFit.charId, restored.etag)
+  } else {
+    await act(async () => undoButtons()[0]!.click())
+    expect(remove).toHaveBeenCalledWith(before.meta.brId, firstFit.charId, second.etag)
+    expect(host.textContent).toContain('撤销了 2 次修改')
+    expect(undoButtons()).toHaveLength(0)
+  }
+})
 
 it('settles an overtaken PUT even when analysis only publishes the other viewer’s fit', async () => {
   vi.useFakeTimers()
@@ -130,6 +169,16 @@ it('withdraws undo for a newer save with identical EFT even after the drawer clo
 
   await renderFit({ ...fixture, summary: withFits(firstFit) }, initial, false)
   await renderFit({ ...fixture, summary: withFits({ ...firstFit, setAt: newerFit.setAt }) }, initial, false)
+  expect(toast()?.textContent).toBe(overwritten)
+})
+
+it('distinguishes another editor’s equal EFT saved in the same millisecond', async () => {
+  vi.spyOn(api, 'putFit').mockResolvedValue({ ...firstReceipt, previous: null })
+  const initial = withFits()
+  await renderFit({ ...fixture, summary: initial })
+  await submitFit(firstFit)
+  const identicalOther = { ...firstReceipt, etag: '"other-tab"' }
+  await renderFit({ ...fixture, summary: withFits(identicalOther) }, initial, false)
   expect(toast()?.textContent).toBe(overwritten)
 })
 

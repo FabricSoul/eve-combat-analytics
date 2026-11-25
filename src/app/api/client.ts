@@ -1,6 +1,6 @@
 import type {
   Analysis, ApiError, EntityKey, ApiErrorCode, BattleSummary, FitEntry, IdentityMerge, KillmailFit,
-  SideEdit, SideOverride, SideSubject, UploadedLog, UploadedLogSummary, UploadResult,
+  SideBatchEdit, SideBatchResult, SideEdit, SideOverride, SideSubject, UploadedLog, UploadedLogSummary, UploadResult,
 } from '@/core/contract'
 
 export class ApiFailure extends Error {
@@ -16,6 +16,9 @@ export class ApiFailure extends Error {
 
 export const battleApiPath = (brId: string) => `/api/battles/${encodeURIComponent(brId)}`
 export type UploadProgress = (fraction: number) => void
+export type VersionedFit = FitEntry & { etag?: string }
+type FitReceipt = VersionedFit & { previous?: VersionedFit | null }
+type SideReceipt = { etag?: string; previousTags?: Partial<Record<SideSubject, string | null>> }
 
 const apiCodes = {
   bad_br_url: true, br_not_found: true, br_unavailable: true, not_a_gamelog: true,
@@ -62,6 +65,25 @@ function json(method: 'POST' | 'PUT', data: object): RequestInit {
 }
 
 const textHeaders = { 'Content-Type': 'text/plain; charset=utf-8' }
+
+async function edit<T extends object>(path: string, init: RequestInit, ifMatch?: string): Promise<T & { etag?: string }> {
+  const headers = new Headers(init.headers)
+  headers.set('X-EVE-Undo', '1')
+  if (ifMatch !== undefined) headers.set('If-Match', ifMatch)
+  const response = await send(path, { ...init, headers })
+  const body = await read<T>(response)
+  const etag = response.headers.get('ETag')
+  return etag === null ? body : { ...body, etag }
+}
+
+async function sideBatchMatch(tags: ReadonlyMap<string, string>): Promise<string> {
+  const entries = [...tags.keys()].sort().map((subject) => [subject, tags.get(subject)!])
+  const first = entries[0]?.[1]
+  if (first && entries.every(([, tag]) => tag === first)) return first
+  // A single validator covers every requested subject while keeping even a large batch's header small.
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(entries)))
+  return `"${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')}"`
+}
 
 function uploadWithProgress(path: string, text: string, onProgress: UploadProgress): Promise<UploadedLogSummary> {
   return new Promise((resolve, reject) => {
@@ -118,16 +140,11 @@ export const api = {
     return request(path, { method: 'POST', headers: textHeaders, body: text })
   },
 
-  async putFit(brId: string, charId: number, eft: string, mutated?: FitEntry['mutated'], ifMatch?: string): Promise<FitEntry & { etag?: string }> {
+  putFit(brId: string, charId: number, eft: string, mutated?: FitEntry['mutated'], ifMatch?: string): Promise<FitReceipt> {
     const init = mutated?.length
       ? json('PUT', { eft, mutated })
       : { method: 'PUT', headers: textHeaders, body: eft }
-    const headers = new Headers(init.headers)
-    if (ifMatch !== undefined) headers.set('If-Match', ifMatch)
-    const response = await send(`${battleApiPath(brId)}/fits/${charId}`, { ...init, headers })
-    const fit = await read<FitEntry>(response)
-    const etag = response.headers.get('ETag')
-    return etag === null ? fit : { ...fit, etag }
+    return edit(`${battleApiPath(brId)}/fits/${charId}`, init, ifMatch)
   },
 
   deleteFit(brId: string, charId: number, ifMatch?: string): Promise<{ removed: number }> {
@@ -136,8 +153,12 @@ export const api = {
     })
   },
 
-  putSide(brId: string, subject: SideSubject, side: SideEdit['side']): Promise<SideOverride> {
-    return request(`${battleApiPath(brId)}/sides`, json('PUT', { subject, side }))
+  putSide(brId: string, subject: SideSubject, side: SideEdit['side'], ifMatch?: string): Promise<SideOverride & SideReceipt & { previous?: SideBatchEdit['edits'] }> {
+    return edit(`${battleApiPath(brId)}/sides`, json('PUT', { subject, side }), ifMatch)
+  },
+
+  async putSideBatch(brId: string, edits: SideBatchEdit['edits'], tags?: ReadonlyMap<string, string>): Promise<SideBatchResult & SideReceipt> {
+    return edit(`${battleApiPath(brId)}/sides/batch`, json('PUT', { edits }), tags && await sideBatchMatch(tags))
   },
 
   putIdentity(brId: string, from: EntityKey, to: IdentityMerge['to'] | null): Promise<IdentityMerge | { removed: EntityKey }> {

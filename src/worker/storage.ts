@@ -14,7 +14,13 @@ type LogRow = Omit<UploadedLogSummary, keyof LogEventSummary> & {
   unparsedCount: number | null
   affiliation: string | null
 }
-type FitRow = Omit<FitEntry, 'mutated'> & { mutated: string | null }
+type FitRow = Omit<FitEntry, 'mutated'> & { mutated: string | null; etag: string | null }
+type VersionedFit = FitEntry & { etag?: string }
+
+function readFitRow({ mutated, etag, ...fit }: FitRow): VersionedFit {
+  const names: string[] | undefined = mutated === null ? undefined : JSON.parse(mutated)
+  return { ...fit, ...(names?.length ? { mutated: names } : {}), ...(etag ? { etag } : {}) }
+}
 export type StoredLog = UploadedLog & { unparsedCount: number }
 export type PendingLog = { id: string; nameOffset: number; events: LogEvent[] }
 export type PackedJson = ArrayBuffer[]
@@ -228,14 +234,18 @@ export class BattleStorage {
     this.sql.exec('INSERT OR IGNORE INTO affiliation_history VALUES (?, ?, ?)', kind, id, owner)
   }
 
-  private fitRows(legacyOnly = false): FitRow[] {
+  private fitRows(legacyOnly = false, charId?: number): FitRow[] {
     const hasMutations = this.hasColumn('fits', 'mutated')
     const mutations = hasMutations ? 'mutated' : 'NULL AS mutated'
+    const etag = this.hasColumn('fits', 'etag') ? 'etag' : 'NULL AS etag'
     const checked = legacyOnly && hasMutations && this.hasColumn('fits', 'mutationsChecked')
     const where = hasMutations && legacyOnly
       ? `WHERE ${LEGACY_FIT_MUTATIONS}${checked ? ' AND mutationsChecked = 0' : ''}`
       : ''
-    return this.sql.exec<FitRow>(`SELECT charId, eft, setAt, ${mutations} FROM fits ${where} ORDER BY charId`).toArray()
+    const select = `SELECT charId, eft, setAt, ${mutations}, ${etag} FROM fits`
+    return (charId === undefined
+      ? this.sql.exec<FitRow>(`${select} ${where} ORDER BY charId`)
+      : this.sql.exec<FitRow>(`${select} WHERE charId = ?`, charId)).toArray()
   }
 
   legacyFits(): FitEntry[] {
@@ -243,11 +253,13 @@ export class BattleStorage {
   }
 
   private fitsAndNames(): Pick<BattleState, 'fits' | 'names'> {
-    const fits = this.fitRows().map(({ mutated, ...fit }): FitEntry => {
-      const names: string[] | undefined = mutated === null ? undefined : JSON.parse(mutated)
-      return names?.length ? { ...fit, mutated: names } : fit
-    })
+    const fits = this.fitRows().map(readFitRow)
     return { fits, names: this.nameIndex() }
+  }
+
+  fit(charId: number): VersionedFit | undefined {
+    const [row] = this.fitRows(false, charId)
+    return row && readFitRow(row)
   }
 
   private nameIndex(): NameIndex {
@@ -302,7 +314,14 @@ export class BattleStorage {
     return count < SIDE_EDIT_LIMIT
   }
 
-  setSides(edits: readonly SideOverride[], setAt: number): SideOverride[] {
+  sideTags(subjects: readonly SideSubject[]): Array<string | null> {
+    if (!this.hasTable('side_revisions')) return subjects.map(() => null)
+    return subjects.map((subject) => this.sql.exec<{ tag: string }>(
+      'SELECT tag FROM side_revisions WHERE subject = ?', subject,
+    ).toArray()[0]?.tag ?? null)
+  }
+
+  setSides(edits: readonly SideOverride[], setAt: number, etag: string): SideOverride[] {
     return this.storage.transactionSync(() => {
       if (!this.hasTable('side_edits')) {
         this.sql.exec(`
@@ -312,9 +331,12 @@ export class BattleStorage {
           );
         `)
       }
+      // A removed override still has a revision so removing it again cannot revive a stale undo.
+      this.sql.exec('CREATE TABLE IF NOT EXISTS side_revisions (subject TEXT PRIMARY KEY, tag TEXT NOT NULL)')
       this.sql.exec('DELETE FROM side_edits WHERE setAt <= ?', setAt - SIDE_EDIT_WINDOW_MS)
       this.sql.exec('INSERT INTO side_edits (setAt) VALUES (?)', setAt)
       for (const { subject, side } of edits) {
+        this.sql.exec('INSERT OR REPLACE INTO side_revisions (subject, tag) VALUES (?, ?)', subject, etag)
         if (side === -1) this.sql.exec('DELETE FROM side_overrides WHERE subject = ?', subject)
         else this.sql.exec('INSERT OR REPLACE INTO side_overrides (subject, side, setAt) VALUES (?, ?, ?)', subject, side, setAt)
       }

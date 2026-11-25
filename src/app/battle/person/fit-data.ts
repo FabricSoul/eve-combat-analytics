@@ -1,7 +1,7 @@
 import { createContext } from 'react'
-import type { BattleSummary, EntityKey, FitEntry, Interaction } from '@/core/contract'
+import type { BattleSummary, EntityKey, Interaction } from '@/core/contract'
 import { computeFitStats } from '@/fit/client'
-import { api } from '../../api/client'
+import { api, type VersionedFit } from '../../api/client'
 
 export interface FitCatalog {
   itemId(name: string): number | null
@@ -45,11 +45,12 @@ export const FitServices = createContext({
   compute: computeFitStats,
 })
 
-export function pilotFit(summary: BattleSummary, charId: number): FitEntry | undefined {
+export function pilotFit(summary: BattleSummary, charId: number): VersionedFit | undefined {
   return summary.fits.find((fit) => fit.charId === charId)
 }
 
-export function isSameFit(left: FitEntry | undefined, right: FitEntry | undefined): boolean {
+export function isSameFit(left: VersionedFit | undefined, right: VersionedFit | undefined): boolean {
+  if (left?.etag && right?.etag) return left.etag === right.etag
   if (!left || !right || left.charId !== right.charId || left.setAt !== right.setAt || left.eft !== right.eft) return false
   const leftMutated = left.mutated ?? []
   const rightMutated = right.mutated ?? []

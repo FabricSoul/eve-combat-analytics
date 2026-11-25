@@ -247,11 +247,12 @@ it('stores fit text verbatim and broadcasts the fit', async () => {
     const eft = '[Hurricane, [Fleet] Fit]\r\nGyrostabilizer II\r\n'
     const response = await setFit(id, eft)
     const fit = { charId: 100, eft, setAt: now }
+    const versioned = { ...fit, etag: response.headers.get('ETag') }
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual(fit)
-    expect(await viewer.next()).toEqual({ type: 'fit_set', fit })
+    expect(await viewer.next()).toEqual({ type: 'fit_set', fit: versioned })
     await evictDurableObject(env.BATTLE.getByName(id))
-    expect((await state(id)).fits).toEqual([fit])
+    expect((await state(id)).fits).toEqual([versioned])
   } finally {
     viewer.close()
   }
@@ -276,20 +277,24 @@ it('persists killmail substitutions for reload and a second live viewer, then cl
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ eft, mutated }),
     })
     const response = await saveImport()
+    const versioned = { ...fit, etag: response.headers.get('ETag') }
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual(fit)
-    expect(await editor.next()).toEqual({ type: 'fit_set', fit })
-    expect(await viewer.next()).toEqual({ type: 'fit_set', fit })
+    expect(await editor.next()).toEqual({ type: 'fit_set', fit: versioned })
+    expect(await viewer.next()).toEqual({ type: 'fit_set', fit: versioned })
     await evictDurableObject(stub)
-    expect((await state(id)).fits).toEqual([fit, oldFit])
+    expect((await state(id)).fits).toEqual([versioned, oldFit])
 
     const edited = { charId: 100, eft: `${eft}\nDamage Control II`, setAt: now }
-    expect(await (await setFit(id, edited.eft)).json()).toEqual(edited)
-    expect(await viewer.next()).toEqual({ type: 'fit_set', fit: edited })
-    expect((await state(id)).fits).toEqual([edited, oldFit])
+    const editResponse = await setFit(id, edited.eft)
+    const versionedEdit = { ...edited, etag: editResponse.headers.get('ETag') }
+    expect(await editResponse.json()).toEqual(edited)
+    expect(await viewer.next()).toEqual({ type: 'fit_set', fit: versionedEdit })
+    expect((await state(id)).fits).toEqual([versionedEdit, oldFit])
 
-    expect(await (await saveImport()).json()).toEqual(fit)
-    expect(await viewer.next()).toEqual({ type: 'fit_set', fit })
+    const reimported = await saveImport()
+    expect(await reimported.json()).toEqual(fit)
+    expect(await viewer.next()).toEqual({ type: 'fit_set', fit: { ...fit, etag: reimported.headers.get('ETag') } })
     const removed = await worker.default.fetch(`${battle(id)}/fits/100`, { method: 'DELETE' })
     expect(removed.status).toBe(200)
     expect(await viewer.next()).toEqual({ type: 'fit_removed', charId: 100 })
@@ -312,7 +317,7 @@ it.each([
   expect(saved.status).toBe(200)
   const ownTag = saved.headers.get('ETag')!
   const ownFit: FitEntry = await saved.json()
-  expect((await state(id)).fits).toEqual([ownFit])
+  expect((await state(id)).fits).toEqual([{ ...ownFit, etag: ownTag }])
 
   const newerEft = method === 'PUT' ? '[Leshak, Other viewer]' : ownEft
   const newer = await setFit(id, newerEft)
@@ -326,13 +331,27 @@ it.each([
   const rejected = await undo(ownTag)
   expect(rejected.status).toBe(412)
   expect(await rejected.json()).toMatchObject({ error: 'bad_request' })
-  expect((await state(id)).fits).toEqual([newerFit])
+  expect((await state(id)).fits).toEqual([{ ...newerFit, etag: newerTag }])
   expect(ownTag).toMatch(/^"[^"]+"$/)
   expect(newerTag).not.toBe(ownTag)
 
   const accepted = await undo(newerTag)
   expect(accepted.status).toBe(200)
   expect((await state(id)).fits.map(({ eft }) => eft)).toEqual(body ? [body] : [])
+})
+
+it('returns the exact preceding fit and revision only to editors requesting an undo receipt', async () => {
+  const id = await prepare(9111)
+  const [first, other, last] = ['[Leshak, First]', '[Leshak, Other]', '[Leshak, Last]']
+  const save = (eft: string) => worker.default.fetch(`${battle(id)}/fits/100`, {
+    method: 'PUT', headers: { 'X-EVE-Undo': '1' }, body: eft,
+  })
+  expect(await (await save(first!)).json()).toMatchObject({ eft: first, previous: null })
+  const remote = await setFit(id, other!)
+  const prior = await remote.json<FitEntry>()
+  expect(await (await save(last!)).json()).toMatchObject({
+    eft: last, previous: { ...prior, etag: remote.headers.get('ETag') },
+  })
 })
 
 const editLegacyModule = (eft: string) => eft.replace('Entropic Radiation Sink II', 'Damage Control II')
@@ -769,10 +788,10 @@ it('analyzes all 17 real fight logs in workerd and matches Node', async () => {
   }))
 }, 90_000)
 
-function putSide(id: string, data: unknown) {
+function putSide(id: string, data: unknown, headers?: Record<string, string>) {
   return worker.default.fetch(`${battle(id)}/sides`, {
     method: 'PUT',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(data),
   })
 }
@@ -801,13 +820,69 @@ it('publishes the uploader side inferred by analysis in the live and persisted s
   expect((await readLogDetail(id, log.id)).side).toBe(1)
 })
 
-function putSideBatch(id: string, edits: unknown) {
+function putSideBatch(id: string, edits: unknown, headers?: Record<string, string>) {
   return worker.default.fetch(`${battle(id)}/sides/batch`, {
     method: 'PUT',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify({ edits }),
   })
 }
+
+it('guardedly restores a single move and rejects an intervening edit even after the override is removed', async () => {
+  const id = await prepare(0xb85)
+  const subject = 'corp:12345'
+  const saved = await putSide(id, { subject, side: 0 }, { 'X-EVE-Undo': '1' })
+  const etag = saved.headers.get('ETag')!
+  expect(etag).toMatch(/^".+"$/)
+  expect(await saved.json()).toMatchObject({
+    subject, side: 0, previous: [{ subject, side: -1 }], previousTags: { [subject]: null },
+  })
+  const undo = await putSide(id, { subject, side: -1 }, { 'If-Match': etag })
+  expect(undo.status).toBe(200)
+  expect(await undo.json()).toMatchObject({ subject, side: -1 })
+  const removalTag = undo.headers.get('ETag')!
+  expect(removalTag).toMatch(/^".+"$/)
+  expect(removalTag).not.toBe(etag)
+  await editSide(id, subject, 0)
+  await editSide(id, subject, -1)
+  await evictDurableObject(env.BATTLE.getByName(id))
+  const stale = await putSide(id, { subject, side: 0 }, { 'If-Match': removalTag })
+  expect(stale.status).toBe(412)
+  expect(await stale.json()).toMatchObject({ message: 'Side assignments have changed' })
+  expect((await state(id)).sideOverrides).toEqual([])
+}, 15_000)
+
+it('checks every subject in a conditional batch before making any changes', async () => {
+  const id = await prepare(0xb86)
+  const edits = [{ subject: 'corp:12345', side: 0 }, { subject: 'ally:1042504553', side: 1 }]
+  const restore = edits.map(({ subject }) => ({ subject, side: -1 }))
+  const saved = await putSideBatch(id, edits, { 'X-EVE-Undo': '1' })
+  const etag = saved.headers.get('ETag')!
+  expect(etag).toMatch(/^".+"$/)
+  const unrelated = await editSide(id, 'char:100', 0)
+  expect((await putSideBatch(id, restore, { 'If-Match': etag })).status).toBe(200)
+  expect((await state(id)).sideOverrides).toEqual([unrelated])
+
+  const savedAgain = await putSideBatch(id, edits)
+  const changed = await editSide(id, 'corp:12345', 1)
+  expect((await putSideBatch(id, restore, { 'If-Match': savedAgain.headers.get('ETag')! })).status).toBe(412)
+  expect((await state(id)).sideOverrides).toMatchObject([unrelated, edits[1], changed])
+})
+
+it('accepts one validator for a batch spanning subjects from different edits', async () => {
+  const id = await prepare(0xb87)
+  const subjects = ['ally:1042504553', 'corp:12345']
+  const entries = await Promise.all(subjects.map(async (subject) => {
+    const response = await putSide(id, { subject, side: 0 })
+    return [subject, response.headers.get('ETag')]
+  }))
+  const bytes = new TextEncoder().encode(JSON.stringify(entries))
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))
+  const etag = `"${Array.from(hash, (byte) => byte.toString(16).padStart(2, '0')).join('')}"`
+  const edits = [...subjects].reverse().map((subject) => ({ subject, side: -1 }))
+  expect((await putSideBatch(id, edits, { 'If-Match': etag })).status).toBe(200)
+  expect((await state(id)).sideOverrides).toEqual([])
+})
 
 async function editSide(id: string, subject: SideOverride['subject'], side: number): Promise<SideOverride> {
   const response = await putSide(id, { subject, side })

@@ -4,8 +4,8 @@ import type { BattleSummary, Entity, FitEntry, FitStats, Interaction, KillmailFi
 import { parseEft, type EftModule, type ParsedEft } from '@/fit/eft'
 import { fmtHms, fmtNum } from '../lib/format'
 import { useBattleContext } from '../state/battle-store'
-import { api, ApiFailure } from '../api/client'
-import { useBattleUndo } from './undo'
+import { api, ApiFailure, type VersionedFit } from '../api/client'
+import { useBattleUndo, useEditHistory } from './undo'
 import { useView } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { TypeIcon } from '../ui/TypeIcon'
@@ -62,8 +62,9 @@ function PilotFit({ pilot, charId, summary, interactions }: {
 }) {
   const services = useContext(FitServices)
   const beginUndo = useBattleUndo()
+  const history = useEditHistory('fit')
   const remote = pilotFit(summary, charId)
-  const [saved, setSaved] = useState<FitEntry>()
+  const [saved, setSaved] = useState<VersionedFit>()
   const [lastRemote, setLastRemote] = useState(remote)
   if (remote !== lastRemote) {
     setLastRemote(remote)
@@ -141,42 +142,58 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     const finish = beginUndo()
     try {
       const brId = summary.meta.brId
+      const key = `${brId}/${charId}`
       const putFit = ({ eft, mutated }: FitText) => mutated?.length
         ? services.save(brId, charId, eft, mutated)
         : services.save(brId, charId, eft)
-      const entry = await putFit({ eft: text, mutated: draft?.mutated })
+      const { previous, ...entry } = await history.run(key, () => putFit({ eft: text, mutated: draft?.mutated }))
+      const prior = previous === undefined ? fit : previous ?? undefined
       const { etag } = entry
-      let echoed = false
-      finish(etag === undefined ? { label: '已保存配装' } : {
+      const edit = etag && history.record(finish.id, [{
+        key, before: { tag: prior?.etag ?? null, value: prior }, after: { tag: etag, value: entry },
+      }])
+      let echoedTag: string | null = null
+      finish(!edit ? { label: '已保存配装' } : {
         label: '已保存配装',
         conflict: {
           label: overwritten,
           when: (state) => {
             if (state.meta.brId !== brId) return true
+            if (history.isPending(key)) return false
+            if (!history.contains(key, edit)) return true
+            const head = history.current(key)!
             const current = pilotFit(state, charId)
-            if (isSameFit(current, entry)) {
-              echoed = true
+            if (isSameFit(current, head.value)) {
+              echoedTag = head.tag
               return false
             }
-            // Before the echo, the live summary may still hold the fit seen when the PUT began.
-            if (echoed) return true
+            if (echoedTag === head.tag) return true
+            // The summary can still show the fit replaced by our save or by our undo.
+            if (current === head.overwritten || isSameFit(current, head.overwritten)) return false
             if (!current) return remote !== undefined
-            return current.setAt >= entry.setAt && !isSameFit(current, remote)
+            return current.setAt >= (head.value?.setAt ?? entry.setAt) && !isSameFit(current, remote)
           },
         },
-        revert: async () => {
+        revert: () => history.run(key, async () => {
+          const plan = history.plan(edit)
+          if (!plan) return { unavailable: overwritten }
+          const { value: priorFit, tag } = plan.changes[0]!
           try {
-            if (fit) {
-              setSaved(await services.save(brId, charId, fit.eft, fit.mutated, etag))
+            let restored: VersionedFit | undefined
+            if (priorFit) {
+              const { previous: _, ...result } = await services.save(brId, charId, priorFit.eft, priorFit.mutated, tag)
+              restored = result
             } else {
-              await api.deleteFit(brId, charId, etag)
-              setSaved(undefined)
+              await api.deleteFit(brId, charId, tag)
             }
+            plan.commit(() => ({ value: restored, tag: restored?.etag ?? null }))
+            setSaved(restored)
+            return { reverted: plan.reverted }
           } catch (error) {
             if (error instanceof ApiFailure && error.status === 412) return { unavailable: overwritten }
             throw error
           }
-        },
+        }),
       })
       setSaved(entry)
       setSavedImport(importDetails ? { result: importDetails, setAt: entry.setAt } : undefined)

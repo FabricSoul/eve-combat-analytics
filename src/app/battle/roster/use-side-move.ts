@@ -1,52 +1,58 @@
 import { useState } from 'react'
-import type { BattleSummary, SideBatchEdit, SideBatchResult, SideEdit, SideOverride, SideSubject } from '@/core/contract'
-import { useBattleUndo, visibleAfter } from '../undo'
-import { api, ApiFailure, battleApiPath } from '../../api/client'
+import type { SideBatchEdit, SideBatchResult, SideEdit, SideOverride, SideSubject } from '@/core/contract'
+import { useBattleUndo, useEditHistory } from '../undo'
+import { api, ApiFailure } from '../../api/client'
 
-async function putSideBatch(brId: string, edits: SideBatchEdit['edits']): Promise<SideBatchResult> {
-  const response = await fetch(`${battleApiPath(brId)}/sides/batch`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ edits } satisfies SideBatchEdit),
-  })
-  if (response.ok) return response.json()
-  const failure: unknown = await response.json().catch(() => null)
-  const message = failure && typeof failure === 'object' && 'message' in failure && typeof failure.message === 'string'
-    ? failure.message : '无法改变阵营'
-  throw new ApiFailure('bad_request', message, response.status)
-}
+const overwritten = '阵营划分已被其他编辑更改，无法撤销'
+type Receipt = SideBatchResult & { etag?: string; previousTags?: Partial<Record<SideSubject, string | null>> }
 
-function sidesVisible(version: number, edits: readonly SideOverride[]) {
-  return visibleAfter(version, (state: BattleSummary) => {
-    const overrides = new Map(state.sideOverrides.map((override) => [override.subject, override]))
-    return edits.every(({ subject, side, setAt }) => {
-      const saved = overrides.get(subject)
-      return side === -1 ? saved === undefined : saved?.side === side && saved.setAt === setAt
-    })
-  })
-}
-
-/** Side edits arrive as sides_set and become undoable when their analysis is visible. */
-export function useSideMove(brId: string, overrides: readonly SideOverride[] = [], version = -1) {
+export function useSideMove(brId: string, _overrides: readonly SideOverride[] = [], _version = -1) {
   const begin = useBattleUndo()
+  const history = useEditHistory('side')
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(0)
 
-  async function edit(
-    save: () => Promise<SideBatchResult>,
-    restore: (previous: SideBatchEdit['edits']) => Promise<SideOverride[]>,
-  ): Promise<boolean> {
+  async function edit(save: () => Promise<Receipt>, batch: boolean): Promise<boolean> {
     setError(null)
     setPending((n) => n + 1)
     const finish = begin()
     try {
-      const { applied, previous } = await save()
-      if (!applied.length) finish()
-      else finish({
-        label: applied.every(({ side }) => side === -1) ? '已恢复报告阵营' : '已改为所选阵营',
-        visible: sidesVisible(version, applied),
-        revert: async (undoVersion) => {
-          const restored = await restore(previous)
-          if (restored.length) return sidesVisible(undoVersion, restored)
-        },
+      await history.run(brId, async () => {
+        const { applied, previous, previousTags, etag } = await save()
+        if (!applied.length || !etag || !previousTags) {
+          finish()
+          return
+        }
+        const bySubject = new Map(applied.map((override) => [override.subject, override]))
+        const edit = history.record(finish.id, previous.map((before) => ({
+          key: `${brId}/${before.subject}`,
+          before: { value: before, tag: previousTags[before.subject] ?? null },
+          after: { value: bySubject.get(before.subject)!, tag: etag },
+        })))
+        finish({
+          label: applied.every(({ side }) => side === -1) ? '已恢复报告阵营' : '已改为所选阵营',
+          revert: () => history.run(brId, async () => {
+            const plan = history.plan(edit)
+            if (!plan) return { unavailable: overwritten }
+            const edits = plan.changes.map(({ value: { subject, side } }) => ({ subject, side }))
+            const tags = new Map(plan.changes.map(({ value, tag }) => [value.subject, tag]))
+            try {
+              const single = edits[0]!
+              const restored = !batch && edits.length === 1
+                ? await api.putSide(brId, single.subject, single.side, tags.get(single.subject))
+                  .then((result) => ({ applied: [result], etag: result.etag }))
+                : await api.putSideBatch(brId, edits, tags)
+              const changed = new Set(restored.applied.map(({ subject }) => subject))
+              plan.commit((_, value) => ({
+                value, tag: (changed.has(value.subject) ? restored.etag : undefined) ?? tags.get(value.subject)!,
+              }))
+              return { reverted: plan.reverted }
+            } catch (failure) {
+              if (failure instanceof ApiFailure && failure.status === 412) return { unavailable: overwritten }
+              throw failure
+            }
+          }),
+        })
       })
       return true
     } catch (failure) {
@@ -59,15 +65,14 @@ export function useSideMove(brId: string, overrides: readonly SideOverride[] = [
   }
 
   function move(subject: SideSubject, side: SideEdit['side']): Promise<boolean> {
-    const previous = overrides.find((override) => override.subject === subject)?.side ?? -1
     return edit(async () => {
-      const saved = await api.putSide(brId, subject, side)
-      return { applied: previous === saved.side ? [] : [saved], previous: [{ subject, side: previous }] }
-    }, async () => [await api.putSide(brId, subject, previous)])
+      const { etag, previous = [], previousTags, ...applied } = await api.putSide(brId, subject, side)
+      return { applied: etag ? [applied] : [], previous, previousTags, etag }
+    }, false)
   }
 
   function moveMany(edits: SideBatchEdit['edits']): Promise<boolean> {
-    return edit(() => putSideBatch(brId, edits), async (previous) => (await putSideBatch(brId, previous)).applied)
+    return edit(() => api.putSideBatch(brId, edits), true)
   }
 
   return { move, moveMany, error, busy: pending > 0, clearError: () => setError(null) }

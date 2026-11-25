@@ -30,6 +30,7 @@ const fitLimitMessage = 'EFT fits must be at most 64 KiB'
 const SIDE_BATCH_LIMIT = 1024 * 1024
 const BATTLE_TIME_AFFILIATION_VERSION = 2
 const encoder = new TextEncoder()
+const undoHeader = 'X-EVE-Undo'
 
 function characterId(ids: Record<string, number | null>, name: string): number | null {
   return Object.hasOwn(ids, name) ? ids[name] ?? null : null
@@ -220,16 +221,16 @@ export class BattleRoom extends DurableObject<Env> {
         const fit = request.method === 'PUT' ? await readFit(request) : undefined
         return await this.inOrder(() => {
           if (ifMatch !== null) this.requireFitMatch(charId, ifMatch)
-          return fit ? this.setFit(charId, fit) : this.deleteFit(charId)
+          return fit ? this.setFit(charId, fit, request.headers.has(undoHeader)) : this.deleteFit(charId)
         })
       }
       if (request.method === 'PUT' && route === 'sides') {
         const data = await readEdit(request, 'side')
-        return await this.inOrder(() => this.setSide(data))
+        return await this.inOrder(() => this.setSide(data, request.headers))
       }
       if (request.method === 'PUT' && route === 'sides/batch') {
         const data = await readEdit(request, 'side batch')
-        return await this.inOrder(() => this.setSideBatch(data))
+        return await this.inOrder(() => this.setSideBatch(data, request.headers))
       }
       if (request.method === 'PUT' && route === 'identities') {
         const data = await readEdit(request, 'identity')
@@ -531,7 +532,7 @@ export class BattleRoom extends DurableObject<Env> {
     if (!matches) throw new ApiFailure('bad_request', 'The fit has changed', 412)
   }
 
-  private async setFit(charId: number, text: Pick<FitEntry, 'eft' | 'mutated'>): Promise<Response> {
+  private async setFit(charId: number, text: Pick<FitEntry, 'eft' | 'mutated'>, undoReceipt: boolean): Promise<Response> {
     const header = text.eft.split(/\r\n|\n|\r/, 1)[0]?.trim() ?? ''
     const fields = /^\[([^,\[\]]+),(.+)\]$/.exec(header)
     if (!fields?.[1]?.trim() || !fields[2]?.trim()) {
@@ -541,9 +542,11 @@ export class BattleRoom extends DurableObject<Env> {
     const fit: FitEntry = { charId, ...text, setAt: this.services.now() }
     const etag = `"${crypto.randomUUID()}"`
     await this.scheduleAnalysis()
+    const previous = undoReceipt ? this.store.fit(charId) ?? null : undefined
     this.store.setFit(fit, etag)
-    this.broadcast({ type: 'fit_set', fit })
-    return Response.json(fit, { headers: { ETag: etag } })
+    const versionedFit = { ...fit, etag }
+    this.broadcast({ type: 'fit_set', fit: versionedFit })
+    return Response.json(undoReceipt ? { ...fit, previous } : fit, { headers: { ETag: etag } })
   }
 
   private async deleteFit(charId: number): Promise<Response> {
@@ -555,24 +558,33 @@ export class BattleRoom extends DurableObject<Env> {
     return Response.json({ removed: charId })
   }
 
-  private async setSide(data: unknown): Promise<Response> {
+  private async setSide(data: unknown, headers: Headers): Promise<Response> {
     const { meta } = await this.battle()
-    const nextSide = this.store.sideOverrides().reduce((next, { side }) => Math.max(next, side + 1), meta.teams.length)
+    const current = this.store.sideOverrides()
+    const nextSide = current.reduce((next, { side }) => Math.max(next, side + 1), meta.teams.length)
     if (!data || typeof data !== 'object' || !('subject' in data) || !isSideSubject(data.subject)
       || !('side' in data) || (data.side !== 'new' && (typeof data.side !== 'number' || !Number.isInteger(data.side)))) {
       throw new ApiFailure('bad_request', 'Expected an alliance, corporation or character subject and a valid side index')
     }
     // setSide runs in the same serialized queue as every other side edit.
+    const ifMatch = headers.get('If-Match')
+    const { subject } = data
     const side = data.side === 'new' ? nextSide : data.side
-    if (side < -1 || side > nextSide || side >= Math.max(MAX_BATTLE_SIDES, meta.teams.length)) {
+    if (side < -1 || (ifMatch === null && side > nextSide) || side >= Math.max(MAX_BATTLE_SIDES, meta.teams.length)) {
       throw new ApiFailure('bad_request', 'Expected an alliance, corporation or character subject and a valid side index')
     }
-
-    const [override] = await this.applySideEdits([{ subject: data.subject, side }])
-    return Response.json(override)
+    const tags = await this.requireSideMatch([subject], ifMatch)
+    const previous = [{ subject, side: current.find((override) => override.subject === subject)?.side ?? -1 }]
+    const undoReceipt = headers.has(undoHeader)
+    const metadata = undoReceipt ? { previous, previousTags: Object.fromEntries(tags) } : undefined
+    if (undoReceipt && ifMatch === null && previous[0]!.side === side) {
+      return Response.json({ subject, side, source: 'manual', setAt: this.services.now(), ...metadata })
+    }
+    const { applied: [override], etag } = await this.applySideEdits([{ subject, side }])
+    return Response.json({ ...override, ...metadata }, { headers: { ETag: etag } })
   }
 
-  private async setSideBatch(data: unknown): Promise<Response> {
+  private async setSideBatch(data: unknown, headers: Headers): Promise<Response> {
     const { meta } = await this.battle()
     const limit = Math.max(MAX_BATTLE_SIDES, meta.teams.length)
     if (!data || typeof data !== 'object' || !('edits' in data) || !Array.isArray(data.edits) || !data.edits.length) {
@@ -588,6 +600,7 @@ export class BattleRoom extends DurableObject<Env> {
       requested.set(edit.subject, edit.side)
     }
 
+    const tags = await this.requireSideMatch([...requested.keys()], headers.get('If-Match'))
     const current = this.store.sideOverrides().sort((a, b) => a.setAt - b.setAt)
     const assigned = new Map(current.map(({ subject, side }) => [subject, side]))
     const edits = [...requested].flatMap(([subject, side]) => side === (assigned.get(subject) ?? -1) ? [] : [{ subject, side }])
@@ -595,20 +608,37 @@ export class BattleRoom extends DurableObject<Env> {
     const previous = current.filter(({ subject }) => changed.has(subject)).map(({ subject, side }) => ({ subject, side }))
     for (const { subject } of edits) if (!assigned.has(subject)) previous.push({ subject, side: -1 })
 
-    const applied = edits.length ? await this.applySideEdits(edits) : []
-    return Response.json({ applied, previous } satisfies SideBatchResult)
+    const { applied, etag } = edits.length ? await this.applySideEdits(edits) : { applied: [] }
+    const result = { applied, previous } satisfies SideBatchResult
+    const previousTags = headers.has(undoHeader) ? { previousTags: Object.fromEntries(tags) } : undefined
+    return Response.json({ ...result, ...previousTags }, { headers: etag ? { ETag: etag } : undefined })
   }
 
-  private async applySideEdits(edits: SideBatchEdit['edits']): Promise<SideOverride[]> {
+  private async requireSideMatch(subjects: readonly SideSubject[], ifMatch: string | null) {
+    const sorted = [...subjects].sort()
+    const tags = this.store.sideTags(sorted)
+    const entries = sorted.map((subject, index) => [subject, tags[index]!] as const)
+    if (ifMatch !== null) {
+      const sameTag = tags[0] && tags.every((tag) => tag === tags[0]) ? tags[0] : null
+      const validator = sameTag ?? `"${await sha256(JSON.stringify(entries))}"`
+      if (!ifMatch.split(',').some((tag) => tag.trim() === validator)) {
+        throw new ApiFailure('bad_request', 'Side assignments have changed', 412)
+      }
+    }
+    return entries
+  }
+
+  private async applySideEdits(edits: SideBatchEdit['edits']) {
     const setAt = this.services.now()
     if (!this.store.canEditSide(setAt)) {
       throw new ApiFailure('bad_request', 'A battle can accept at most 30 side edits per minute', 429)
     }
     const applied = edits.map((edit): SideOverride => ({ ...edit, source: 'manual', setAt }))
+    const etag = `"${crypto.randomUUID()}"`
     await this.scheduleAnalysis()
-    const overrides = this.store.setSides(applied, setAt)
+    const overrides = this.store.setSides(applied, setAt, etag)
     this.broadcast({ type: 'sides_set', overrides })
-    return applied
+    return { applied, etag }
   }
 
   private async setIdentity(data: unknown): Promise<Response> {
