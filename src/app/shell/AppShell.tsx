@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, type ReactNode, type UIEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type UIEvent } from 'react'
 import './workspace.css'
 import { TopBar, type TopBarProps } from './TopBar'
 
@@ -28,6 +28,7 @@ function resetShellScroll({ currentTarget }: UIEvent<HTMLDivElement>) {
 }
 
 export function AppShell({ children, battle = false, home = false, topBar }: AppShellProps) {
+  const shell = useRef<HTMLDivElement>(null)
   const [override, setOverride] = useState(storedAppearance)
   const [systemDark, setSystemDark] = useState(() => window.matchMedia?.(preference).matches ?? false)
   const appearance = override ?? (systemDark ? 'dark' : 'light')
@@ -43,6 +44,20 @@ export function AppShell({ children, battle = false, home = false, topBar }: App
     document.documentElement.dataset.appearance = appearance
   }, [appearance])
 
+  useLayoutEffect(() => {
+    if (!battle) return
+    const root = shell.current
+    const header = root?.querySelector(':scope > .app-topbar')
+    if (!root || !header) return
+
+    const measure = () => root.style.setProperty('--battle-header-bottom', `${header.getBoundingClientRect().bottom}px`)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(header)
+    return () => observer.disconnect()
+  }, [battle])
+
   function toggleAppearance() {
     const next = appearance === 'dark' ? 'light' : 'dark'
     setOverride(next)
@@ -54,7 +69,7 @@ export function AppShell({ children, battle = false, home = false, topBar }: App
   }
 
   return (
-    <div className={battle ? 'app-shell app-shell--battle' : 'app-shell'} onScroll={battle ? resetShellScroll : undefined}>
+    <div ref={shell} className={battle ? 'app-shell app-shell--battle' : 'app-shell'} onScroll={battle ? resetShellScroll : undefined}>
       <TopBar {...topBar} home={home} appearance={appearance} onToggleAppearance={toggleAppearance} />
       <main className="app-shell-body">{children}</main>
     </div>

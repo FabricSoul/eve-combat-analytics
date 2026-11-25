@@ -31,30 +31,36 @@ interface BottomSheetProps<T extends string> {
 export function BottomSheet<T extends string>({ tabs, value, onChange, children }: BottomSheetProps<T>) {
   const id = useId()
   const [chosenHeight, setChosenHeight] = useState(storedHeight)
-  const [automaticHeight, setAutomaticHeight] = useState<SheetHeight>(half)
-  const height = chosenHeight ?? automaticHeight
+  const [halfFits, setHalfFits] = useState(true)
+  const preferredHeight = chosenHeight ?? half
+  // Keep the half preference when a range or other timeline content temporarily uses its space.
+  const height = preferredHeight === half && !halfFits ? peek : preferredHeight
+  const replayVisible = height !== full
+  const nextSnapFromPeek = halfFits ? half : full
   const sheet = useRef<HTMLElement>(null)
   const halfSizer = useRef<HTMLDivElement>(null)
   const drag = useRef<{ pointerId: number; y: number } | null>(null)
 
   useLayoutEffect(() => {
-    if (chosenHeight !== null) return
+    if (!replayVisible) return
     const layout = sheet.current?.parentElement
     const timeline = layout?.querySelector(':scope > .battle-timeline')
     const sizer = halfSizer.current
     if (!layout || !timeline || !sizer) return
 
     const measure = () => {
-      const available = layout.getBoundingClientRect().height - timeline.getBoundingClientRect().height
+      const timelineHeight = timeline.getBoundingClientRect().height
       const halfHeight = sizer.getBoundingClientRect().height
-      if (halfHeight > 0) setAutomaticHeight(available - halfHeight >= minimumMapHeight ? half : peek)
+      if (timelineHeight > 0 && halfHeight > 0) {
+        setHalfFits(layout.getBoundingClientRect().height - timelineHeight - halfHeight >= minimumMapHeight)
+      }
     }
     measure()
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(measure)
     for (const element of [layout, timeline, sizer]) observer.observe(element)
     return () => observer.disconnect()
-  }, [chosenHeight])
+  }, [replayVisible])
 
   function chooseHeight(next: SheetHeight) {
     setChosenHeight(next)
@@ -66,11 +72,11 @@ export function BottomSheet<T extends string>({ tabs, value, onChange, children 
   }
 
   function step(delta: number) {
-    chooseHeight(delta > 0 ? height === peek ? half : full : height === full ? half : peek)
+    chooseHeight(delta > 0 ? height === peek ? nextSnapFromPeek : full : height === full ? half : peek)
   }
 
   function cycle() {
-    chooseHeight(height === peek ? half : height === half ? full : peek)
+    chooseHeight(height === peek ? nextSnapFromPeek : height === half ? full : peek)
   }
 
   function handleKeys(event: KeyboardEvent) {

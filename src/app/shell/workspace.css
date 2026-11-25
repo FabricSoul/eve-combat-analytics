@@ -318,7 +318,6 @@
   [data-layout="phone"] .empty-battle { align-items: safe center; padding: var(--space-4); }
   [data-layout="phone"] .empty-drop { min-height: 140px; }
   [data-layout="phone"] .empty-pick { display: inline-flex; align-items: center; }
-  [data-layout="phone"] .battle-sides { inset: var(--space-2); overflow: auto; }
   [data-layout="phone"] .battle-upload { grid-area: replay; inset: auto var(--space-2) var(--space-2) auto; }
   [data-layout="phone"]:has(.battle-sheet[data-height="2"]) .battle-upload { grid-area: sheet; }
   [data-layout="phone"] .upload-rows { max-height: min(28dvh, 220px); }

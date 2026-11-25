@@ -777,7 +777,7 @@ try {
   } finally {
     await iconDesktop.context.close()
   }
-  async function measureTouchTargets(scope, view, strict = false) {
+  async function measureTouchTargets(scope, view, strict = false, expectedCount) {
     const result = await scope.evaluate(async (root, strict) => {
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
       const selector = [
@@ -881,8 +881,93 @@ try {
       return { count, offenders }
     }, strict)
     assert.ok(result.count > 0, `${view} exposes enabled, reachable touch controls`)
+    if (expectedCount !== undefined && result.count !== expectedCount) {
+      touchFailures.add(`${view} · found ${result.count} controls, expected ${expectedCount}`)
+    }
     touchStates.set(view, (touchStates.get(view) ?? 0) + result.count)
     for (const offender of result.offenders) touchFailures.add(`${view} · ${offender}`)
+  }
+
+  async function measurePanelBounds(panel, view, header, maxWidth = Infinity) {
+    const [box, top] = await Promise.all([panel.boundingBox(), header.boundingBox()])
+    const { width, height } = panel.page().viewportSize()
+    if (!box || !top || box.x < 0 || box.y < top.y + top.height ||
+        box.x + box.width > width || box.y + box.height > height || box.width > maxWidth) {
+      touchFailures.add(`${view} · panel outside its bounds: ${JSON.stringify({ box, top, width, height })}`)
+    }
+  }
+
+  async function checkActiveRangeSheet(width, height) {
+    const prefix = `${width}×${height} coarse · active range`
+    const { page, context, errors } = await open(width, height, 'light', 'reduce', '?t=1750606982420', true)
+    const sheet = page.getByRole('region', { name: '战斗数据', exact: true })
+    const grip = sheet.getByRole('slider')
+    const map = page.locator('.replay-stage')
+    const toolbar = map.locator('.replay-header-actions')
+    const zoom = map.getByRole('group', { name: '回放缩放' })
+    const header = page.getByRole('banner')
+    const activeRange = page.locator('.eca-timeline-range-chip')
+    const capture = (name) => page.screenshot({ path: join(output, `k1-${width}x${height}-${name}.png`) })
+    const auditMap = async (snap) => {
+      const view = `${prefix} · ${snap}`
+      await measureTouchTargets(toolbar, `${view} · replay toolbar`, true, 3)
+      await measureTouchTargets(zoom, `${view} · replay zoom`, true, 3)
+      const [mapBox, zoomBox] = await Promise.all([map.boundingBox(), zoom.boundingBox()])
+      if (zoomBox.x < mapBox.x || zoomBox.x + zoomBox.width / 2 >= mapBox.x + mapBox.width / 2 ||
+          zoomBox.y + zoomBox.height / 2 <= mapBox.y + mapBox.height / 2 ||
+          zoomBox.y + zoomBox.height > mapBox.y + mapBox.height) {
+        touchFailures.add(`${view} · Zoom must be within the lower-left of the map`)
+      }
+    }
+    try {
+      assert.ok(await page.evaluate(() => matchMedia('(pointer: coarse)').matches))
+      await map.waitFor()
+      await grip.press('Home')
+      await page.getByRole('button', { name: '选段', exact: true }).tap()
+      const editor = page.getByRole('dialog', { name: '编辑选段' })
+      await editor.getByLabel('开始').fill('15:42:00')
+      await editor.getByLabel('结束').fill('15:44:00')
+      await editor.getByRole('button', { name: '应用' }).tap()
+      await activeRange.waitFor()
+      await auditMap('peek')
+      await measurePanelBounds(sheet, `${prefix} · peek`, header)
+
+      const expected = height < 600 ? '0' : '1'
+      const auditHalf = async (action) => {
+        await grip.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+        const reached = await grip.getAttribute('aria-valuenow')
+        if (reached !== expected) touchFailures.add(`${prefix} · ${action} reached snap ${reached}, expected ${expected}`)
+        if (reached !== '2') await auditMap(action)
+        await measurePanelBounds(sheet, `${prefix} · ${action}`, header)
+      }
+      await sheet.getByRole('tab', { name: '事件', exact: true }).tap()
+      await auditHalf('half requested by tapping Events')
+      await grip.press('Home')
+
+      // Select half where it fits, then shrink with the selected range still active.
+      await page.setViewportSize({ width, height: 900 })
+      await grip.press('ArrowUp')
+      assert.equal(await grip.getAttribute('aria-valuenow'), '1', `${prefix} allows half with room for the map`)
+      await page.setViewportSize({ width, height })
+      await auditHalf('half requested before resize')
+      await capture('active-range-half-requested')
+      const zoomIn = zoom.getByRole('button', { name: '放大', exact: true })
+      await zoomIn.tap()
+      await zoomIn.tap()
+      await zoom.getByText('156%', { exact: true }).waitFor()
+      await auditMap('zoomed to 156%')
+
+      await grip.press('End')
+      assert.equal(await grip.getAttribute('aria-valuenow'), '2')
+      assert.equal(await map.isVisible(), false, `${prefix} · full data sheet covers the replay`)
+      await measureTouchTargets(sheet, `${prefix} · full sheet`)
+      await measurePanelBounds(sheet, `${prefix} · full sheet`, header)
+      await grip.press('Home')
+      await activeRange.waitFor()
+      assert.deepEqual(errors, [])
+    } finally {
+      await context.close()
+    }
   }
 
   async function checkReplayTouchPicking(page, audit) {
@@ -1147,6 +1232,7 @@ try {
         await tap(detailButton(topbar, '排边'))
         const sides = page.getByRole('dialog', { name: '排边' })
         await audit('side panel', sides)
+        await measurePanelBounds(sides, `${prefix} · side panel`, topbar, 960)
         if (!phone) await topbar.getByRole('textbox', { name: '分享链接' }).waitFor({ state: 'hidden' })
         await tap(sides.locator('.sides-name button').first())
         await audit('side panel expanded group', sides)
@@ -1210,8 +1296,10 @@ try {
             await tap(tabs(sheet, tab))
             await grip.press('Home')
             await grip.press('ArrowUp')
-            await audit(`half sheet · ${tab}`, sheet)
-            await grip.press('End')
+            if (await grip.getAttribute('aria-valuenow') === '1') {
+              await audit(`half sheet · ${tab}`, sheet)
+              await grip.press('End')
+            }
             await audit(`full sheet · ${tab}`, sheet)
           }
         } else {
@@ -1395,6 +1483,9 @@ try {
         await context.close()
       }
     }
+    const activeRangePhones = touchViewports.filter(([width]) => width < 760)
+    for (const [width, height] of activeRangePhones) await checkActiveRangeSheet(width, height)
+
     const desktopStages = [[820, 500, 'default'], [900, 800, 'default'], [900, 800, 'min'], [900, 800, 'max'], [1280, 800, 'default']]
     for (const [width, height, placement] of desktopStages) {
       const prefix = `${width}×${height} coarse ${placement} stage`
@@ -1408,6 +1499,19 @@ try {
         const hint = page.getByRole('button', { name: '关闭时间轴提示' })
         await stage.locator('.replay-marker[data-present] .replay-pilot').first().waitFor()
         const initialHeight = (await stage.boundingBox()).height
+        if (placement === 'default') {
+          const header = page.getByRole('banner')
+          if (width < 1100) {
+            assert.ok((await header.boundingBox()).height > 48, `${prefix} exercises a wrapped top bar`)
+          }
+          await header.getByRole('button', { name: '排边', exact: true }).tap()
+          const sides = page.getByRole('dialog', { name: '排边' })
+          await sides.locator('.sides-hint').waitFor()
+          await measurePanelBounds(sides, `${prefix} · side panel`, header, 960)
+          await measureTouchTargets(sides.locator('.sides-head'), `${prefix} · side panel header`, true)
+          await page.screenshot({ path: join(output, `k1-${width}x${height}-side-panel.png`) })
+          await sides.getByRole('button', { name: '完成', exact: true }).tap()
+        }
         if (placement !== 'default') {
           const { x, y, width, height: gripHeight } = await grip.boundingBox()
           await page.mouse.move(x + width / 2, y + gripHeight / 2)
@@ -1462,8 +1566,8 @@ try {
       }
     }
     const targets = [...touchStates.values()].reduce((total, count) => total + count, 0)
-    console.log(`Touch targets: ${touchViewports.length + desktopStages.length} viewport/stage cases, ${touchStates.size} states, ${targets} visible enabled targets, ${touchFailures.size} offenders, exemption .replay-pilot (verified equivalent roster actions), 0 inline-link exemptions`)
-    assert.equal(touchFailures.size, 0, `Touch targets must offer 44×44 px without overlap:\n${[...touchFailures].join('\n')}`)
+    console.log(`Touch targets: ${touchViewports.length + desktopStages.length + activeRangePhones.length} viewport/stage cases, ${touchStates.size} states, ${targets} visible enabled targets, ${touchFailures.size} offenders, exemption .replay-pilot (verified equivalent roster actions), 0 inline-link exemptions`)
+    assert.equal(touchFailures.size, 0, `Touch targets must offer 44×44 px without overlap and panels must stay in bounds:\n${[...touchFailures].join('\n')}`)
   }
 
   const feedMode = phonePage.getByRole('button', { name: '逐条' })

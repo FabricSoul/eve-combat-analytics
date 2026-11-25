@@ -62,7 +62,14 @@
 
 /* Sides panel */
 .sides { display: flex; flex-direction: column; max-height: 100%; overflow: hidden; border: 1px solid var(--color-hair); background: var(--color-bg); }
-.battle-sides > .sides { max-block-size: calc(100dvh - 48px - 2 * var(--space-6)); }
+.battle-layout > .battle-sides {
+  --sides-gutter: var(--space-6);
+  position: fixed;
+  inset-block: calc(var(--battle-header-bottom, 0px) + var(--sides-gutter)) var(--sides-gutter);
+  inset-inline: max(var(--sides-gutter), (100% - 960px) / 2);
+  pointer-events: none;
+}
+.battle-sides > .sides { pointer-events: auto; }
 .sides-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-hair); }
 .sides-head h2 { font-weight: 500; }
 .sides-hint { color: var(--color-text-2); font-size: var(--fs-s); }
@@ -168,7 +175,7 @@
   .sides-pilot { grid-template-columns: 20px minmax(var(--touch-target), 1fr) auto var(--touch-target); }
 }
 @media (width < 760px) {
-  .battle-sides > .sides { max-block-size: calc(100dvh - 44px - 2 * var(--space-2)); }
+  .battle-layout > .battle-sides { --sides-gutter: var(--space-2); }
   .sides-cols { grid-template-columns: minmax(0, 1fr) !important; grid-auto-rows: max-content; scrollbar-width: auto; }
   .sides-col-body { overflow: visible; }
 }
