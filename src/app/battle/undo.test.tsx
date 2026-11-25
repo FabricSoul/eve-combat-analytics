@@ -19,7 +19,10 @@ function mountUndo(portal?: HTMLElement) {
       <BattleUndo analyzedSummary={analyzedSummary} host={portal}><Probe /></BattleUndo>,
     )),
     begin: (...args: Parameters<typeof start>) => start(...args),
-    toasts: () => [...container.querySelectorAll<HTMLElement>('[data-battle-toast]')],
+    toasts: () => [...container.querySelectorAll<HTMLElement>('[data-battle-toast]')]
+      .filter((toast) => !toast.closest('[hidden]')),
+    overflow: () => [...container.querySelectorAll('button')].find((button) =>
+      /^还有 \d+ 项可撤销$/.test(button.textContent)),
     unmount: async () => { await act(() => root.unmount()); host.remove() },
   }
 }
@@ -212,23 +215,94 @@ it('pauses only the hovered or focused edit', async () => {
   }
 })
 
-it('shows why the oldest window closed when a fourth edit arrives', async () => {
+const overlappingEdits = ['已改为所选阵营', '已保存配装', '已合并身份', '已恢复报告阵营', '已保存新配装']
+
+it('reveals two older edits on click and undoes all five edits independently', async () => {
   const app = mountUndo()
-  const oldestUndo = vi.fn(async () => {})
+  const reverted: string[] = []
   try {
     await app.render()
+    const firstLabel = overlappingEdits[0]!
+    const edit = (label: string) => ({
+      label, revert: async () => { reverted.push(label) },
+    })
     let finishOldest!: ReturnType<typeof app.begin>
     await act(() => { finishOldest = app.begin() })
-    const labels = ['已保存配装', '已合并身份', '已恢复报告阵营']
+    for (const label of overlappingEdits.slice(1)) {
+      await tick(900)
+      await act(() => app.begin(edit(label)))
+    }
+    await act(() => finishOldest(edit(firstLabel)))
+
+    const labels = () => app.toasts().map((toast) => toast.querySelector('[role=status]')?.textContent)
+    expect(labels()).toEqual(overlappingEdits.slice(2))
+    expect(app.host.textContent).not.toContain('撤销时间已结束')
+    expect(app.overflow()?.textContent).toBe('还有 2 项可撤销')
+    expect(app.overflow()?.getAttribute('aria-expanded')).toBe('false')
+    await act(() => app.overflow()?.click())
+    expect(app.overflow()?.getAttribute('aria-expanded')).toBe('true')
+    expect(labels()).toEqual(overlappingEdits)
+    expect(app.toasts().map((toast) => toast.querySelector('[role=timer]')?.getAttribute('aria-label')))
+      .toEqual([7, 8, 9, 10, 10].map((seconds) => `撤销剩余时间 ${seconds} 秒`))
+
+    for (const label of overlappingEdits) {
+      const button = app.toasts().find((toast) => toast.textContent === `${label}撤销`)?.querySelector('button')
+      expect(button?.textContent).toBe('撤销')
+      await act(async () => button?.click())
+    }
+    expect(reverted).toEqual(overlappingEdits)
+  } finally {
+    await app.unmount()
+  }
+})
+
+it('keeps overflow expanded when the first pointer click also focuses its row', async () => {
+  const app = mountUndo()
+  try {
+    await app.render()
     await act(() => {
-      for (const label of labels) app.begin({ label, revert: async () => {} })
+      for (const label of overlappingEdits) app.begin({ label, revert: async () => {} })
     })
-    expect(app.toasts().map((toast) => toast.querySelector('[role=status]')?.textContent)).toEqual(labels)
-    expect(app.host.textContent).toContain('最早一项改动的撤销时间已结束')
-    await act(() => finishOldest({ label: '已改为所选阵营', revert: oldestUndo }))
-    expect(app.toasts().filter((toast) => toast.querySelector('button'))).toHaveLength(3)
-    expect(app.host.textContent).not.toContain('已改为所选阵营')
-    expect(oldestUndo).not.toHaveBeenCalled()
+    const button = app.overflow()!
+    const press = () => button.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    const release = () => button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    await act(() => { press() })
+    await act(() => button.focus())
+    expect(button.getAttribute('aria-expanded')).toBe('true')
+    await act(() => { release() })
+    expect(button.getAttribute('aria-expanded')).toBe('true')
+    await act(() => { press(); release() })
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+  } finally {
+    await app.unmount()
+  }
+})
+
+it('expires five overlapping windows at their own deadlines, including while collapsed', async () => {
+  const app = mountUndo()
+  try {
+    await app.render()
+    for (const label of overlappingEdits) {
+      if (label !== overlappingEdits[0]) await tick(900)
+      await act(() => app.begin({ label, revert: async () => {} }))
+    }
+
+    await tick(6399)
+    expect(app.overflow()?.textContent).toBe('还有 2 项可撤销')
+    await tick(1)
+    expect(app.overflow()?.textContent).toBe('还有 1 项可撤销')
+    expect(app.overflow()?.getAttribute('aria-expanded')).toBe('false')
+    await act(() => app.overflow()?.focus())
+    expect(app.overflow()?.getAttribute('aria-expanded')).toBe('true')
+
+    for (const label of overlappingEdits.slice(1)) {
+      await tick(899)
+      expect(app.toasts()[0]?.textContent).toContain(label)
+      expect(app.toasts()[0]?.querySelector('button')?.textContent).toBe('撤销')
+      await tick(1)
+      expect(app.toasts().some((toast) => toast.textContent?.includes(label))).toBe(false)
+    }
+    expect(app.toasts()).toHaveLength(0)
   } finally {
     await app.unmount()
   }
