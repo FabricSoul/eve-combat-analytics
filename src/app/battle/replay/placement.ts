@@ -4,6 +4,7 @@ interface Size { width: number; height: number }
 export interface Rect extends Point, Size {}
 
 const gap = 2
+export const shortMapHeight = 120
 
 function overlaps(a: Rect, b: Rect) {
   return a.x < b.x + b.width + gap && a.x + a.width + gap > b.x
@@ -14,6 +15,42 @@ function fits(rect: Rect, bounds: Rect) {
   return rect.x >= bounds.x && rect.y >= bounds.y
     && rect.x + rect.width <= bounds.x + bounds.width
     && rect.y + rect.height <= bounds.y + bounds.height
+}
+
+export function placeShortMapWindow(rect: Rect, mapBottom: number, viewportHeight: number, collapsedHeight = 0): Rect {
+  const height = Math.min(rect.height, viewportHeight - mapBottom)
+  return { ...rect, height, y: Math.max(mapBottom, Math.min(rect.y, viewportHeight - (collapsedHeight || height))) }
+}
+
+export function compactHullSeats(width: number, height: number, radius: number, count: number, chrome: readonly Rect[]): Point[] {
+  const inset = Math.min(radius, width / 2, height / 2)
+  const obstacles = chrome.filter((rect) => rect.x < width && rect.x + rect.width > 0 && rect.y < height && rect.y + rect.height > 0)
+  const seats: Point[] = []
+  // Stagger the rows so the available height can fit more circular hulls.
+  function fill(stride: number, clearance: number) {
+    const rowStep = stride * Math.sqrt(3) / 2
+    const lastRow = Math.floor((height - 2 * inset) / rowStep)
+    const top = (height - lastRow * rowStep) / 2
+    seats.length = 0
+    for (let row = 0; row <= lastRow; row++) {
+      const y = top + row * rowStep
+      for (let x = inset + (row % 2) * stride / 2; x <= width - inset; x += stride) {
+        if (obstacles.some((rect) => x >= rect.x - clearance && x <= rect.x + rect.width + clearance
+          && y >= rect.y - clearance && y <= rect.y + rect.height + clearance)) continue
+        seats.push({ x, y })
+      }
+    }
+  }
+  const stride = 2 * radius + 1
+  fill(stride, radius)
+  if (seats.length >= count) return seats
+  // Keep every center clear before allowing neighboring hulls to overlap.
+  for (let denser = stride; denser >= 1; denser--) {
+    fill(denser, 0)
+    if (seats.length >= count) return seats
+  }
+  // Leave hulls inside the map even when there is less free screen space than pilots.
+  return seats.length ? seats : [{ x: width / 2, y: height / 2 }]
 }
 
 export function placeFightsWindow(stage: Rect, topRight: number, belowPills: number, size: Size, pilots: readonly Rect[]): Rect {
@@ -261,21 +298,28 @@ export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], ob
 
   const placedNames = Array.from(positions.values(), labelObstacle)
   const occupied = [...obstacles, ...placedNames]
-  const protectedSpace = [...fallback.obstacles, ...placedNames]
+  const protectedSpace = [...fallback.obstacles, ...placedNames,
+    ...labels.map(({ center }) => ({ ...center, width: 0, height: 0 }))]
   for (const label of mandatory) {
     if (positions.has(label)) continue
     const width = Math.min(46, label.size.width)
     const compactWidth = Math.min(24, width)
     const { bounds } = fallback
     const size = { width: Math.min(label.size.width, bounds.width), height: Math.min(label.size.height, bounds.height) }
+    const narrow = { ...size, width: Math.min(compactWidth, size.width) }
     const below = { ...size, x: label.center.x - size.width / 2, y: label.center.y + label.radius + 5 }
-    const slot = options(label, occupied, width, label.bounds, Infinity)
+    const slot = options(label, occupied, width, stage)
+      ?? options(label, occupied, compactWidth, stage)
+      // Keep required labels near their ships even if only the ring edges can overlap.
+      ?? findPilotLabelSpace(label.center, size, bounds, protectedSpace, maxLabelDistance)
+      ?? findPilotLabelSpace(label.center, narrow, bounds, protectedSpace, maxLabelDistance)
+      ?? options(label, occupied, width, label.bounds, Infinity)
       ?? options(label, occupied, compactWidth, label.bounds, Infinity)
       ?? options(label, occupied, width, stage, Infinity)
       ?? options(label, occupied, compactWidth, stage, Infinity)
       // Relax ship clearance first and keep controls clear even if names have to overlap.
       ?? findPilotLabelSpace(label.center, size, bounds, protectedSpace, Infinity)
-      ?? findPilotLabelSpace(label.center, { ...size, width: Math.min(compactWidth, size.width) }, bounds, protectedSpace, Infinity)
+      ?? findPilotLabelSpace(label.center, narrow, bounds, protectedSpace, Infinity)
       ?? findPilotLabelSpace(label.center, size, bounds, fallback.obstacles, Infinity)
       ?? placeAnnotation([below], bounds, occupied, true)!
     positions.set(label, slot)

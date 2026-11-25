@@ -265,6 +265,10 @@
 .replay-zoom button + button { border-inline-start: 1px solid var(--color-hair); }
 .replay-zoom button:disabled { opacity: .45; cursor: default; }
 
+.replay-stage[data-short-map] .replay-header { inset-block-start: var(--space-1); }
+.replay-stage[data-short-map] .replay-header-actions { margin-block-start: var(--space-1); }
+.replay-stage[data-short-map] .replay-stage-zoom { inset-inline: auto var(--space-2); }
+
 .replay-menu, .replay-control-trigger { position: relative; pointer-events: auto; }
 .replay-menu summary, .replay-control-trigger {
   width: max-content;

@@ -4,6 +4,7 @@ import type { Analysis, Entity, EntityKey, Interaction, Killmail } from '@/core/
 import shipTypes from '@/core/data/ship-types.json'
 import { sideColor, sideLetter } from '@/app/lib/sides'
 import { interactionScales, sideAnchors } from './layout-effects'
+import { compactHullSeats, shortMapHeight, type Rect } from './placement'
 import { makePresence } from './presence'
 
 const shipById = new Map(shipTypes.map((ship) => [ship.id, ship]))
@@ -111,6 +112,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   const anchors = sideAnchors(order, width, height, populations)
   const anchorOrder = [...anchors.keys()].join(',')
   const compact = height < 420
+  const shortMap = height < shortMapHeight
   // Match the compact controls breakpoint. Use the longer axis for the two fleets.
   const split: 'x' | 'y' | null = width <= 430 && order.length === 2 ? (width >= height ? 'x' : 'y') : null
   // Give the fleet with more required names a little extra space.
@@ -121,15 +123,14 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   const topReserve = Math.max(split ? compactTop : 42, topInset)
   const bottomInset = pilots.some(({ entity }) => entity.side === -1) ? 41 : 0
   const largestInset = (compact ? 12 : 15) + 5
-  // Leave room for several ship rows when controls and the unassigned row
-  // would otherwise consume the map. Compress the reserves along with the hulls.
+  // Compress the layout clearances when the map cannot fit its usual spacing.
   const fleetHeight = 6 * largestInset
-  const heightScale = Math.min(1, height / (topReserve + Math.max(bottomInset, 20) + fleetHeight))
-  const top = topReserve * heightScale
-  const confineDuringSettling = Boolean(split) || heightScale < 1
+  const spacingScale = Math.min(1, height / (topReserve + Math.max(bottomInset, 20) + fleetHeight))
+  const top = topReserve * spacingScale
+  const confineDuringSettling = Boolean(split) || spacingScale < 1
   // Allocate more of the space lost to wrapped controls to the fleet with fewer names.
   const upperFleetShare = 0.5 + Math.sign(logBalance) * 0.35
-  const verticalDivider = height * splitRatio + Math.max(0, topInset - compactTop) * upperFleetShare * heightScale
+  const verticalDivider = height * splitRatio + Math.max(0, topInset - compactTop) * upperFleetShare * spacingScale
   if (split === 'x') {
     anchors.get(order[0]!)!.x = width * 0.28
     anchors.get(order[1]!)!.x = width * 0.84
@@ -142,13 +143,13 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     const anchor = anchors.get(side) ?? anchors.get(-1)!
     const angle = index * Math.PI * (3 - Math.sqrt(5))
     const spread = Math.sqrt(index + 1) * 7
-    const radius = hasLog ? (split ? 9 : compact ? 12 : 15) : pilot.primaryEnemy ? (compact ? 11 : 13) : (split ? 6 : compact ? 8 : 9)
+    const radius = hasLog ? (compact ? 12 : 15) : pilot.primaryEnemy ? (compact ? 11 : 13) : (compact ? 8 : 9)
     return {
       ...pilot,
       ordinal: index,
       x: anchor.x + Math.cos(angle) * spread,
-      y: anchor.y + Math.sin(angle) * spread * heightScale,
-      radius: radius * heightScale,
+      y: anchor.y + Math.sin(angle) * spread * spacingScale,
+      radius,
       labeled: hasLog || (!compact && pilot.primaryEnemy),
     }
   })
@@ -156,7 +157,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   const assigned = nodes.filter(({ entity }) => entity.side !== -1)
   let activeNodes: ReplayNode[] = []
   const placed = new Set<EntityKey>()
-  const unassigned = nodes.filter(({ entity }) => entity.side === -1).map((node) => ({ node, radius: node.radius }))
+  const unassigned = nodes.filter(({ entity }) => entity.side === -1)
   const anchorFor = ({ entity }: ReplayNode) => anchors.get(entity.side) ?? anchors.get(-1)!
 
   function confine(node: ReplayNode, x: number, y: number) {
@@ -166,7 +167,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     const maxX = split === 'x' && ours ? width * splitRatio - inset : width - inset
     const ceiling = split === 'y' && !ours ? Math.max(verticalDivider, top) : top
     const minY = ceiling + inset
-    const floor = height - inset - Math.max(bottomInset, node.labeled ? 20 : 8) * heightScale
+    const floor = height - inset - Math.max(bottomInset, node.labeled ? 20 : 8) * spacingScale
     const maxY = split === 'y' && ours ? Math.min(floor, verticalDivider - inset) : floor
     return { x: Math.max(minX, Math.min(maxX, x)), y: Math.max(minY, Math.min(maxY, y)) }
   }
@@ -182,7 +183,7 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     .force('y', forceY<ReplayNode>((node) => anchorFor(node).y).strength(split === 'y' || order.length >= 3 ? 0.10 : 0.025))
     .force('collide', forceCollide<ReplayNode>(({ radius, labeled, entity }) => {
       const margin = split ? (entity.hasLog ? 6 : smallShipMargin) : labeled ? 26 : 8
-      return radius + margin * heightScale
+      return radius + margin * spacingScale
     }).strength(0.9))
     .force('charge', forceManyBody().strength(split ? -80 : -30).distanceMax(160))
     .force('link', links)
@@ -196,9 +197,58 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
     .alphaDecay(0.032)
     .velocityDecay(velocityDecay)
 
-  function placeVisible(visible: ReadonlySet<EntityKey>, live: readonly ReplayEdge[]) {
-    const next = assigned.filter(({ entity }) => visible.has(entity.key))
-    if (next.length === activeNodes.length && next.every((node, index) => node === activeNodes[index])) return false
+  let compactChrome: readonly Rect[] | undefined
+  function placeCompact(next: ReplayNode[], chrome: readonly Rect[]) {
+    compactChrome = chrome
+    activeNodes = next
+    if (!next.length) return true
+    const radius = Math.max(...next.map((node) => node.radius + 2))
+    const seats = compactHullSeats(width, height, radius, next.length, chrome)
+    const free = new Set(seats)
+    const entrants = next.filter((node) => {
+      if (!placed.has(node.entity.key)) return true
+      const retained = seats.find((seat) => seat.x === node.x && seat.y === node.y)
+      return !retained || !free.delete(retained)
+    })
+    for (const node of entrants) {
+      const anchor = anchorFor(node)
+      let nearest = seats[0]!
+      let distance = Infinity
+      for (const seat of free) {
+        const score = (seat.x - anchor.x) ** 2 + (seat.y - anchor.y) ** 2
+        if (score >= distance) continue
+        nearest = seat
+        distance = score
+      }
+      free.delete(nearest)
+      Object.assign(node, nearest)
+      placed.add(node.entity.key)
+    }
+    return true
+  }
+
+  function clearCoveredCenter(node: ReplayNode) {
+    const neighbors = activeNodes.filter((other) => other !== node)
+    const coversCenter = neighbors.some((other) => Math.hypot(node.x - other.x, node.y - other.y)
+      < Math.max(node.radius, other.radius) + 2)
+    if (!coversCenter) return
+    // The final boundary clamp can put two hulls together. Move only the entrant whose center is affected.
+    for (let distance = 4; distance <= 32; distance += 4) {
+      for (let direction = 0; direction < 8; direction++) {
+        const angle = direction * Math.PI / 4
+        const point = confine(node, node.x + Math.cos(angle) * distance, node.y + Math.sin(angle) * distance)
+        if (neighbors.some((other) => Math.hypot(point.x - other.x, point.y - other.y) < node.radius + other.radius + 4)) continue
+        Object.assign(node, point)
+        return
+      }
+    }
+  }
+
+  function placeVisible(visible: ReadonlySet<EntityKey>, live: readonly ReplayEdge[], chrome: readonly Rect[] = []) {
+    const next = (shortMap ? nodes : assigned).filter(({ entity }) => visible.has(entity.key))
+    const unchanged = next.length === activeNodes.length && next.every((node, index) => node === activeNodes[index])
+    if (shortMap) return (!unchanged || chrome !== compactChrome) && placeCompact(next, chrome)
+    if (unchanged) return false
 
     const survivors = new Set(activeNodes)
     // The first batch after an analysis rebuild keeps coordinates from the previous scene.
@@ -239,13 +289,15 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
       node.vx = node.vy = 0
       placed.add(node.entity.key)
     }
+    if (!split) for (const node of entrants) clearCoveredCenter(node)
     return true
   }
 
   const rowWidth = Math.max(0, width - 12)
-  const slotSize = 2 * Math.max(0, ...unassigned.map(({ radius }) => radius)) + 10
-  const defaultSlots = Math.max(1, Math.floor(rowWidth / slotSize))
-  const row = { seats: new Map<EntityKey, number>(), slots: defaultSlots }
+  const seatRadius = Math.max(0, ...unassigned.map(({ radius }) => radius + 2))
+  const slotSize = seatRadius * 2 + 6
+  const columns = Math.max(1, Math.floor(rowWidth / slotSize))
+  const row = { seats: new Map<EntityKey, number>(), slots: columns }
 
   function inheritPositions(previous: LayoutPositions) {
     let ordinal = 1 + Math.max(-1, ...Array.from(previous.byKey.values(), (node) => node.ordinal))
@@ -265,41 +317,37 @@ export function makeLayout(pilots: readonly ReplayPilot[], order: readonly numbe
   }
 
   function placeUnassigned(visible: ReadonlySet<EntityKey>) {
-    const seated = unassigned.filter(({ node }) => visible.has(node.entity.key))
+    if (shortMap) return
+    const seated = unassigned.filter(({ entity }) => visible.has(entity.key))
     const { seats } = row
     for (const key of seats.keys()) if (!visible.has(key)) seats.delete(key)
     if (!seated.length) {
-      row.slots = defaultSlots
+      row.slots = columns
       return
     }
-    // Each occupied center becomes the middle of three finer slots, so it does not move.
-    while (seated.length > row.slots) {
-      row.slots *= 3
-      for (const [key, slot] of seats) seats.set(key, 3 * slot + 1)
-    }
-    const slots = row.slots
-    const newcomers = seated.filter(({ node }) => !seats.has(node.entity.key))
+    row.slots = Math.max(row.slots, Math.ceil(seated.length / columns) * columns)
+    const newcomers = seated.filter(({ entity }) => !seats.has(entity.key))
     if (newcomers.length) {
       const taken = new Set(seats.values())
-      const center = (slots - 1) / 2
-      const free = Array.from({ length: slots }, (_, slot) => slot)
+      const center = (columns - 1) / 2
+      const free = Array.from({ length: row.slots }, (_, slot) => slot)
         .filter((slot) => !taken.has(slot))
-        .sort((a, b) => Math.abs(a - center) - Math.abs(b - center))
+        .sort((a, b) => Math.floor(a / columns) - Math.floor(b / columns)
+          || Math.abs(a % columns - center) - Math.abs(b % columns - center))
         .slice(0, newcomers.length)
         .sort((a, b) => a - b)
-      newcomers.forEach(({ node }, index) => seats.set(node.entity.key, free[index]!))
+      newcomers.forEach(({ entity }, index) => seats.set(entity.key, free[index]!))
     }
 
-    const step = rowWidth / slots
-    const seatScale = Math.min(1, step / slotSize)
-    for (const { node, radius } of seated) {
-      node.radius = Math.max(0, (radius + 2) * seatScale - 2)
-      node.x = (width - rowWidth) / 2 + (seats.get(node.entity.key)! + 0.5) * step
-      node.y = height - Math.max(node.radius + 5, 25 * heightScale)
+    const step = rowWidth / columns
+    for (const node of seated) {
+      const seat = seats.get(node.entity.key)!
+      node.x = (width - rowWidth) / 2 + (seat % columns + 0.5) * step
+      node.y = Math.max(seatRadius, height - Math.max(seatRadius + 3, 25 * spacingScale) - Math.floor(seat / columns) * slotSize)
     }
   }
 
-  return { nodes, byKey, row, placed, width, height, topInset, split, ours: order[0], anchorOrder, placeVisible, placeUnassigned, inheritPositions }
+  return { nodes, byKey, row, placed, width, height, topInset, split, shortMap, ours: order[0], anchorOrder, placeVisible, placeUnassigned, inheritPositions }
 }
 
 export type ReplayLayout = ReturnType<typeof makeLayout>

@@ -279,7 +279,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       }
 
       const live = painter.liveEdges(scene.edges, t)
-      const pilotsChanged = layout.placeVisible(present, live)
+      const pilotsChanged = layout.placeVisible(present, live, overlayRects)
       layout.placeUnassigned(present)
       const { related, positions, bounds, misses, modules, drawModuleNames, animating, burst } = painter.paint(
         layout, live, scene.pointSpans, present, { ...current, t, reducedMotion, pausedElapsed }, width, height, camera,
@@ -290,7 +290,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       const focusTargets: ReplayFocusTarget[] = []
       const previouslyFocused = document.activeElement
       for (const node of layout.nodes) {
-        const { key, side } = node.entity
+        const { key } = node.entity
         const marker = markers.current.get(key)
         if (!marker) continue
         const position = positions.get(node)
@@ -321,7 +321,6 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
           marker.style.transform = `translate(${x}px, ${y}px)`
           markerPositions.set(marker, position)
         }
-        if (side === -1) marker.style.setProperty('--replay-diameter', `${node.radius * 2}px`)
         marker.toggleAttribute('data-dead', lastLoss !== undefined)
         marker.toggleAttribute('data-dim', !keep)
         if (lastLoss && burst?.(position, node.radius, t - lastLoss.t + pausedElapsed)) bursting = true
@@ -375,7 +374,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         // Keep compact overview labels out of the other fleet. The empty space
         // between fleets can hold labels from either side.
         const showAll = camera.scale >= allNamesZoom
-        const labelFrame = showAll ? { ...bounds, y: 0, height: bounds.y + bounds.height } : bounds
+        const labelFrame = showAll || layout.shortMap ? { ...bounds, y: 0, height: bounds.y + bounds.height } : bounds
         const split = camera.scale === 1 ? layout.split : null
         const span = split === 'x' ? 'width' : 'height'
         const min = split ? bounds[split] : 0
@@ -481,6 +480,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
   </div>
   return (
     <div ref={host} className="replay-stage" data-zoomed={camera.scale > 1 || undefined}
+      data-short-map={layout?.shortMap || undefined}
       data-all-names={camera.scale >= allNamesZoom || undefined} {...handlers}
       onPointerMove={movePointer} onPointerLeave={() => { pointer.current = null; updateEffectTooltip(width) }}>
       <canvas ref={under} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer" aria-hidden="true" />

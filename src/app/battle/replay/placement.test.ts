@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EntityKey } from '@/core/contract'
-import { placeFightsWindow, placePilotLabel, placeReplayLabels, placeReplayPopover } from './placement'
+import { placeFightsWindow, placePilotLabel, placeReplayLabels, placeReplayPopover, placeShortMapWindow } from './placement'
 import { makeLayout, type ReplayPilot } from './scene'
 
 function pilot(key: EntityKey, side: number): ReplayPilot {
@@ -27,6 +27,40 @@ it('uses the clear space between fleets if all three fight window corners cover 
   const window = placeFightsWindow(stage, 36, 80, size, pilots)
   expect(window.x).toBeGreaterThanOrEqual(158)
   expect(window.x + window.width).toBeLessThanOrEqual(650)
+})
+
+it('clamps a saved overlay below the short map without changing its stored rectangle', () => {
+  const saved = { x: 133, y: 90, width: 336, height: 540 }
+  expect(placeShortMapWindow(saved, 156, 680)).toEqual({ ...saved, y: 156, height: 524 })
+  expect(saved).toEqual({ x: 133, y: 90, width: 336, height: 540 })
+  const below = { ...saved, y: 249, height: 164 }
+  expect(placeShortMapWindow(below, 156, 680)).toEqual(below)
+})
+
+it('packs full-size hulls around the replay controls in a short map', () => {
+  const pilots = Array.from({ length: 49 }, (_, index) => pilot(`char:${index}`, index < 23 ? 0 : 1))
+  for (const ship of pilots.slice(0, 23)) ship.entity.hasLog = true
+  const layout = makeLayout(pilots, [0, 1], 882, 79, 62)
+  const chrome = [
+    { x: 24, y: 12, width: 115, height: 16 }, { x: 661, y: 12, width: 197, height: 16 },
+    { x: 24, y: 36, width: 226, height: 26 }, { x: 745, y: 45, width: 129, height: 26 },
+  ]
+  layout.placeVisible(new Set(pilots.map(({ entity }) => entity.key)), [], chrome)
+  for (const [i, ship] of layout.nodes.entries()) {
+    const ring = ship.radius + 2
+    expect(ship.radius).toBe(i < 23 ? 12 : 8)
+    expect(ship.x - ring).toBeGreaterThanOrEqual(0)
+    expect(ship.x + ring).toBeLessThanOrEqual(882)
+    expect(ship.y - ring).toBeGreaterThanOrEqual(0)
+    expect(ship.y + ring).toBeLessThanOrEqual(79)
+    for (const obstacle of chrome) {
+      expect(ship.x >= obstacle.x && ship.x <= obstacle.x + obstacle.width
+        && ship.y >= obstacle.y && ship.y <= obstacle.y + obstacle.height).toBe(false)
+    }
+    for (const other of layout.nodes.slice(0, i)) {
+      expect(Math.hypot(ship.x - other.x, ship.y - other.y)).toBeGreaterThanOrEqual(ring + other.radius + 2)
+    }
+  }
 })
 
 it('keeps the pilot hull below the measured replay control inset', () => {
@@ -87,6 +121,17 @@ describe('pilot label placement', () => {
     const rect = placement.get(required)!
     expect(rect.width).toBe(size.width)
     expect(rect.y + rect.height).toBeLessThanOrEqual(overlay.y)
+  })
+
+  it('keeps a required name near its ship when full hull clearance would place it far away', () => {
+    const stage = { x: 0, y: 0, width: 200, height: 100 }
+    const hulls = { ...stage, width: 130 }
+    const control = { x: 0, y: 0, width: 80, height: 32 }
+    const required = { center: { x: 45, y: 45 }, radius: 12, size,
+      bounds: stage, priority: 2, uploader: true, required: true }
+    const rect = placeReplayLabels([required], [hulls, control], stage, false, { bounds: stage, obstacles: [control] }).get(required)!
+    expect(rect.x).toBeLessThanOrEqual(85)
+    expect(rect.y).toBeGreaterThanOrEqual(34)
   })
 })
 
@@ -150,17 +195,20 @@ describe('unassigned replay row', () => {
     initial.forEach((x, index) => expect(layout.nodes[index]!.x).toBeCloseTo(x))
   })
 
-  it('fits a crowded row into the stage without overlapping the ship rings', () => {
+  it('adds seats above a full row without shrinking or overlapping the ship rings', () => {
     const pilots = Array.from({ length: 12 }, (_, index) => pilot(`char:${index}`, -1))
     const layout = makeLayout(pilots, [], 180, 300)
     layout.placeUnassigned(new Set(pilots.map(({ entity }) => entity.key)))
     const visible = layout.nodes
     expect(visible).toHaveLength(12)
-    expect(visible[0]!.x - visible[0]!.radius - 2).toBeGreaterThan(0)
-    expect(visible.at(-1)!.x + visible.at(-1)!.radius + 2).toBeLessThan(180)
-    for (const [index, node] of visible.slice(1).entries()) {
-      const previous = visible[index]!
-      expect(node.x - previous.x).toBeGreaterThanOrEqual(node.radius + previous.radius + 4)
+    for (const [index, node] of visible.entries()) {
+      expect(node.radius).toBe(8)
+      expect(node.x - node.radius - 2).toBeGreaterThan(0)
+      expect(node.x + node.radius + 2).toBeLessThan(180)
+      for (const previous of visible.slice(0, index)) {
+        expect(Math.hypot(node.x - previous.x, node.y - previous.y))
+          .toBeGreaterThanOrEqual(node.radius + previous.radius + 4)
+      }
     }
   })
 })

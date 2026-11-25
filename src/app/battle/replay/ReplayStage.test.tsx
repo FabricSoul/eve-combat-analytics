@@ -309,24 +309,29 @@ it('contains hulls and keeps all required names at the 900 × 680 minimum stage'
 
   const uploaders = [...host.querySelectorAll('.replay-marker[data-present] [data-log="true"]')]
   expect(uploaders).toHaveLength(17)
-  expect(uploaders.every((pilot) =>
-    parseFloat(pilot.parentElement!.style.getPropertyValue('--replay-diameter')) < 24,
-  )).toBe(true)
+  expect(uploaders.map((pilot) => parseFloat(pilot.parentElement!.style.getPropertyValue('--replay-diameter'))))
+    .toEqual(Array(17).fill(24))
   expect(host.querySelector(`[data-pilot-label="${hovered}"][data-inspected="true"]`)).not.toBeNull()
   const required = [...uploaders.map((pilot) => pilot.parentElement!.dataset.pilotKey), selected, hovered]
   expect(required.filter((key) => !host.querySelector(`[data-pilot-label="${key}"][data-positioned]`))).toEqual([])
 
   const markers = [...host.querySelectorAll<HTMLElement>('.replay-marker[data-present]')]
-  expect(markers.length).toBeGreaterThan(uploaders.length)
-  const clipped = markers.filter((marker) => {
+  expect(markers).toHaveLength(52)
+  const hulls = markers.map((marker) => {
     const [, left, top] = /^translate\((.+)px, (.+)px\)$/.exec(marker.style.transform)!
     const x = Number(left)
     const y = Number(top)
     // The centered hull button has a 4 px ring allowance in replay.css.
     const ringRadius = parseFloat(marker.style.getPropertyValue('--replay-diameter')) / 2 + 2
-    return x - ringRadius < 0 || x + ringRadius > width || y - ringRadius < 0 || y + ringRadius > height
+    return { x, y, ringRadius, key: marker.dataset.pilotKey }
   })
-  expect(clipped.map((marker) => marker.dataset.pilotKey)).toEqual([])
+  const clipped = hulls.filter(({ x, y, ringRadius }) =>
+    x - ringRadius < 0 || x + ringRadius > width || y - ringRadius < 0 || y + ringRadius > height)
+  expect(clipped.map(({ key }) => key)).toEqual([])
+  const overlapping = hulls.flatMap((a, index) => hulls.slice(index + 1).filter((b) =>
+    Math.hypot(a.x - b.x, a.y - b.y) < a.ringRadius + b.ringRadius,
+  ).map((b) => [a.key, b.key]))
+  expect(overlapping).toEqual([])
 })
 
 it('keeps paused nodes still and keeps them still during quiet playback', async () => {
