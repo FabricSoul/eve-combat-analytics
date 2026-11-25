@@ -25,13 +25,12 @@ const events = [
   ...shots('char:1', 'char:3', 10, { quality: 'none' }),
   ...shots('char:3', 'char:1', 24, { weapon: 'Imperial Navy Curator' }),
   ...shots('char:3', 'char:1', 6, { kind: 'miss', quality: null, amount: 0, weapon: 'Imperial Navy Curator' }),
-  ...shots('char:3', 'char:2', 99),
   ...shots('char:4', 'char:1', 31, { t: 61_000, amount: 3, quality: 'Hits', weapon: 'Caldari Navy Mjolnir Rocket' }),
   ...shots('char:5', 'char:2', 100),
   ...shots('char:6', 'char:1', 29),
 ]
 
-it('aggregates graded hits, explicit misses, allied and observed enemy shots and per-minute/class totals', () => {
+it('aggregates graded hits, explicit misses, and per-minute and weapon class totals across sides', () => {
   const data = aggregateHits(entities, events, uploaders, 0)
   expect(data.sides.get(0)).toMatchObject({ shots: 30, hits: 24, damage: 2400, misses: 6, hitQuality: { Wrecks: 24 } })
   expect(data.sides.get(1)).toMatchObject({ shots: 161, hits: 155, damage: 12493, misses: 6 })
@@ -61,6 +60,21 @@ it('uses inclusive range bounds and recomputes sample eligibility', () => {
   expect(rankPilots(data.pilots.values(), 'hitRate').ranked.map(({ pilot }) => pilot.entity.key)).toEqual(['char:4'])
 })
 
+it('counts shots from uploaders on both sides and counts a corroborated interaction once', () => {
+  const seen = [
+    ...shots('char:3', 'char:1', 1, {
+      sources: [{ logId: 'first', line: 1 }, { logId: 'second', line: 2 }], corroborated: true,
+    }),
+    ...shots('char:3', 'char:5', 1, {
+      quality: 'none', sources: [{ logId: 'third', line: 3 }],
+    }),
+  ]
+  for (const side of [0, 1, 2]) {
+    expect(aggregateHits(entities, seen, uploaders, side).pilots.get('char:3'))
+      .toMatchObject({ shots: 1, hits: 1, ungraded: 1 })
+  }
+})
+
 it('finds shots on both sides of J125990 and reconciles checked samples with raw uploader counters', async () => {
   const { statsForRange } = await import('@/core/analysis/range')
   const { analysis, summary } = loadUiFixture()
@@ -87,8 +101,8 @@ it('keeps ungraded damage and generic smartbomb and breacher Hits out of rate, r
     ...shots('char:1', 'char:3', 3),
     ...shots('char:1', 'char:3', 1, { kind: 'miss', amount: 0, quality: null }),
     ...shots('char:1', 'char:3', 4, { weapon: 'Uncatalogued effect', quality: 'none' }),
-    ...shots('char:2', 'char:3', 35, { weapon: 'Federation Navy Large Plasma Smartbomb', quality: 'Hits' }),
-    ...shots('char:2', 'char:3', 1, { weapon: 'Federation Navy Large Plasma Smartbomb', quality: 'none' }),
+    ...shots('char:2', 'char:5', 35, { weapon: 'Federation Navy Large Plasma Smartbomb', quality: 'Hits' }),
+    ...shots('char:2', 'char:5', 1, { weapon: 'Federation Navy Large Plasma Smartbomb', quality: 'none' }),
     ...shots('char:3', 'char:1', 74, { weapon: 'Medium Breacher Pod Launcher', quality: 'Hits' }),
   ], uploaders, 0)
   const ours = data.sides.get(0)!

@@ -15,44 +15,60 @@ import { PersonDrawer } from '../PersonDrawer'
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-it('keeps a logged pilot’s hit sample and rate in Hits, Compare and the drawer when 我方 has no uploads', async () => {
+it('keeps observed and uploaded hit samples in Hits, Compare and the drawer for every 我方 side', async () => {
   const { module } = await runnerImport<{ realBattleStateWithBr(): BattleState }>(
     resolve('fixtures/real/j125990-20250622/load.ts'), { configFile: false },
   )
   const analysis = analyze(module.realBattleStateWithBr())
   const battle = { summary: loadUiFixture().summary, analysis }
-  const key = 'char:2121605780' // Blanchard2213
-  const ownSide = analysis.entities[key]!.side
-  const emptySide = analysis.coverage.find(({ side, withLog }) => side >= 0 && side !== ownSide && withLog === 0)!.side
+  const ownSide = analysis.entities['char:2121605780']!.side
+  const sides = battle.summary.meta.teams.map((_, side) => side)
+  const emptySide = analysis.coverage.find(({ side, withLog }) => sides.includes(side) && withLog === 0)!.side
+  const samples = [
+    { key: 'char:2116097640', name: 'Dwell nowhere', shots: 1, count: '1 发', rate: '100%' },
+    { key: 'char:1099648393', name: 'Neomen', shots: 123, count: '123 发', rate: '95%' },
+    { key: 'char:2121605780', name: 'Blanchard2213', shots: 1854, count: '1,854 发', rate: '90%' },
+  ] as const
   const host = document.createElement('div')
   const root = createRoot(host)
   function Harness() {
     const { setOursSide } = useView()
-    return <><button id="empty-side" onClick={() => setOursSide(emptySide)}>Switch side</button>
+    return <>{sides.map((side) => <button key={side} data-side={side} onClick={() => setOursSide(side)}>Switch side</button>)}
       <HitAnalysis /><CompareTable /><PersonDrawer /></>
   }
   try {
     act(() => root.render(<BattleProvider static={battle}><ViewProvider defaultSide={ownSide} syncUrl={false}><Harness /></ViewProvider></BattleProvider>))
-    const hitRow = () => host.querySelector<HTMLTableRowElement>(`.hit-analysis tr[data-pilot-key="${key}"]`)
-    const compareRow = host.querySelector(`.u7-compare tr[data-pilot-key="${key}"]`)!
-    act(() => hitRow()!.querySelector<HTMLButtonElement>('th button')!.click())
-    const readSample = () => {
-      const drawer = host.querySelector('.u7-person [data-hit-metric="hitRate"]')
-      const distribution = compareRow.querySelector('[data-metric="hitQuality"] [role="img"]')?.getAttribute('aria-label') ?? ''
-      const compareShots = [...distribution.matchAll(/ ([\d,]+)（/g)]
-        .reduce((shots, [, count]) => shots + Number(count!.replaceAll(',', '')), 0)
-      return {
-        hits: [hitRow()?.cells[0]?.textContent?.split(' · ')[1], hitRow()?.cells[2]?.textContent],
-        compare: [compareShots, compareRow.querySelector('[data-metric="hitRate"] .app-number')?.textContent],
-        drawer: [drawer?.querySelector('dd:last-child .app-number')?.textContent?.split(' · ')[1],
-          drawer?.querySelector('dt .app-number')?.textContent],
+    const hitRow = (key: string) => host.querySelector<HTMLTableRowElement>(`.hit-analysis tr[data-pilot-key="${key}"]`)
+    for (const side of [ownSide, ...sides.filter((side) => side !== ownSide)]) {
+      act(() => host.querySelector<HTMLButtonElement>(`button[data-side="${side}"]`)!.click())
+      for (const { key, name, shots, count, rate } of samples) {
+        const ranked = hitRow(key)
+        const insufficient = host.querySelector(`.hit-analysis .hit-insufficient li[data-pilot-key="${key}"]`)
+        const compare = host.querySelector(`.u7-compare tr[data-pilot-key="${key}"]`)!
+        act(() => (ranked ?? insufficient)!.querySelector<HTMLButtonElement>('.hit-pilot-name')!.click())
+        const drawer = host.querySelector('.u7-person')!
+        const drawerRank = drawer.querySelector('[data-hit-metric="hitRate"]')
+        const drawerRate = [...drawer.querySelectorAll('.u7-stat-tile')].find((tile) => tile.querySelector('h3')?.textContent === '命中率')
+        const distribution = compare.querySelector('[data-metric="hitQuality"] [role="img"]')?.getAttribute('aria-label') ?? ''
+        const compareShots = [...distribution.matchAll(/ ([\d,]+)（/g)]
+          .reduce((total, [, value]) => total + Number(value!.replaceAll(',', '')), 0)
+        expect.soft({
+          hits: [ranked?.cells[0]?.textContent?.split(' · ')[1] ?? insufficient?.querySelector('.app-number')?.textContent,
+            ranked?.cells[2]?.textContent ?? insufficient?.querySelector('.hit-insufficient-coverage span:last-child .app-number')?.textContent],
+          compare: [compareShots, compare.querySelector('[data-metric="hitRate"] .app-number')?.textContent],
+          drawer: [drawerRank?.querySelector('dd:last-child .app-number')?.textContent?.split(' · ')[1]
+            ?? drawer.querySelector('.hit-secondary .app-number')?.textContent, drawerRate?.querySelector('.app-number')?.textContent],
+        }, `${name} with 我方 side ${side}`).toEqual({
+          hits: [count, rate], compare: [shots, rate], drawer: [count, rate],
+        })
+        if (name === 'Dwell nowhere') {
+          expect.soft(insufficient?.querySelector('.hit-ungraded .app-number')?.textContent).toBe('1,362')
+          expect.soft(drawer.querySelector('.hit-ungraded .app-number')?.textContent).toBe('1,362')
+        }
       }
     }
-    const expected = { hits: ['1,854 发', '90%'], compare: [1854, '90%'], drawer: ['1,854 发', '90%'] }
-    expect(readSample()).toEqual(expected)
-    act(() => host.querySelector<HTMLButtonElement>('#empty-side')!.click())
-    expect(readSample()).toEqual(expected)
-    expect.soft(hitRow()!.querySelector('th small')?.textContent).not.toContain('据他人日志')
+    act(() => host.querySelector<HTMLButtonElement>(`button[data-side="${emptySide}"]`)!.click())
+    expect.soft(hitRow('char:2121605780')!.querySelector('th small')?.textContent).not.toContain('据他人日志')
     const observed = host.querySelector('.hit-analysis tr[data-pilot-key="char:2120391968"] th small') // Kohera Hakomairos
     expect.soft(observed?.textContent).toContain('我方 · 据他人日志')
     const headers = [...host.querySelectorAll('.hit-card h3')].map((header) => header.textContent.trim())
