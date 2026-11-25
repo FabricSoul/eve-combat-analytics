@@ -2,7 +2,7 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Analysis, BattleSummary, Interaction } from '@/core/contract'
-import { api } from '../../api/client'
+import { api, type BattleSnapshot } from '../../api/client'
 import { BattleUndo } from '../undo'
 import { Roster } from '../Roster'
 import { useView } from '../../state/view-store'
@@ -157,9 +157,9 @@ describe('IdentityPicker', () => {
     let finish!: () => void
     const put = vi.spyOn(api, 'putIdentity')
       .mockReturnValueOnce(new Promise((resolve) => {
-        finish = () => resolve({ from: 'name:Hidden', to: 'char:2', setAt: 1, previous: null, previousTag: null, etag: '"merged"' })
+        finish = () => resolve({ from: 'name:Hidden', to: 'char:2', setAt: 1, previous: null, previousTag: null, revision: '"merged"' })
       }))
-      .mockResolvedValue({ removed: 'name:Hidden', etag: '"restored"' })
+      .mockResolvedValue({ removed: 'name:Hidden', revision: '"restored"' })
     mounted = mountApp(createElement(BattleUndo, null, createElement(Roster)), { summary: tinySummary, analysis })
     act(() => row('Hidden').querySelector<HTMLButtonElement>('.roster-more')!.click())
     act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === '这是谁…')!.click())
@@ -189,9 +189,9 @@ describe('IdentityPicker', () => {
     const from = 'name:Hidden'
     const merge = { from, to: 'char:2', setAt: 1 } as const
     const put = vi.spyOn(api, 'putIdentity')
-      .mockResolvedValueOnce({ ...merge, previous: null, previousTag: null, etag: '"merged"' })
-      .mockResolvedValueOnce({ removed: from, previous: merge, previousTag: '"merged"', etag: '"unmerged"' })
-      .mockResolvedValueOnce({ removed: from, etag: '"restored"' })
+      .mockResolvedValueOnce({ ...merge, previous: null, previousTag: null, revision: '"merged"' })
+      .mockResolvedValueOnce({ removed: from, previous: merge, previousTag: '"merged"', revision: '"unmerged"' })
+      .mockResolvedValueOnce({ removed: from, revision: '"restored"' })
     mounted = mountApp(createElement(BattleUndo, null, createElement(Roster)), { summary: tinySummary, analysis })
     act(() => row('Hidden').querySelector<HTMLButtonElement>('.roster-more')!.click())
     act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === '这是谁…')!.click())
@@ -206,6 +206,34 @@ describe('IdentityPicker', () => {
     expect(document.querySelector('[data-battle-toast]')?.textContent).toBe('撤销了 2 次修改')
     expect(undos()).toHaveLength(0)
     expect(row('Pilot2').querySelector('.app-tag')).toBeNull()
+  })
+
+  it('ends identity undo on a newer removal of its source while ignoring other sources', async () => {
+    const from = 'name:Hidden'
+    const merge = { from, to: 'char:2', setAt: 1 } as const
+    const put = vi.spyOn(api, 'putIdentity').mockResolvedValueOnce({
+      ...merge, previous: null, previousTag: null, revision: '"merged"', sequence: 2,
+    })
+    const roster = createElement(BattleUndo, null, createElement(Roster))
+    mounted = mountApp(roster, { summary: tinySummary, analysis })
+    act(() => row('Hidden').querySelector<HTMLButtonElement>('.roster-more')!.click())
+    act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === '这是谁…')!.click())
+    await act(async () => picker()!.querySelector<HTMLButtonElement>('[data-suggestion]')!.click())
+    const before: BattleSnapshot = { ...tinySummary, identityMerges: [merge], editRevisions: [
+      { target: `identity:${from}`, revision: '"merged"', sequence: 2 },
+      { target: 'identity:name:Other', revision: '"other"', sequence: 3 },
+    ] }
+    mounted.rerender(roster, { analysis, summary: before })
+    expect(document.querySelector('[data-battle-toast] button')).not.toBeNull()
+
+    const after: BattleSnapshot = {
+      ...tinySummary, identityMerges: [],
+      editRevisions: [{ target: `identity:${from}`, revision: '"removed"', sequence: 4 }],
+    }
+    mounted.rerender(roster, { analysis, summary: after })
+    expect(document.querySelector('[data-battle-toast]')?.textContent).toBe('身份合并已被其他编辑更改，无法撤销')
+    expect(document.querySelector('[data-battle-toast] button')).toBeNull()
+    expect(put).toHaveBeenCalledTimes(1)
   })
 
   it('labels a merged character with its merge time and keeps undo in the pilot menu', async () => {

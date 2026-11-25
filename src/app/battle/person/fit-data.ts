@@ -1,7 +1,7 @@
 import { createContext } from 'react'
 import type { BattleSummary, EntityKey, Interaction } from '@/core/contract'
 import { computeFitStats } from '@/fit/client'
-import { api, type VersionedFit } from '../../api/client'
+import { api, normalizeRevision, type VersionedFit } from '../../api/client'
 
 export interface FitCatalog {
   itemId(name: string): number | null
@@ -50,7 +50,7 @@ export function pilotFit(summary: BattleSummary, charId: number): VersionedFit |
 }
 
 export function isSameFit(left: VersionedFit | undefined, right: VersionedFit | undefined): boolean {
-  if (left?.etag && right?.etag) return left.etag === right.etag
+  if (left?.revision && right?.revision) return normalizeRevision(left.revision) === normalizeRevision(right.revision)
   if (!left || !right || left.charId !== right.charId || left.setAt !== right.setAt || left.eft !== right.eft) return false
   const leftMutated = left.mutated ?? []
   const rightMutated = right.mutated ?? []

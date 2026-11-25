@@ -84,6 +84,35 @@ it('exposes a disconnect and reconnects with the latest snapshot', async () => {
   expect(battle).toMatchObject({ live: true, reconnecting: false, summary: { fits: [fit] } })
 })
 
+it('tracks a fit removal revision separately from displayed fits and reconnects with its tombstone', async () => {
+  const fit = { charId: 42, eft: '[Ship, Fit]', setAt: 1 }
+  fetcher.mockImplementation(async (url) => url === battlePath
+    ? Response.json({ ...initialSummary, fits: [fit] })
+    : Response.json(initialAnalysis, { headers: { ETag: '"v1"' } }))
+  await mount()
+  act(() => sockets[0]!.open())
+  const target = 'fit:42'
+  const removal = { type: 'fit_removed', charId: 42, targets: [target], sequence: 8, revision: 'W/"removed"' } as const
+  act(() => sockets[0]!.message(removal))
+  expect(battle.summary?.fits).toEqual([])
+  expect(battle).toMatchObject({ editRevisions: new Map([[target, { sequence: 8, revision: '"removed"' }]]) })
+
+  act(() => sockets[0]!.close())
+  await tick(1000)
+  const state = { ...initialSummary, editRevisions: [{ target, sequence: 9, revision: '"other-removal"' }] }
+  act(() => sockets[1]!.message({ type: 'snapshot', state }))
+  expect(battle.summary?.fits).toEqual([])
+  expect(battle).toMatchObject({ editRevisions: new Map([[target, { sequence: 9, revision: '"other-removal"' }]]) })
+  expect(battle.summary).not.toHaveProperty('editRevisions')
+})
+
+it('ignores unrecognized live frames without clearing the battle', async () => {
+  fetcher.mockImplementation(async (url) => url === battlePath ? Response.json(initialSummary) : Response.json(initialAnalysis))
+  await mount()
+  act(() => sockets[0]!.message({ type: 'future_frame' } as unknown as ServerMessage))
+  expect(battle.summary).toEqual(initialSummary)
+})
+
 it('merges uploaded names by ID into the existing summary from log_added', async () => {
   const existing = { 1: { name: 'Existing character', category: 'character' } }
   const metaNames = { 1000165: { name: 'Hedion University', category: 'corporation' } }

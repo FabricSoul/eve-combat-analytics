@@ -5,6 +5,7 @@ import type {
   BattleMeta, BattleState, BattleSummary, EntityKey, FitEntry, IdentityMerge, LogEvent, NameIndex, ParsedLog, SideOverride,
   SideSubject, UploadedLog, UploadedLogSummary,
 } from '../core/contract'
+import { normalizeRevision, type EditRevision } from './http'
 
 export type StoredAffiliation = Pick<UploadedLog, 'corpId' | 'allyId'>
 export type SideAssignment = { side: number } & StoredAffiliation
@@ -16,16 +17,16 @@ type LogRow = Omit<UploadedLogSummary, keyof LogEventSummary> & {
   affiliation: string | null
 }
 type FitRow = Omit<FitEntry, 'mutated'> & { mutated: string | null; etag: string | null }
-type VersionedFit = FitEntry & { etag?: string }
+type VersionedFit = FitEntry & { revision?: string }
+type ObservedEdit = EditRevision & { target: string }
 type SideRow = { subject: SideSubject; side: number; setAt: number; position: number }
 type SideSnapshot = {
   previous: [subject: SideSubject, row: SideOverride & { position: number } | null, cursor: string | null][]
-  context: [subject: SideSubject, row: SideOverride & { position: number } | null][]
 }
 
 function readFitRow({ mutated, etag, ...fit }: FitRow): VersionedFit {
   const names: string[] | undefined = mutated === null ? undefined : JSON.parse(mutated)
-  return { ...fit, ...(names?.length ? { mutated: names } : {}), ...(etag ? { etag } : {}) }
+  return { ...fit, ...(names?.length ? { mutated: names } : {}), ...(etag ? { revision: normalizeRevision(etag) } : {}) }
 }
 export type StoredLog = UploadedLog & { unparsedCount: number }
 export type PendingLog = { id: string; nameOffset: number; events: LogEvent[] }
@@ -57,6 +58,8 @@ export function needsAnalysis(status: AnalysisStatus): boolean {
 const CHUNK_BYTES = 1024 * 1024
 const SIDE_EDIT_LIMIT = 30
 const SIDE_EDIT_WINDOW_MS = 60_000
+const RECENT_EDIT_MS = 120_000
+const RECENT_EDIT_LIMIT = 4096
 const LEGACY_FIT_MUTATIONS = "(mutated IS NULL OR mutated = '[]')"
 
 function unpackAffiliation(value: string | null): StoredAffiliation {
@@ -287,11 +290,19 @@ export class BattleStorage {
     return [...logs, ...Object.values(this.nameIndex())].flatMap((entry) => entry ? affiliationNameIds(entry) : [])
   }
 
-  summary(meta: BattleMeta): BattleSummary {
+  summary(meta: BattleMeta, now: number): BattleSummary & { editRevisions?: ObservedEdit[] } {
     const { version, uploaderSides } = this.analysisStatus()
     const analyzed = JSON.parse(uploaderSides ?? '{}') as Record<number, number>
     const logs = this.logRows().map((row) => this.summarizeLog({ ...row, side: analyzed[row.charId] ?? row.side }))
-    return { meta, logs, ...this.fitsAndNames(), sideOverrides: this.sideOverrides(), identityMerges: this.identityMerges(), analysisVersion: version }
+    const editRevisions = this.hasTable('edit_revisions')
+      ? this.sql.exec<ObservedEdit>(`SELECT target, revision, sequence FROM edit_revisions
+        WHERE changedAt > ? ORDER BY sequence DESC LIMIT ?`, now - RECENT_EDIT_MS, RECENT_EDIT_LIMIT).toArray()
+      : []
+    return {
+      meta, logs, ...this.fitsAndNames(), sideOverrides: this.sideOverrides(),
+      identityMerges: this.identityMerges(), analysisVersion: version,
+      ...(editRevisions.length ? { editRevisions } : {}),
+    }
   }
 
   async state(meta: BattleMeta): Promise<BattleState> {
@@ -324,9 +335,10 @@ export class BattleStorage {
 
   sideTags(subjects: readonly SideSubject[]): Array<string | null> {
     if (!this.hasTable('side_revisions')) return subjects.map(() => null)
-    return subjects.map((subject) => this.sql.exec<{ tag: string }>(
-      'SELECT tag FROM side_revisions WHERE subject = ?', subject,
-    ).toArray()[0]?.tag ?? null)
+    return subjects.map((subject) => {
+      const row = this.sql.exec<{ tag: string }>('SELECT tag FROM side_revisions WHERE subject = ?', subject).toArray()[0]
+      return row ? normalizeRevision(row.tag) : null
+    })
   }
 
   private sideCursor(subject: SideSubject): string | null {
@@ -335,31 +347,43 @@ export class BattleStorage {
     ).toArray()[0]?.cursor ?? null
   }
 
-  private captureSides(meta: BattleMeta, subjects: ReadonlySet<SideSubject>): SideSnapshot {
-    const rows = new Map(this.sideRows().map((row) => [row.subject, { ...row, source: 'manual' as const }]))
-    const logs = this.logRows().map((row) => this.summarizeLog(row))
-    const { affiliations } = indexSideAssignments({ meta, logs, names: this.nameIndex(), sideOverrides: [] })
-    // Keep the other candidates for every affected pilot, including absent overrides.
-    const context = new Set<SideSubject>()
-    for (const [id, { corpId, allyId }] of affiliations) {
-      const candidates: SideSubject[] = [`char:${id}`]
-      if (corpId != null) candidates.push(`corp:${corpId}`)
-      if (allyId != null) candidates.push(`ally:${allyId}`)
-      if (candidates.some((subject) => subjects.has(subject))) {
-        for (const subject of candidates) if (!subjects.has(subject)) context.add(subject)
+  sideGroupContext(meta: BattleMeta, subjects: readonly SideSubject[], current: SideOverride[]) {
+    const groups = new Set(subjects.filter((key) => !key.startsWith('char:')))
+    const related = new Map<SideSubject, Set<SideSubject>>()
+    const shadowed = new Set<SideSubject>()
+    if (groups.size) {
+      const logs = this.logRows().map((row) => this.summarizeLog(row))
+      const { affiliations, manualOverrides } = indexSideAssignments({
+        meta, logs, names: this.nameIndex(), sideOverrides: current,
+      })
+      const assigned = new Map(current.map(({ subject, side }) => [subject, side]))
+      for (const [id, { corpId, allyId }] of affiliations) {
+        if (corpId == null || allyId == null) continue
+        const corp = `corp:${corpId}` as const
+        const ally = `ally:${allyId}` as const
+        const winner = manualOverrides.get(id)
+        for (const [subject, other] of [[corp, ally], [ally, corp]] as const) {
+          if (!groups.has(subject)) continue
+          const matches = related.get(subject) ?? new Set<SideSubject>()
+          matches.add(other)
+          related.set(subject, matches)
+          if (assigned.has(subject) && winner?.subject === other && winner.side !== assigned.get(subject)) shadowed.add(subject)
+        }
       }
     }
-    return {
-      previous: [...subjects].map((subject) => [subject, rows.get(subject) ?? null, this.sideCursor(subject)]),
-      context: [...context].map((subject) => [subject, rows.get(subject) ?? null]),
-    }
+    return { related, shadowed }
+  }
+
+  private captureSides(edits: readonly SideOverride[]): SideSnapshot {
+    const rows = new Map(this.sideRows().map((row) => [row.subject, { ...row, source: 'manual' as const }]))
+    return { previous: edits.map(({ subject }) => [subject, rows.get(subject) ?? null, this.sideCursor(subject)]) }
   }
 
   private writeSideRevision(subject: SideSubject, etag: string, cursor: string | null): void {
     this.sql.exec('INSERT OR REPLACE INTO side_revisions (subject, tag, cursor) VALUES (?, ?, ?)', subject, etag, cursor)
   }
 
-  setSides(edits: readonly SideOverride[], setAt: number, etag: string, captureFor?: BattleMeta): SideOverride[] {
+  setSides(edits: readonly SideOverride[], setAt: number, etag: string, capture: boolean) {
     return this.storage.transactionSync(() => {
       if (!this.hasTable('side_edits')) {
         this.sql.exec(`
@@ -376,22 +400,22 @@ export class BattleStorage {
         CREATE TABLE side_order (last INTEGER NOT NULL);
         INSERT INTO side_order SELECT coalesce(max(id), 0) FROM side_overrides;
       `)
-      if (captureFor) {
+      if (capture) {
         this.sql.exec('CREATE TABLE IF NOT EXISTS side_undo (tag TEXT PRIMARY KEY, snapshot TEXT NOT NULL)')
-        const snapshot = this.captureSides(captureFor, new Set(edits.map(({ subject }) => subject)))
+        const snapshot = this.captureSides(edits)
         this.sql.exec('INSERT INTO side_undo (tag, snapshot) VALUES (?, ?)', etag, JSON.stringify(snapshot))
       }
       this.sql.exec('DELETE FROM side_edits WHERE setAt <= ?', setAt - SIDE_EDIT_WINDOW_MS)
       this.sql.exec('INSERT INTO side_edits (setAt) VALUES (?)', setAt)
       let { last } = this.sql.exec<{ last: number }>('SELECT last FROM side_order').one()
       for (const { subject, side } of edits) {
-        this.writeSideRevision(subject, etag, captureFor ? etag : null)
+        this.writeSideRevision(subject, etag, capture ? etag : null)
         if (side === -1) this.sql.exec('DELETE FROM side_overrides WHERE subject = ?', subject)
         else this.sql.exec('INSERT OR REPLACE INTO side_overrides (id, subject, side, setAt) VALUES (?, ?, ?, ?)', ++last, subject, side, setAt)
       }
       this.sql.exec('UPDATE side_order SET last = ?', last)
-      this.markAnalysisDirty()
-      return this.sideOverrides()
+      const stamp = this.recordEdit(edits.map(({ subject }) => `side:${subject}`), etag, setAt)
+      return { overrides: this.sideOverrides(), stamp }
     })
   }
 
@@ -400,7 +424,6 @@ export class BattleStorage {
       if (!this.hasTable('side_undo')) return
       const visited = new Map<string, { snapshot: SideSnapshot; subjects: Set<SideSubject> }>()
       const restore: SideSnapshot['previous'] = []
-      const targetSnapshots = new Set<SideSnapshot>()
       for (const [subject, through] of requested) {
         let cursor = this.sideCursor(subject)
         while (cursor) {
@@ -414,9 +437,8 @@ export class BattleStorage {
           const prior = receipt.snapshot.previous.find(([key]) => key === subject)
           if (!prior) return
           receipt.subjects.add(subject)
-          if (cursor === through) {
+          if (normalizeRevision(cursor) === normalizeRevision(through)) {
             restore.push(prior)
-            targetSnapshots.add(receipt.snapshot)
             break
           }
           cursor = prior[2]
@@ -425,11 +447,6 @@ export class BattleStorage {
       }
       // An older undo can unwind a newer batch only as a whole.
       if ([...visited.values()].some(({ snapshot, subjects }) => snapshot.previous.length !== subjects.size)) return
-      const positions = new Map(this.sideRows().map(({ subject, position }) => [subject, position]))
-      for (const { context } of targetSnapshots) {
-        if (context.some(([subject, row]) => !requested.has(subject) && positions.get(subject) !== row?.position)) return
-      }
-
       const applied = restore.map(([subject, row, cursor]): SideOverride => {
         this.writeSideRevision(subject, etag, cursor)
         if (!row) {
@@ -442,8 +459,8 @@ export class BattleStorage {
         return override
       })
       for (const tag of visited.keys()) this.sql.exec('DELETE FROM side_undo WHERE tag = ?', tag)
-      this.markAnalysisDirty()
-      return { applied, overrides: this.sideOverrides() }
+      const stamp = this.recordEdit(applied.map(({ subject }) => `side:${subject}`), etag, setAt)
+      return { applied, overrides: this.sideOverrides(), stamp }
     })
   }
 
@@ -456,10 +473,11 @@ export class BattleStorage {
 
   identityTag(from: EntityKey): string | null {
     if (!this.hasTable('identity_revisions')) return null
-    return this.sql.exec<{ tag: string }>('SELECT tag FROM identity_revisions WHERE source = ?', from).toArray()[0]?.tag ?? null
+    const row = this.sql.exec<{ tag: string }>('SELECT tag FROM identity_revisions WHERE source = ?', from).toArray()[0]
+    return row ? normalizeRevision(row.tag) : null
   }
 
-  setIdentity(from: EntityKey, to: IdentityMerge['to'] | null, setAt: number, etag: string): IdentityMerge[] {
+  setIdentity(from: EntityKey, to: IdentityMerge['to'] | null, setAt: number, etag: string) {
     return this.storage.transactionSync(() => {
       this.sql.exec(`CREATE TABLE IF NOT EXISTS identity_merges (
         source TEXT PRIMARY KEY, target TEXT NOT NULL, setAt INTEGER NOT NULL
@@ -468,8 +486,8 @@ export class BattleStorage {
       else this.sql.exec('INSERT OR REPLACE INTO identity_merges VALUES (?, ?, ?)', from, to, setAt)
       this.sql.exec('CREATE TABLE IF NOT EXISTS identity_revisions (source TEXT PRIMARY KEY, tag TEXT NOT NULL)')
       this.sql.exec('INSERT OR REPLACE INTO identity_revisions (source, tag) VALUES (?, ?)', from, etag)
-      this.markAnalysisDirty()
-      return this.identityMerges()!
+      const stamp = this.recordEdit([`identity:${from}`], etag, setAt)
+      return { merges: this.identityMerges()!, stamp }
     })
   }
 
@@ -494,6 +512,19 @@ export class BattleStorage {
   private markAnalysisDirty(): void {
     if (!this.hasTable('analysis_state')) this.setupAnalysis()
     this.sql.exec('UPDATE analysis_state SET revision = revision + 1 WHERE id = 1')
+  }
+
+  private recordEdit(targets: readonly string[], revision: string, changedAt: number): EditRevision {
+    this.markAnalysisDirty()
+    const sequence = this.analysisStatus().revision
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS edit_revisions (
+      target TEXT PRIMARY KEY, revision TEXT NOT NULL, sequence INTEGER NOT NULL, changedAt INTEGER NOT NULL
+    )`)
+    this.sql.exec('DELETE FROM edit_revisions WHERE changedAt <= ?', changedAt - RECENT_EDIT_MS)
+    for (const target of targets) {
+      this.sql.exec('INSERT OR REPLACE INTO edit_revisions VALUES (?, ?, ?, ?)', target, revision, sequence, changedAt)
+    }
+    return { revision, sequence }
   }
 
   analysisChunks(): PackedJson {
@@ -605,8 +636,8 @@ export class BattleStorage {
     return this.sql.exec<{ etag: string | null }>(`SELECT ${etag} FROM fits WHERE charId = ?`, charId).toArray()[0]?.etag
   }
 
-  setFit({ charId, eft, setAt, mutated }: FitEntry, etag: string): void {
-    this.storage.transactionSync(() => {
+  setFit({ charId, eft, setAt, mutated }: FitEntry, etag: string): EditRevision {
+    return this.storage.transactionSync(() => {
       this.ensureFitMutationColumns()
       if (!this.hasColumn('fits', 'etag')) this.sql.exec('ALTER TABLE fits ADD COLUMN etag TEXT')
       this.sql.exec(
@@ -615,15 +646,14 @@ export class BattleStorage {
             mutated = excluded.mutated, mutationsChecked = excluded.mutationsChecked, etag = excluded.etag`,
         charId, eft, setAt, JSON.stringify(mutated ?? []), etag,
       )
-      this.markAnalysisDirty()
+      return this.recordEdit([`fit:${charId}`], etag, setAt)
     })
   }
 
-  deleteFit(charId: number): boolean {
+  deleteFit(charId: number, etag: string, now: number): EditRevision | undefined {
     return this.storage.transactionSync(() => {
       const removed = this.sql.exec('DELETE FROM fits WHERE charId = ?', charId).rowsWritten > 0
-      if (removed) this.markAnalysisDirty()
-      return removed
+      if (removed) return this.recordEdit([`fit:${charId}`], etag, now)
     })
   }
 }

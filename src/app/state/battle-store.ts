@@ -1,9 +1,12 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Analysis, BattleSummary, EntityKey, IdentityMerge, ServerMessage } from '@/core/contract'
-import { api, ApiFailure, battleApiPath } from '../api/client'
+import { api, ApiFailure, battleApiPath, normalizeRevision, type BattleSnapshot, type EditRevision, type ObservedEdit } from '../api/client'
 import { foldIdentities } from './merge-view'
 
+export type EditRevisions = ReadonlyMap<string, EditRevision>
+
 export interface BattleView {
+  editRevisions?: EditRevisions
   summary: BattleSummary | null
   analysis: Analysis | null
   analyzedSummary: BattleSummary | null
@@ -14,7 +17,7 @@ export interface BattleView {
 }
 
 export interface BattleData {
-  summary: BattleSummary
+  summary: BattleSnapshot
   analysis: Analysis
 }
 
@@ -26,6 +29,30 @@ const analysisRetryStart = 2000
 const pollInterval = 15_000
 const failedReconnectLimit = 3
 const nextDelay = (delay: number) => Math.min(delay * 2, 15_000)
+
+type LiveMessage = ServerMessage & Partial<EditRevision> & { targets?: string[] }
+type RecentEdit = EditRevision & { seenAt: number }
+const recentEditLifetime = 120_000
+const recentEditLimit = 4096
+
+function updateRevisions(current: ReadonlyMap<string, RecentEdit>, edits: ObservedEdit[]) {
+  const now = Date.now()
+  const next = new Map([...current].filter(([, edit]) => now - edit.seenAt < recentEditLifetime))
+  for (const { target, revision, sequence } of edits) {
+    if (sequence < (next.get(target)?.sequence ?? -1)) continue
+    next.delete(target)
+    next.set(target, { revision: normalizeRevision(revision), sequence, seenAt: now })
+  }
+  for (const target of next.keys()) {
+    if (next.size <= recentEditLimit) break
+    next.delete(target)
+  }
+  return next
+}
+
+function readSnapshot({ editRevisions = [], ...summary }: BattleSnapshot) {
+  return { summary, editRevisions: updateRevisions(new Map(), [...editRevisions].reverse()) }
+}
 
 function applyMessage(summary: BattleSummary, message: Exclude<ServerMessage, { type: 'snapshot' }>): BattleSummary {
   switch (message.type) {
@@ -65,6 +92,7 @@ export function useBattle(brId: string | null): BattleView {
     const id = brId
     let active = true
     let current = initialBattle
+    let revisions: ReadonlyMap<string, RecentEdit> = new Map()
     let socket: WebSocket | undefined
     let reconnect: ReturnType<typeof setTimeout> | undefined
     let poll: ReturnType<typeof setTimeout> | undefined
@@ -147,16 +175,18 @@ export function useBattle(brId: string | null): BattleView {
       if (state.analysisVersion === analysisVersion) update({ analyzedSummary: state })
     }
 
-    function applySnapshot(state: BattleSummary) {
-      publishSummary(state)
-      update({ summary: state, status: 'ready', error: null })
-      requestAnalysis(state.analysisVersion)
+    function applySnapshot(state: BattleSnapshot) {
+      const { summary, editRevisions } = readSnapshot(state)
+      revisions = editRevisions
+      publishSummary(summary)
+      update({ summary, editRevisions, status: 'ready', error: null })
+      requestAnalysis(summary.analysisVersion)
     }
 
     function receive(event: MessageEvent<string>) {
-      let message: ServerMessage
+      let message: LiveMessage
       try {
-        message = JSON.parse(event.data) as ServerMessage
+        message = JSON.parse(event.data) as LiveMessage
       } catch {
         return
       }
@@ -164,7 +194,11 @@ export function useBattle(brId: string | null): BattleView {
         applySnapshot(message.state)
       } else if (message && current.summary) {
         const summary = applyMessage(current.summary, message) ?? current.summary
-        update({ summary })
+        const { revision, sequence, targets } = message
+        if (revision && sequence !== undefined && targets) {
+          revisions = updateRevisions(revisions, targets.map((target) => ({ target, revision, sequence })))
+        }
+        update({ summary, editRevisions: revisions })
         if (message.type === 'analysis_ready') {
           publishSummary(summary)
           requestAnalysis(message.version)
@@ -267,10 +301,11 @@ export type BattleProviderProps = {
 } & ({ brId: string; static?: never } | { brId?: never; static: BattleData })
 
 /** What the user did locally to an unidentified entity, until the server's state shows the same thing. */
-interface LocalOp { to: IdentityMerge['to'] | null; seq: number; at: number }
+interface LocalOp { to: IdentityMerge['to'] | null; seq: number; at: number; sequence?: number }
 type LocalIdentities = ReadonlyMap<EntityKey, LocalOp>
-/** Apply an identity merge (or its removal, to = null) locally until the server's state matches; the returned function rolls it back. */
-const LocalIdentityContext = createContext<((from: EntityKey, to: IdentityMerge['to'] | null) => () => void) | null>(null)
+type PendingIdentity = (() => void) & { acknowledge: (sequence?: number) => void }
+/** Apply a merge locally until the server reaches its receipt; the returned function rolls it back. */
+const LocalIdentityContext = createContext<((from: EntityKey, to: IdentityMerge['to'] | null) => PendingIdentity) | null>(null)
 export const useLocalIdentity = () => useContext(LocalIdentityContext)
 /** A server echo older than the user's last action is ignored; give up waiting after this long. */
 const localOpLifetime = 60_000
@@ -290,14 +325,25 @@ export function BattleProvider({ brId, static: data, children }: BattleProviderP
   const battle = useBattle(brId ?? null)
   const [local, setLocal] = useState<LocalIdentities>(new Map())
   const seq = useRef(0)
-  const base: BattleView = data ? { ...initialBattle, ...data, analyzedSummary: data.summary, status: 'ready' } : battle
+  const staticView = useMemo<BattleView | undefined>(() => {
+    if (!data) return
+    const { summary, editRevisions } = readSnapshot(data.summary)
+    return { ...initialBattle, summary, editRevisions, analysis: data.analysis, analyzedSummary: summary, status: 'ready' }
+  }, [data])
+  const base = staticView ?? battle
   const serverMerges = base.summary?.identityMerges
-  // A local op ends when the server's list says what the user asked for; a stale echo (an older state) leaves it standing.
+  const liveRevisions = useRef(base.editRevisions)
+  liveRevisions.current = base.editRevisions
+  // Keep the optimistic merge until its result or a newer revision is visible.
   useEffect(() => {
     setLocal((previous) => {
       let next: Map<EntityKey, LocalOp> | null = null
       for (const [from, op] of previous) {
-        if (serverTo(base.summary, from) === op.to || Date.now() - op.at > localOpLifetime) (next ??= new Map(previous)).delete(from)
+        const observed = base.editRevisions?.get(`identity:${from}`)?.sequence ?? -1
+        if ((op.sequence !== undefined && observed >= op.sequence) ||
+          serverTo(base.summary, from) === op.to || Date.now() - op.at > localOpLifetime) {
+          (next ??= new Map(previous)).delete(from)
+        }
       }
       return next ?? previous
     })
@@ -305,12 +351,24 @@ export function BattleProvider({ brId, static: data, children }: BattleProviderP
   const apply = useCallback((from: EntityKey, to: IdentityMerge['to'] | null) => {
     const mine = ++seq.current
     setLocal((previous) => new Map(previous).set(from, { to, seq: mine, at: Date.now() }))
-    return () => setLocal((previous) => {
+    const rollback = () => setLocal((previous) => {
       if (previous.get(from)?.seq !== mine) return previous // a newer local action owns this entity now
       const next = new Map(previous)
       next.delete(from)
       return next
     })
+    const acknowledge = (sequence?: number) => {
+      if (sequence === undefined) return
+      if ((liveRevisions.current?.get(`identity:${from}`)?.sequence ?? -1) >= sequence) {
+        rollback()
+        return
+      }
+      setLocal((previous) => {
+        const op = previous.get(from)
+        return op?.seq === mine ? new Map(previous).set(from, { ...op, sequence }) : previous
+      })
+    }
+    return Object.assign(rollback, { acknowledge })
   }, [])
 
   // Analyses the user's later action has outdated: an entity they un-merged locally must not vanish because the server
@@ -330,8 +388,10 @@ export function BattleProvider({ brId, static: data, children }: BattleProviderP
   return createElement(LocalIdentityContext.Provider, { value: apply }, createElement(BattleContext.Provider, { value }, children))
 }
 
+export const useOptionalBattleContext = () => useContext(BattleContext)
+
 export function useBattleContext(): BattleView {
-  const battle = useContext(BattleContext)
+  const battle = useOptionalBattleContext()
   if (!battle) throw new Error('useBattleContext requires BattleProvider')
   return battle
 }

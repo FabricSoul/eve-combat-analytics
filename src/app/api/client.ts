@@ -16,13 +16,23 @@ export class ApiFailure extends Error {
 
 export const battleApiPath = (brId: string) => `/api/battles/${encodeURIComponent(brId)}`
 export type UploadProgress = (fraction: number) => void
-export type VersionedFit = FitEntry & { etag?: string }
+export type EditRevision = { revision: string; sequence: number }
+export type EditReceipt = { revision?: string | null; sequence?: number }
+export type ObservedEdit = EditRevision & { target: string }
+export type BattleSnapshot = BattleSummary & { editRevisions?: ObservedEdit[] }
+export type VersionedFit = FitEntry & EditReceipt
 type FitReceipt = VersionedFit & { previous?: VersionedFit | null }
-type SideReceipt = { etag?: string; previousTags?: Partial<Record<SideSubject, string | null>> }
-type IdentityReceipt = (IdentityMerge | { removed: EntityKey }) & {
-  etag?: string
+export type SideReceipt = EditReceipt & {
+  previousTags?: Partial<Record<SideSubject, string | null>>
+  related?: SideSubject[]
+}
+type IdentityReceipt = (IdentityMerge | { removed: EntityKey }) & EditReceipt & {
   previous?: IdentityMerge | null
   previousTag?: string | null
+}
+
+export function normalizeRevision(revision: string): string {
+  return revision.trim().replace(/^W\//i, '')
 }
 
 const apiMessages = {
@@ -81,18 +91,16 @@ function json(method: 'POST' | 'PUT', data: object): RequestInit {
 
 const textHeaders = { 'Content-Type': 'text/plain; charset=utf-8' }
 
-async function edit<T extends object>(path: string, init: RequestInit, ifMatch?: string): Promise<T & { etag?: string }> {
+async function edit<T extends object>(path: string, init: RequestInit, ifMatch?: string): Promise<T & EditReceipt> {
   const headers = new Headers(init.headers)
   headers.set('X-EVE-Undo', '1')
-  if (ifMatch !== undefined) headers.set('If-Match', ifMatch)
-  const response = await send(path, { ...init, headers })
-  const body = await read<T>(response)
-  const etag = response.headers.get('ETag')
-  return etag === null ? body : { ...body, etag }
+  if (ifMatch !== undefined) headers.set('If-Match', normalizeRevision(ifMatch))
+  const body = await request<T & EditReceipt>(path, { ...init, headers })
+  return typeof body.revision === 'string' ? { ...body, revision: normalizeRevision(body.revision) } : body
 }
 
 async function sideBatchMatch(tags: ReadonlyMap<string, string>): Promise<string> {
-  const entries = [...tags.keys()].sort().map((subject) => [subject, tags.get(subject)!])
+  const entries = [...tags.keys()].sort().map((subject) => [subject, normalizeRevision(tags.get(subject)!)])
   const first = entries[0]?.[1]
   if (first && entries.every(([, tag]) => tag === first)) return first
   // A single validator covers every requested subject while keeping even a large batch's header small.
@@ -136,7 +144,7 @@ export const api = {
     return request('/api/battles', json('POST', { brUrl }))
   },
 
-  getBattle(brId: string): Promise<BattleSummary> {
+  getBattle(brId: string): Promise<BattleSnapshot> {
     return request(battleApiPath(brId))
   },
 
@@ -146,7 +154,8 @@ export const api = {
       headers: etag ? { 'If-None-Match': etag } : undefined,
     })
     if (response.status === 304) return 'not_modified'
-    return { analysis: await read<Analysis>(response), etag: response.headers.get('ETag') }
+    const validator = response.headers.get('ETag')
+    return { analysis: await read<Analysis>(response), etag: validator && normalizeRevision(validator) }
   },
 
   uploadLog(brId: string, text: string, onProgress?: UploadProgress): Promise<UploadResult> {
@@ -162,10 +171,8 @@ export const api = {
     return edit(`${battleApiPath(brId)}/fits/${charId}`, init, ifMatch)
   },
 
-  deleteFit(brId: string, charId: number, ifMatch?: string): Promise<{ removed: number }> {
-    return request(`${battleApiPath(brId)}/fits/${charId}`, {
-      method: 'DELETE', headers: ifMatch === undefined ? undefined : { 'If-Match': ifMatch },
-    })
+  deleteFit(brId: string, charId: number, ifMatch?: string): Promise<{ removed: number } & EditReceipt> {
+    return edit(`${battleApiPath(brId)}/fits/${charId}`, { method: 'DELETE' }, ifMatch)
   },
 
   putSide(brId: string, subject: SideSubject, side: SideEdit['side'], ifMatch?: string): Promise<SideOverride & SideReceipt & { previous?: SideBatchEdit['edits'] }> {
@@ -177,7 +184,8 @@ export const api = {
   },
 
   async restoreSides(brId: string, restore: { subject: SideSubject; through: string }[], tags: ReadonlyMap<string, string>) {
-    return edit<{ applied: SideOverride[] }>(`${battleApiPath(brId)}/sides/batch`, json('PUT', { restore }), await sideBatchMatch(tags))
+    const normalized = restore.map(({ subject, through }) => ({ subject, through: normalizeRevision(through) }))
+    return edit<{ applied: SideOverride[] }>(`${battleApiPath(brId)}/sides/batch`, json('PUT', { restore: normalized }), await sideBatchMatch(tags))
   },
 
   putIdentity(brId: string, from: EntityKey, to: IdentityMerge['to'] | null, ifMatch?: string): Promise<IdentityReceipt> {

@@ -1,4 +1,4 @@
-// Usage: node scripts/rules-live.mjs [battle-url | --local]
+// Usage: [WEAK_ETAGS=1] node scripts/rules-live.mjs [battle-url | --local]
 import assert from 'node:assert/strict'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -10,6 +10,7 @@ const args = process.argv.slice(2)
 assert.ok(args.length <= 1 && (!args[0]?.startsWith('-') || args[0] === '--local'),
   'Usage: node scripts/rules-live.mjs [battle-url | --local]')
 const local = args[0] === '--local'
+const weakEtags = process.env.WEAK_ETAGS === '1'
 const fixtureTime = Date.parse('2025-06-22T15:43:02.420Z')
 
 async function seedLogs(origin) {
@@ -132,14 +133,29 @@ async function rule5(page) {
     return target === (isMerged ? to : undefined)
   }, { api, from, to, isMerged }, { polling: 200, timeout: 12_000 })
   const source = moduleAt(page, 'roster').locator(`[data-pilot-key="${from}"]`)
+  const identityWrite = () => page.waitForResponse((response) =>
+    new URL(response.url()).pathname === `${api}/identities` && response.request().method() === 'PUT')
+  async function assertReceipt(response) {
+    assert.equal(response.status(), 200)
+    const { revision } = await response.json()
+    assert.match(revision, /^"[^"]+"$/)
+    assert.equal(await response.headerValue('etag'), weakEtags ? `W/${revision}` : revision)
+    return revision
+  }
   let restored = false
   try {
+    const saving = identityWrite()
     await picker.locator('[data-result]').filter({ has: page.getByText(targetName, { exact: true }) }).click()
+    const revision = await assertReceipt(await saving)
     await notice.getByText(`已合并 ${sourceName} → ${targetName}`, { exact: true }).waitFor()
     await notice.hover()
     await source.waitFor({ state: 'detached' })
     await matchingMerge(true)
+    const undoing = identityWrite()
     await notice.getByRole('button', { name: '撤销', exact: true }).click()
+    const response = await undoing
+    assert.equal(await response.request().headerValue('if-match'), revision)
+    await assertReceipt(response)
     await notice.getByText('已撤销', { exact: true }).waitFor()
     await matchingMerge(false)
     await source.waitFor()
@@ -242,7 +258,7 @@ try {
   }
   const url = new URL(local ? `${server.origin}/b/${brId}` : args[0] ?? production)
   if (url.pathname === `/b/${brId}` && !url.searchParams.has('t')) url.searchParams.set('t', fixtureTime)
-  console.log(`Rules target: ${url.href}`)
+  console.log(`Rules target: ${url.href}${local && weakEtags ? ' (weak ETags)' : ''}`)
   browser = await launchChromium()
   const rules = [[2, rule2], [3, rule3], [5, rule5], [6, rule6], [8, rule8], [9, rule9]]
   for (const [number, run] of rules) {

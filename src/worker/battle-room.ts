@@ -11,7 +11,8 @@ import type {
 } from '../core/contract'
 import { analysisJson } from './analysis-json'
 import { battleAffiliations } from './affiliation-history'
-import { ApiFailure, battlePath, errorResponse, ifMatchAccepts, readText, upstreamFailure } from './http'
+import { ApiFailure, battlePath, editResponse, errorResponse, ifMatchAccepts, normalizeRevision, readText, upstreamFailure } from './http'
+import type { EditRevision } from './http'
 import type { Env } from './index'
 import { fetchKillmailFit } from './killmail-fit'
 import { abortable, createServices, withDeadline } from './services'
@@ -195,7 +196,7 @@ export class BattleRoom extends DurableObject<Env> {
       if (request.method === 'GET' && !route) {
         await this.ensureAnalysisScheduled()
         const battle = await this.battle()
-        const response = Response.json(this.store.summary(battle.meta))
+        const response = Response.json(this.store.summary(battle.meta, this.services.now()))
         this.startLegacyFitRecovery(battle.meta)
         return response
       }
@@ -298,7 +299,7 @@ export class BattleRoom extends DurableObject<Env> {
       if (published) {
         if (refresh) battle.meta = state.meta
         if (refresh || published.uploaderSidesChanged) {
-          this.broadcast({ type: 'snapshot', state: this.store.summary(battle.meta) })
+          this.broadcast({ type: 'snapshot', state: this.store.summary(battle.meta, this.services.now()) })
         }
         this.broadcast({ type: 'analysis_ready', version: published.version })
       }
@@ -343,7 +344,7 @@ export class BattleRoom extends DurableObject<Env> {
     const etag = `"v${version}"`
     const matches = ifNoneMatch?.split(',').some((value) => {
       const candidate = value.trim()
-      return candidate === '*' || candidate.replace(/^W\//, '') === etag
+      return candidate === '*' || normalizeRevision(candidate) === etag
     })
     if (matches) return { status: 304, etag }
     return { status: 200, etag, body: new Blob(this.store.analysisChunks()).stream() }
@@ -543,19 +544,20 @@ export class BattleRoom extends DurableObject<Env> {
     const etag = `"${crypto.randomUUID()}"`
     await this.scheduleAnalysis()
     const previous = undoReceipt ? this.store.fit(charId) ?? null : undefined
-    this.store.setFit(fit, etag)
-    const versionedFit = { ...fit, etag }
-    this.broadcast({ type: 'fit_set', fit: versionedFit })
-    return Response.json(undoReceipt ? { ...fit, previous } : fit, { headers: { ETag: etag } })
+    const stamp = this.store.setFit(fit, etag)
+    const versionedFit = { ...fit, revision: stamp.revision }
+    this.broadcast({ type: 'fit_set', fit: versionedFit, ...stamp, targets: [`fit:${charId}`] })
+    return editResponse({ ...fit, previous }, stamp)
   }
 
   private async deleteFit(charId: number): Promise<Response> {
     await this.store.migrateIfNeeded((await this.battle()).meta)
-    if (this.store.deleteFit(charId)) {
+    const stamp = this.store.deleteFit(charId, `"${crypto.randomUUID()}"`, this.services.now())
+    if (stamp) {
       await this.scheduleAnalysis()
-      this.broadcast({ type: 'fit_removed', charId })
+      this.broadcast({ type: 'fit_removed', charId, ...stamp, targets: [`fit:${charId}`] })
     }
-    return Response.json({ removed: charId })
+    return editResponse({ removed: charId }, stamp)
   }
 
   private async setSide(data: unknown, headers: Headers): Promise<Response> {
@@ -576,12 +578,15 @@ export class BattleRoom extends DurableObject<Env> {
     const tags = await this.requireSideMatch([subject], ifMatch)
     const previous = [{ subject, side: current.find((override) => override.subject === subject)?.side ?? -1 }]
     const undoReceipt = headers.has(undoHeader)
-    const metadata = undoReceipt ? { previous, previousTags: Object.fromEntries(tags) } : undefined
-    if (undoReceipt && ifMatch === null && previous[0]!.side === side) {
-      return Response.json({ subject, side, source: 'manual', setAt: this.services.now(), ...metadata })
+    const { related, shadowed } = this.store.sideGroupContext(meta, [subject], current)
+    const metadata = undoReceipt ? {
+      previous, previousTags: Object.fromEntries(tags), related: [...(related.get(subject) ?? [])],
+    } : undefined
+    if (undoReceipt && ifMatch === null && previous[0]!.side === side && !shadowed.has(subject)) {
+      return editResponse({ subject, side, source: 'manual', setAt: this.services.now(), ...metadata })
     }
-    const { applied: [override], etag } = await this.applySideEdits([{ subject, side }], undoReceipt ? meta : undefined)
-    return Response.json({ ...override, ...metadata }, { headers: { ETag: etag } })
+    const { applied: [override], stamp } = await this.applySideEdits([{ subject, side }], undoReceipt)
+    return editResponse({ ...override, ...metadata }, stamp)
   }
 
   private async setSideBatch(data: unknown, headers: Headers): Promise<Response> {
@@ -606,16 +611,22 @@ export class BattleRoom extends DurableObject<Env> {
     const tags = await this.requireSideMatch([...requested.keys()], headers.get('If-Match'))
     const current = this.store.sideOverrides().sort((a, b) => a.setAt - b.setAt)
     const assigned = new Map(current.map(({ subject, side }) => [subject, side]))
-    const edits = [...requested].flatMap(([subject, side]) => side === (assigned.get(subject) ?? -1) ? [] : [{ subject, side }])
+    const { related, shadowed } = this.store.sideGroupContext(meta, [...requested.keys()], current)
+    const edits = [...requested].flatMap(([subject, side]) =>
+      side === (assigned.get(subject) ?? -1) && !shadowed.has(subject) ? [] : [{ subject, side }],
+    )
     const changed = new Set(edits.map(({ subject }) => subject))
     const previous = current.filter(({ subject }) => changed.has(subject)).map(({ subject, side }) => ({ subject, side }))
     for (const { subject } of edits) if (!assigned.has(subject)) previous.push({ subject, side: -1 })
 
     const undoReceipt = headers.has(undoHeader)
-    const { applied, etag } = edits.length ? await this.applySideEdits(edits, undoReceipt ? meta : undefined) : { applied: [] }
+    const { applied, stamp } = edits.length ? await this.applySideEdits(edits, undoReceipt) : { applied: [] }
     const result = { applied, previous } satisfies SideBatchResult
-    const previousTags = undoReceipt ? { previousTags: Object.fromEntries(tags) } : undefined
-    return Response.json({ ...result, ...previousTags }, { headers: etag ? { ETag: etag } : undefined })
+    const metadata = undoReceipt ? {
+      previousTags: Object.fromEntries(tags),
+      related: [...new Set(edits.flatMap(({ subject }) => [...(related.get(subject) ?? [])]))],
+    } : undefined
+    return editResponse({ ...result, ...metadata }, stamp)
   }
 
   private async restoreSideBatch(restore: unknown, ifMatch: string | null): Promise<Response> {
@@ -625,11 +636,11 @@ export class BattleRoom extends DurableObject<Env> {
     const requested = new Map<SideSubject, string>()
     for (const item of restore as unknown[]) {
       if (!item || typeof item !== 'object' || !('subject' in item) || !isSideSubject(item.subject)
-        || !('through' in item) || typeof item.through !== 'string' || !/^"[\da-f-]{36}"$/.test(item.through)
+        || !('through' in item) || typeof item.through !== 'string' || !/^"[\da-f-]{36}"$/.test(normalizeRevision(item.through))
         || requested.has(item.subject)) {
         throw new ApiFailure('bad_request', 'Expected distinct subjects and side edit revisions')
       }
-      requested.set(item.subject, item.through)
+      requested.set(item.subject, normalizeRevision(item.through))
     }
     if (!ifMatch) throw new ApiFailure('bad_request', 'A side restore requires an edit revision', 412)
     await this.requireSideMatch([...requested.keys()], ifMatch)
@@ -637,8 +648,9 @@ export class BattleRoom extends DurableObject<Env> {
     await this.scheduleAnalysis()
     const result = this.store.restoreSides(requested, etag, this.services.now())
     if (!result) throw new ApiFailure('bad_request', 'Side assignments have changed', 412)
-    this.broadcast({ type: 'sides_set', overrides: result.overrides })
-    return Response.json({ applied: result.applied }, { headers: { ETag: etag } })
+    const { applied, overrides, stamp } = result
+    this.broadcast({ type: 'sides_set', overrides, ...stamp, targets: applied.map(({ subject }) => `side:${subject}`) })
+    return editResponse({ applied }, stamp)
   }
 
   private async requireSideMatch(subjects: readonly SideSubject[], ifMatch: string | null) {
@@ -655,7 +667,7 @@ export class BattleRoom extends DurableObject<Env> {
     return entries
   }
 
-  private async applySideEdits(edits: SideBatchEdit['edits'], captureFor?: BattleMeta) {
+  private async applySideEdits(edits: SideBatchEdit['edits'], capture: boolean) {
     const setAt = this.services.now()
     if (!this.store.canEditSide(setAt)) {
       throw new ApiFailure('bad_request', 'A battle can accept at most 30 side edits per minute', 429)
@@ -663,9 +675,9 @@ export class BattleRoom extends DurableObject<Env> {
     const applied = edits.map((edit): SideOverride => ({ ...edit, source: 'manual', setAt }))
     const etag = `"${crypto.randomUUID()}"`
     await this.scheduleAnalysis()
-    const overrides = this.store.setSides(applied, setAt, etag, captureFor)
-    this.broadcast({ type: 'sides_set', overrides })
-    return { applied, etag }
+    const { overrides, stamp } = this.store.setSides(applied, setAt, etag, capture)
+    this.broadcast({ type: 'sides_set', overrides, ...stamp, targets: applied.map(({ subject }) => `side:${subject}`) })
+    return { applied, stamp }
   }
 
   private async setIdentity(data: unknown, headers: Headers): Promise<Response> {
@@ -693,19 +705,19 @@ export class BattleRoom extends DurableObject<Env> {
     }
 
     if (ifMatch === null && (previous?.to ?? null) === to && (undoReceipt || to === null)) {
-      return Response.json(previous ?? { removed: from })
+      return editResponse(previous ?? { removed: from })
     }
     const setAt = this.services.now()
     const etag = `"${crypto.randomUUID()}"`
     await this.scheduleAnalysis()
-    const merges = this.store.setIdentity(from, to, setAt, etag)
-    this.broadcast({ type: 'identities_set', merges })
+    const { merges, stamp } = this.store.setIdentity(from, to, setAt, etag)
+    this.broadcast({ type: 'identities_set', merges, ...stamp, targets: [`identity:${from}`] })
     const result = to === null ? { removed: from } : { from, to, setAt } satisfies IdentityMerge
-    return Response.json(undoReceipt ? { ...result, previous, previousTag } : result, { headers: { ETag: etag } })
+    return editResponse(undoReceipt ? { ...result, previous, previousTag } : result, stamp)
   }
 
   private openWebSocket(meta: BattleMeta): Response {
-    const snapshot: ServerMessage = { type: 'snapshot', state: this.store.summary(meta) }
+    const snapshot: ServerMessage = { type: 'snapshot', state: this.store.summary(meta, this.services.now()) }
     const text = JSON.stringify(snapshot)
     if (encoder.encode(text).byteLength >= SOCKET_LIMIT) {
       throw new ApiFailure('too_large', 'Battle snapshot is too large for WebSocket. Fetch the battle over HTTP.')
@@ -726,7 +738,7 @@ export class BattleRoom extends DurableObject<Env> {
     else ws.close()
   }
 
-  private broadcast(message: ServerMessage): void {
+  private broadcast(message: ServerMessage & Partial<EditRevision> & { targets?: string[] }): void {
     const sockets = this.ctx.getWebSockets()
     if (!sockets.length) return
     const text = JSON.stringify(message)

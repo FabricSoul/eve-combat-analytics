@@ -191,11 +191,11 @@ describe('SidesPanel', () => {
     act(() => items[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })))
     expect(document.activeElement).toBe(remove)
     putSide.mockResolvedValueOnce({
-      subject: 'corp:10', side: -1, source: 'manual', setAt: 4, etag: '"removed"',
+      subject: 'corp:10', side: -1, source: 'manual', setAt: 4, revision: '"removed"',
       previous: [{ subject: 'corp:10', side: 0 }], previousTags: { 'corp:10': null },
     })
     const restoreSides = vi.spyOn(api, 'restoreSides').mockResolvedValue({
-      applied: [{ subject: 'corp:10', side: 0, source: 'manual', setAt: 2 }], etag: '"restored"',
+      applied: [{ subject: 'corp:10', side: 0, source: 'manual', setAt: 2 }], revision: '"restored"',
     })
     await act(async () => remove.click())
     expect(putSide).toHaveBeenCalledWith('tiny', 'corp:10', -1)
@@ -276,9 +276,9 @@ describe('SidesPanel', () => {
     const edits = (overrides: BattleSummary['sideOverrides']) => overrides.map(({ subject, side }) => ({ subject, side }))
     const fetchBatch = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({
-        applied: removed, previous: edits(summary.sideOverrides), previousTags: { 'char:5': null, 'corp:10': null },
+        applied: removed, previous: edits(summary.sideOverrides), revision: '"removed"', previousTags: { 'char:5': null, 'corp:10': null },
       }, { headers: { ETag: '"removed"' } }))
-      .mockResolvedValueOnce(Response.json({ applied: reinstated, previous: edits(removed) }, { headers: { ETag: '"restored"' } }))
+      .mockResolvedValueOnce(Response.json({ applied: reinstated, previous: edits(removed), revision: '"restored"' }))
     vi.stubGlobal('fetch', fetchBatch)
     const panel = (analyzedSummary: BattleSummary) =>
       createElement(BattleUndo, {

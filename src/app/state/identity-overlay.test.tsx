@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Analysis, BattleSummary } from '@/core/contract'
+import type { BattleSnapshot } from '../api/client'
 import { entity, stats, tinyAnalysis, tinySummary } from '../battle/roster/testing'
 import { BattleProvider, useBattleContext, useLocalIdentity } from './battle-store'
 
@@ -37,10 +38,10 @@ function mount() {
     })
     return null
   }
-  const render = (summary: BattleSummary, analysis: Analysis) =>
+  const render = (summary: BattleSnapshot, analysis: Analysis) =>
     act(() => root.render(<BattleProvider static={{ summary, analysis }}><Probe /></BattleProvider>))
   render(withMerges(undefined), { ...unfolded, interactions: [{ t: 1, from: 'name:Hidden', to: 'char:4', kind: 'damage', amount: 70, weapon: null, quality: null, repairType: null, ewar: null, sources: [], corroborated: false }] })
-  return { render, apply: (from: 'name:Hidden', to: 'char:2' | null) => { let undo!: () => void; act(() => { undo = apply(from, to) }); return undo }, renders, last: () => renders.at(-1)! }
+  return { render, apply: (from: 'name:Hidden', to: 'char:2' | null) => { let undo!: ReturnType<typeof apply>; act(() => { undo = apply(from, to) }); return undo }, renders, last: () => renders.at(-1)! }
 }
 
 describe('identity overlay', () => {
@@ -77,6 +78,18 @@ describe('identity overlay', () => {
     expect(view.last()).toMatchObject({ merges: 1, unidentified: 0 })
     // Later the server removes it (another viewer): nothing local holds it any more.
     view.render(withMerges([]), unfolded)
+    expect(view.last()).toMatchObject({ merges: 0, unidentified: 1 })
+  })
+
+  it('releases the local merge when a newer removal arrives before the HTTP receipt', () => {
+    const view = mount()
+    const pending = view.apply('name:Hidden', 'char:2')
+    view.render({
+      ...withMerges([]),
+      editRevisions: [{ target: 'identity:name:Hidden', sequence: 9, revision: '"removed"' }],
+    }, unfolded)
+    expect(view.last()).toMatchObject({ merges: 1, unidentified: 0 })
+    act(() => pending.acknowledge(8))
     expect(view.last()).toMatchObject({ merges: 0, unidentified: 1 })
   })
 

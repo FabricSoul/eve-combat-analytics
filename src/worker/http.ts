@@ -73,11 +73,20 @@ export async function readText(request: Request, limit: number, message: string)
   }
 }
 
-/**
- * Whether an If-Match header names `current`, one of our own opaque revision tokens.
- * Weak comparison on purpose: Cloudflare weakens ETag to W/"…" when it compresses a response, and clients echo what they received.
- */
+export function normalizeRevision(revision: string): string {
+  return revision.trim().replace(/^W\//i, '')
+}
+
+/** Compare our opaque edit tokens, including validators weakened by a compressing proxy. */
 export function ifMatchAccepts(header: string, current: string | null): boolean {
   if (current === null) return false
-  return header.split(',').some((tag) => tag.trim().replace(/^W\//i, '') === current)
+  return header.split(',').some((tag) => normalizeRevision(tag) === normalizeRevision(current))
+}
+
+export type EditRevision = { revision: string; sequence: number }
+
+export function editResponse(body: object, stamp?: EditRevision): Response {
+  return Response.json({ ...body, ...(stamp ?? { revision: null }) }, {
+    headers: stamp && { ETag: stamp.revision },
+  })
 }

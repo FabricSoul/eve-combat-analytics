@@ -24,7 +24,36 @@ export function launchChromium() {
   return chromium.launch({ executablePath, headless: true })
 }
 
-export async function startFixtureBattle() {
+// Model Cloudflare at the HTTP boundary so Chromium, fetch and all routes see
+// the same header rewrite while JSON, compressed bytes and WebSockets stay intact.
+function weakenEtags() {
+  const weak = (value) => typeof value === 'string' && value.startsWith('"') ? `W/${value}` : value
+  return {
+    name: 'weak-fixture-etags',
+    configureServer(server) {
+      server.middlewares.use((_request, response, next) => {
+        const writeHead = response.writeHead
+        response.writeHead = function (status, ...args) {
+          const stored = this.getHeader('etag')
+          if (stored !== undefined) this.setHeader('etag', weak(stored))
+          const headerArg = typeof args[0] === 'string' ? 1 : 0
+          const headers = args[headerArg]
+          if (Array.isArray(headers)) {
+            args[headerArg] = headers.map((value, index) =>
+              index % 2 === 1 && headers[index - 1].toLowerCase() === 'etag' ? weak(value) : value)
+          } else if (headers) {
+            const key = Object.keys(headers).find((name) => name.toLowerCase() === 'etag')
+            if (key) args[headerArg] = { ...headers, [key]: weak(headers[key]) }
+          }
+          return writeHead.call(this, status, ...args)
+        }
+        next()
+      })
+    },
+  }
+}
+
+export async function startFixtureBattle({ weakEtags = process.env.WEAK_ETAGS === '1' } = {}) {
   const workDir = join(root, 'build')
   await mkdir(workDir, { recursive: true })
   const scratch = await mkdtemp(join(workDir, 'fixture-worker-'))
@@ -107,7 +136,7 @@ export class BattleRoom extends ProductionRoom {
 `)
     server = await createServer({
       root, configFile: false, logLevel: 'warn',
-      plugins: [react(), tailwindcss(), cloudflare({
+      plugins: [...(weakEtags ? [weakenEtags()] : []), react(), tailwindcss(), cloudflare({
         config: { main: entry }, persistState: false, inspectorPort: false, remoteBindings: false,
       })],
       resolve: { alias: { '@': join(root, 'src') } },

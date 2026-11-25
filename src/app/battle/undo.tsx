@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { BattleSummary, IdentityMerge, SideSubject } from '@/core/contract'
-import type { VersionedFit } from '../api/client'
-import { useBattleContext } from '../state/battle-store'
+import { normalizeRevision, type VersionedFit } from '../api/client'
+import { useOptionalBattleContext, type EditRevisions } from '../state/battle-store'
 
 type Visible = (summary: BattleSummary) => boolean
-type Revert = (publishedVersion: number) => Promise<Visible | { unavailable: string } | { reverted: number[] } | void>
-type Conflict = { label: string; when: Visible }
+type ReadRevisions = () => EditRevisions | undefined
+type Revert = (publishedVersion: number, readRevisions: ReadRevisions) => Promise<Visible | { unavailable: string } | { reverted: number[] } | void>
+type Conflict = { label: string; when: (summary: BattleSummary, revisions?: EditRevisions) => boolean }
 type Toast = { label: string; revert?: Revert; visible?: Visible; conflict?: Conflict; pending?: true }
 type Finish = ((result?: Toast) => void) & { id: number }
 type Begin = (optimistic?: Toast) => Finish
@@ -47,14 +48,15 @@ function feedback(notice: Notice, toast: Toast): Notice {
 
 export function useBattleUndo() { return useContext(UndoContext) }
 
-type Revision<T> = { tag: string | null; value: T }
+type Revision<T> = { tag: string | null; value: T; sequence?: number }
 type Head<T> = Revision<T> & { edit?: Edit<T>; overwritten?: T }
-type Edit<T> = { id: number; before: Map<string, Head<T>>; tags: Map<string, string> }
+type Edit<T> = { id: number; before: Map<string, Head<T>>; tags: Map<string, string>; related: readonly string[] }
 
 // A receipt links to a local edit only when the server confirms it was the immediate predecessor.
 // Keep the chain at the battle level so a toast can outlive its menu or drawer.
 class EditHistory<T> {
   private heads = new Map<string, Head<T>>()
+  private edits: Edit<T>[] = []
   private queue = Promise.resolve()
   private pending = new Map<string, number>()
 
@@ -72,58 +74,82 @@ class EditHistory<T> {
     return result
   }
 
-  clear() { this.heads.clear() }
+  clear() {
+    this.heads.clear()
+    this.edits = []
+  }
 
-  record(id: number, changes: { key: string; before: Revision<T>; after: Revision<T> & { tag: string } }[]) {
-    const edit: Edit<T> = { id, before: new Map(), tags: new Map() }
+  record(id: number, changes: { key: string; before: Revision<T>; after: Revision<T> & { tag: string } }[], related: readonly string[] = []) {
+    const edit: Edit<T> = { id, before: new Map(), tags: new Map(), related }
     for (const { key, before, after } of changes) {
       const head = this.heads.get(key)
-      edit.before.set(key, head && head.tag === before.tag ? { ...head, value: before.value } : before)
-      edit.tags.set(key, after.tag)
-      this.heads.set(key, { ...after, edit, overwritten: before.value })
+      const tag = before.tag === null ? null : normalizeRevision(before.tag)
+      edit.before.set(key, head?.tag === tag ? { ...head, value: before.value } : { ...before, tag })
+      const nextTag = normalizeRevision(after.tag)
+      edit.tags.set(key, nextTag)
+      this.heads.set(key, { ...after, tag: nextTag, edit, overwritten: before.value })
     }
+    if (related.length) this.edits.push(edit)
     return edit
   }
 
-  contains(key: string, target: Edit<T>, head = this.heads.get(key)) {
-    for (let edit = head?.edit; edit; edit = edit.before.get(key)?.edit) {
-      if (edit === target) return true
+  private requiredEdits(target: Edit<T>, revisions?: EditRevisions) {
+    const selected = new Set<Edit<T>>()
+    const collect = (edit: Edit<T>): boolean => {
+      if (selected.has(edit)) return true
+      selected.add(edit)
+      for (const key of edit.before.keys()) {
+        const head = this.heads.get(key)
+        const observed = revisions?.get(key.slice(key.indexOf('/') + 1))
+        if (observed && head?.sequence !== undefined && observed.sequence > head.sequence && observed.revision !== head.tag) {
+          return false
+        }
+        let later = head?.edit
+        while (later && later !== edit) {
+          if (!collect(later)) return false
+          later = later.before.get(key)?.edit
+        }
+        if (later !== edit) return false
+      }
+      return true
     }
-    return false
+    if (collect(target)) return selected
   }
 
-  plan(target: Edit<T>) {
+  canRevert(edit: Edit<T>, revisions?: EditRevisions) {
+    return this.requiredEdits(edit, revisions) !== undefined
+  }
+
+  plan(target: Edit<T>, revisions?: EditRevisions, includeRelated = true) {
+    const selected = this.requiredEdits(target, revisions)
+    if (!selected) return
+    const requiredCount = selected.size
+    for (const candidate of includeRelated ? this.edits : []) {
+      if (selected.has(candidate) || ![...selected].some((edit) =>
+        edit.id < candidate.id && (edit.related.some((key) => candidate.tags.has(key)) ||
+          candidate.related.some((key) => edit.tags.has(key))))) continue
+      // A different group is coupled only while all of its later same-tab edits can still be undone.
+      const coupled = this.requiredEdits(candidate, revisions)
+      if (coupled) for (const edit of coupled) selected.add(edit)
+    }
     const restored = new Map<string, Head<T> & { through: string }>()
-    const reverted = new Set<Edit<T>>()
-    const visit = (edit: Edit<T>): boolean => {
-      if (reverted.has(edit)) return true
-      const headFor = (key: string) => restored.get(key) ?? this.heads.get(key)
-      if (![...edit.before.keys()].every((key) => this.contains(key, edit, headFor(key)))) return false
-      for (const key of edit.before.keys()) {
-        // A later batch may touch further subjects. Unwind it on all its subjects before proceeding.
-        let head = headFor(key)?.edit
-        while (head && head !== edit) {
-          if (!visit(head)) return false
-          head = restored.get(key)?.edit
-        }
-        if (head !== edit) return false
-      }
+    const newestFirst = [...selected].sort((left, right) => right.id - left.id)
+    for (const edit of newestFirst) {
       for (const [key, before] of edit.before) {
         restored.delete(key)
         restored.set(key, { ...before, through: edit.tags.get(key)! })
       }
-      reverted.add(edit)
-      return true
     }
-    if (!visit(target)) return undefined
     return {
       changes: [...restored].map(([key, { value, through }]) => ({ key, value, through, tag: this.heads.get(key)!.tag! })),
-      reverted: [...reverted].map(({ id }) => id),
+      reverted: newestFirst.map(({ id }) => id),
+      includesRelated: selected.size > requiredCount,
       commit: (read: (key: string, restored: T) => Revision<T>) => {
         for (const [key, before] of restored) {
           const overwritten = this.heads.get(key)!.value
           this.heads.set(key, { ...read(key, before.value), edit: before.edit, overwritten })
         }
+        this.edits = this.edits.filter((edit) => !selected.has(edit))
       },
     }
   }
@@ -149,6 +175,9 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
   publishedVersion?: number
   host?: HTMLElement | null
 }) {
+  const battle = useOptionalBattleContext()
+  const liveRevisions = useRef(battle?.editRevisions)
+  liveRevisions.current = battle?.editRevisions
   const [notices, setNotices] = useState<Notice[]>([])
   const [histories] = useState(createHistories)
   const [expanded, setExpanded] = useState(false)
@@ -178,9 +207,9 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
     const id = ++nextId.current
     let resolveReceipt!: (result: Toast | undefined) => void
     const receipt = new Promise<Toast | undefined>((resolve) => { resolveReceipt = resolve })
-    const revert: Revert = async (version) => {
+    const revert: Revert = async (version, readRevisions) => {
       const result = await receipt
-      return result?.revert ? result.revert(version) : { unavailable: '无法撤销，未收到修改确认' }
+      return result?.revert ? result.revert(version, readRevisions) : { unavailable: '无法撤销，未收到修改确认' }
     }
     const notice: Notice = {
       id, toast: optimistic ?? { ...applying, revert }, deadline: Date.now() + undoDuration, remaining: undoDuration,
@@ -218,7 +247,7 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
     if (edit.deadline !== undefined && Date.now() >= edit.deadline) return
     update(id, (notice) => ({ ...notice, toast: reverting, undoStarted: true }))
     try {
-      const result = await revert(publishedVersion)
+      const result = await revert(publishedVersion, () => liveRevisions.current)
       if (result && typeof result === 'object' && 'reverted' in result) {
         const label = result.reverted.length > 1 ? `撤销了 ${result.reverted.length} 次修改` : '已撤销'
         const reverted = new Set(result.reverted)
@@ -279,9 +308,9 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
 }
 
 function WatchUndoConflict({ id, conflict, update }: { id: number; conflict: Conflict; update: Update }) {
-  const { summary } = useBattleContext()
+  const battle = useOptionalBattleContext()
   useLayoutEffect(() => {
-    if (summary && conflict.when(summary)) {
+    if (battle?.summary && conflict.when(battle.summary, battle.editRevisions)) {
       update(id, (notice) => notice.toast.conflict === conflict ? feedback(notice, { label: conflict.label }) : notice, true)
     }
   })

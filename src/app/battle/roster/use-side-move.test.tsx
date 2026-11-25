@@ -4,13 +4,16 @@ import { createRoot } from 'react-dom/client'
 import { webcrypto } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { SideOverride } from '@/core/contract'
+import type { BattleSnapshot } from '../../api/client'
+import { BattleProvider } from '../../state/battle-store'
 import { loadUiFixture } from '../../test/ui-fixture'
 import { BattleUndo } from '../undo'
 import { useSideMove } from './use-side-move'
 
-const { summary } = loadUiFixture()
+const { summary, analysis } = loadUiFixture()
 const subject = 'char:2121605780'
 const other = 'corp:98108724'
+const alliance = 'ally:1042504553'
 const first = { subject, side: 1, source: 'manual', setAt: 10_000 } satisfies SideOverride
 const second = { ...first, side: 0, setAt: 11_300 }
 const firstTag = '"side-first"'
@@ -18,7 +21,7 @@ const secondTag = '"side-second"'
 
 function receipt(applied: SideOverride, previous: number, etag: string, previousTag: string | null) {
   return Response.json({
-    ...applied,
+    ...applied, revision: etag,
     previous: [{ subject, side: previous }],
     previousTags: { [subject]: previousTag },
   }, { headers: { ETag: etag } })
@@ -34,13 +37,17 @@ async function mount() {
     const { move, moveMany, error } = useSideMove(summary.meta.brId, [], summary.analysisVersion)
     return <>
       <button onClick={() => void move(subject, first.side)}>First</button>
+      <button onClick={() => void move(other, 0)}>Corporation</button>
+      <button onClick={() => void move(alliance, 1)}>Alliance</button>
       <button onClick={() => void move(subject, second.side)}>Second</button>
       <button onClick={() => void moveMany([{ subject, side: second.side }, { subject: other, side: 1 }])}>Batch</button>
       {error && <p role="alert">{error}</p>}
     </>
   }
-  const render = (analyzed = summary) => act(() => root.render(
-    <BattleUndo analyzedSummary={analyzed}><Probe /></BattleUndo>,
+  const render = (analyzed: BattleSnapshot = summary) => act(() => root.render(
+    <BattleProvider static={{ summary: analyzed, analysis }}>
+      <BattleUndo analyzedSummary={analyzed}><Probe /></BattleUndo>
+    </BattleProvider>,
   ))
   await render()
   return {
@@ -61,7 +68,7 @@ it('queues undo from the first moment and submits it after a response held past 
   let settle!: (response: Response) => void
   const pending = new Promise<Response>((resolve) => { settle = resolve })
   const fetch = vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(pending)
-    .mockResolvedValueOnce(Response.json({ applied: [] }, { headers: { ETag: '"restored"' } }))
+    .mockResolvedValueOnce(Response.json({ applied: [], revision: '"restored"' }))
   const app = await mount()
   try {
     await app.move('First')
@@ -93,7 +100,7 @@ it('renders the side limit error in Chinese even when the API responds in Englis
   }
 })
 
-it('offers undo on HTTP success even when only the overtaking side edit reaches analysis', async () => {
+it('uses the conditional restore when a newer same-target frame has not arrived', async () => {
   let settle!: () => void
   const save = new Promise<Response>((resolve) => { settle = () => resolve(receipt(first, -1, firstTag, null)) })
   const fetch = vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(save)
@@ -143,13 +150,13 @@ it('atomically undoes a batch and a subsequent move using both current subject v
   const otherMove = { ...first, subject: other }
   const fetch = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(Response.json({
-      applied: [second, otherMove],
+      applied: [second, otherMove], revision: secondTag,
       previous: [{ subject, side: -1 }, { subject: other, side: -1 }],
       previousTags: { [subject]: null, [other]: null },
     }, { headers: { ETag: secondTag } }))
     .mockResolvedValueOnce(receipt(first, second.side, firstTag, secondTag))
     .mockResolvedValueOnce(Response.json({
-      applied: [{ ...first, side: -1 }, { ...otherMove, side: -1 }], previous: [],
+      applied: [{ ...first, side: -1 }, { ...otherMove, side: -1 }], previous: [], revision: '"restored"',
     }, { headers: { ETag: '"restored"' } }))
   const app = await mount()
   try {
@@ -163,6 +170,92 @@ it('atomically undoes a batch and a subsequent move using both current subject v
     expect(JSON.parse(String(request?.body)).restore).toEqual([{ subject, through: secondTag }, { subject: other, through: secondTag }])
     expect(app.host.textContent).toContain('撤销了 2 次修改')
     expect(app.buttons()).toHaveLength(0)
+  } finally {
+    await app.unmount()
+  }
+})
+
+
+it('undoes overlapping same-tab corporation and alliance edits through a single batch', async () => {
+  vi.stubGlobal('crypto', { subtle: { digest: vi.fn().mockResolvedValue(new Uint8Array(32).buffer) } })
+  const sideReceipt = (subject: string, side: number, revision: string, related: string[]) => Response.json({
+    subject, side, revision, related, previous: [{ subject, side: -1 }], previousTags: { [subject]: null },
+  }, { headers: { ETag: `W/${revision}` } })
+  const fetch = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(sideReceipt(other, 0, firstTag, [alliance]))
+    .mockResolvedValueOnce(sideReceipt(alliance, 1, secondTag, [other]))
+    .mockResolvedValueOnce(Response.json({ applied: [], revision: '"restored"' }))
+  const app = await mount()
+  try {
+    await app.move('Corporation')
+    await app.move('Alliance')
+    await act(async () => app.buttons()[0]!.click())
+    expect(JSON.parse(String(fetch.mock.calls[2]?.[1]?.body)).restore).toEqual(expect.arrayContaining([
+      { subject: other, through: firstTag }, { subject: alliance, through: secondTag },
+    ]))
+    expect(app.host.textContent).toContain('撤销了 2 次修改')
+  } finally {
+    await app.unmount()
+  }
+})
+
+it('keeps a side undo through unrelated edits and withdraws it as soon as that subject is removed', async () => {
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({
+    ...first, revision: firstTag, sequence: 2,
+    previous: [{ subject, side: -1 }], previousTags: { [subject]: null },
+  }))
+  const app = await mount()
+  try {
+    await app.move('First')
+    await app.render({ ...summary, sideOverrides: [first], editRevisions: [
+      { target: `side:${subject}`, revision: `W/${firstTag}`, sequence: 2 },
+      { target: `side:${other}`, revision: secondTag, sequence: 3 },
+    ] })
+    expect(app.buttons()).toHaveLength(1)
+    await app.render({ ...summary, sideOverrides: [], editRevisions: [
+      { target: `side:${subject}`, revision: '"removed"', sequence: 4 },
+    ] })
+    expect(app.buttons()).toHaveLength(0)
+    expect(app.host.textContent).toContain('阵营划分已被其他编辑更改，无法撤销')
+    expect(fetch).toHaveBeenCalledTimes(1)
+  } finally {
+    await app.unmount()
+  }
+})
+
+it('provides feedback for an assignment that needs no change', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({ ...first, revision: null }))
+  const app = await mount()
+  try {
+    await app.move('First')
+    expect(app.host.textContent).toContain('阵营划分没有变化')
+    expect(app.buttons()).toHaveLength(0)
+  } finally {
+    await app.unmount()
+  }
+})
+
+it('restores the original group if a linked group was overtaken before its live frame arrived', async () => {
+  vi.stubGlobal('crypto', { subtle: { digest: vi.fn().mockResolvedValue(new Uint8Array(32).buffer) } })
+  const fetch = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(Response.json({
+      subject: other, side: 0, revision: firstTag, sequence: 1, related: [alliance],
+      previous: [{ subject: other, side: -1 }], previousTags: { [other]: null },
+    }))
+    .mockResolvedValueOnce(Response.json({
+      subject: alliance, side: 1, revision: secondTag, sequence: 2, related: [other],
+      previous: [{ subject: alliance, side: -1 }], previousTags: { [alliance]: null },
+    }))
+    .mockResolvedValueOnce(Response.json({ error: 'bad_request', message: 'Side assignments have changed' }, { status: 412 }))
+    .mockResolvedValueOnce(Response.json({ applied: [], revision: '"restored"', sequence: 4 }))
+  const app = await mount()
+  try {
+    await app.move('Corporation')
+    await app.move('Alliance')
+    await act(async () => app.buttons()[0]!.click())
+    expect(fetch).toHaveBeenCalledTimes(4)
+    expect(JSON.parse(String(fetch.mock.calls[3]?.[1]?.body))).toEqual({ restore: [{ subject: other, through: firstTag }] })
+    expect(app.host.textContent).toContain('已撤销')
   } finally {
     await app.unmount()
   }

@@ -92,6 +92,14 @@ async function state(id: string): Promise<BattleSummary> {
   return response.json()
 }
 
+async function expectEdit<T extends object>(response: Response, value: T) {
+  const revision = response.headers.get('ETag')!
+  expect(revision).toMatch(/^"[^"]+"$/)
+  const body = await response.json<T & { revision: string; sequence: number }>()
+  expect(body).toEqual({ ...value, revision, sequence: expect.any(Number) })
+  return { revision, sequence: body.sequence }
+}
+
 async function connect(id: string) {
   const response = await worker.default.fetch(`${battle(id)}/ws`, { headers: { Upgrade: 'websocket' } })
   expect(response.status).toBe(101)
@@ -247,10 +255,10 @@ it('stores fit text verbatim and broadcasts the fit', async () => {
     const eft = '[Hurricane, [Fleet] Fit]\r\nGyrostabilizer II\r\n'
     const response = await setFit(id, eft)
     const fit = { charId: 100, eft, setAt: now }
-    const versioned = { ...fit, etag: response.headers.get('ETag') }
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual(fit)
-    expect(await viewer.next()).toEqual({ type: 'fit_set', fit: versioned })
+    const stamp = await expectEdit(response, fit)
+    const versioned = { ...fit, revision: stamp.revision }
+    expect(await viewer.next()).toEqual({ type: 'fit_set', fit: versioned, ...stamp, targets: ['fit:100'] })
     await evictDurableObject(env.BATTLE.getByName(id))
     expect((await state(id)).fits).toEqual([versioned])
   } finally {
@@ -277,27 +285,29 @@ it('persists killmail substitutions for reload and a second live viewer, then cl
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ eft, mutated }),
     })
     const response = await saveImport()
-    const versioned = { ...fit, etag: response.headers.get('ETag') }
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual(fit)
-    expect(await editor.next()).toEqual({ type: 'fit_set', fit: versioned })
-    expect(await viewer.next()).toEqual({ type: 'fit_set', fit: versioned })
+    const stamp = await expectEdit(response, fit)
+    const versioned = { ...fit, revision: stamp.revision }
+    const message = { type: 'fit_set', fit: versioned, ...stamp, targets: ['fit:100'] }
+    expect(await editor.next()).toEqual(message)
+    expect(await viewer.next()).toEqual(message)
     await evictDurableObject(stub)
     expect((await state(id)).fits).toEqual([versioned, oldFit])
 
     const edited = { charId: 100, eft: `${eft}\nDamage Control II`, setAt: now }
     const editResponse = await setFit(id, edited.eft)
-    const versionedEdit = { ...edited, etag: editResponse.headers.get('ETag') }
-    expect(await editResponse.json()).toEqual(edited)
-    expect(await viewer.next()).toEqual({ type: 'fit_set', fit: versionedEdit })
+    const editStamp = await expectEdit(editResponse, edited)
+    const versionedEdit = { ...edited, revision: editStamp.revision }
+    expect(await viewer.next()).toEqual({ type: 'fit_set', fit: versionedEdit, ...editStamp, targets: ['fit:100'] })
     expect((await state(id)).fits).toEqual([versionedEdit, oldFit])
 
     const reimported = await saveImport()
-    expect(await reimported.json()).toEqual(fit)
-    expect(await viewer.next()).toEqual({ type: 'fit_set', fit: { ...fit, etag: reimported.headers.get('ETag') } })
+    const reimport = await expectEdit(reimported, fit)
+    expect(await viewer.next()).toEqual({ type: 'fit_set', fit: { ...fit, revision: reimport.revision }, ...reimport, targets: ['fit:100'] })
     const removed = await worker.default.fetch(`${battle(id)}/fits/100`, { method: 'DELETE' })
     expect(removed.status).toBe(200)
-    expect(await viewer.next()).toEqual({ type: 'fit_removed', charId: 100 })
+    const removal = await expectEdit(removed, { removed: 100 })
+    expect(await viewer.next()).toEqual({ type: 'fit_removed', charId: 100, ...removal, targets: ['fit:100'] })
     expect((await state(id)).fits).toEqual([oldFit])
   } finally {
     editor.close()
@@ -316,14 +326,15 @@ it.each([
   const saved = await setFit(id, ownEft)
   expect(saved.status).toBe(200)
   const ownTag = saved.headers.get('ETag')!
-  const ownFit: FitEntry = await saved.json()
-  expect((await state(id)).fits).toEqual([{ ...ownFit, etag: ownTag }])
+  const { sequence: ownSequence, ...ownFit } = await saved.json<FitEntry & { sequence: number }>()
+  expect((await state(id)).fits).toEqual([ownFit])
 
   const newerEft = method === 'PUT' ? '[Leshak, Other viewer]' : ownEft
   const newer = await setFit(id, newerEft)
   expect(newer.status).toBe(200)
   const newerTag = newer.headers.get('ETag')!
-  const newerFit: FitEntry = await newer.json()
+  const { sequence: newerSequence, ...newerFit } = await newer.json<FitEntry & { sequence: number }>()
+  expect(newerSequence).toBeGreaterThan(ownSequence)
   expect(newerFit.setAt).toBe(ownFit.setAt) // The frozen fixture clock forces both writes into the same millisecond.
   await evictDurableObject(env.BATTLE.getByName(id))
 
@@ -331,7 +342,7 @@ it.each([
   const rejected = await undo(ownTag)
   expect(rejected.status).toBe(412)
   expect(await rejected.json()).toMatchObject({ error: 'bad_request' })
-  expect((await state(id)).fits).toEqual([{ ...newerFit, etag: newerTag }])
+  expect((await state(id)).fits).toEqual([newerFit])
   expect(ownTag).toMatch(/^"[^"]+"$/)
   expect(newerTag).not.toBe(ownTag)
 
@@ -348,9 +359,9 @@ it('returns the exact preceding fit and revision only to editors requesting an u
   })
   expect(await (await save(first!)).json()).toMatchObject({ eft: first, previous: null })
   const remote = await setFit(id, other!)
-  const prior = await remote.json<FitEntry>()
+  const { sequence: _, ...prior } = await remote.json<FitEntry & { sequence: number }>()
   expect(await (await save(last!)).json()).toMatchObject({
-    eft: last, previous: { ...prior, etag: remote.headers.get('ETag') },
+    eft: last, previous: { ...prior, revision: remote.headers.get('ETag') },
   })
 })
 
@@ -596,7 +607,7 @@ it('I9 keeps multiple files for one pilot and treats an exact upload as a no-op'
   await evictDurableObject(env.BATTLE.getByName(id))
   expect((await state(id)).logs.map(({ id }) => id).sort()).toEqual([initial.id, next.id].sort())
   const response = await setFit(id, '[Rifter, Fleet]')
-  expect(await response.json()).toEqual({ charId: 100, eft: '[Rifter, Fleet]', setAt: now })
+  await expectEdit(response, { charId: 100, eft: '[Rifter, Fleet]', setAt: now })
 })
 
 it('M3 limits stored unparsed diagnostics to 500 lines while retaining their total count', async () => {
@@ -861,8 +872,10 @@ it('restores the effective side and exact rows when the prior corporation lost a
     expect(await viewer.next()).toMatchObject({ type: 'snapshot' })
     const result = await restoreSides(id, [corp.subject, extra].map((subject) => ({ subject, through: etag })), etag)
     expect(result.status).toBe(200)
-    await result.json()
-    expect(await viewer.next()).toEqual({ type: 'sides_set', overrides: [corp, ally] })
+    const stamp = await result.json<{ revision: string; sequence: number }>()
+    expect(await viewer.next()).toMatchObject({
+      type: 'sides_set', overrides: [corp, ally], revision: stamp.revision, sequence: stamp.sequence,
+    })
     expect((await state(id)).sideOverrides).toEqual([corp, ally])
   } finally {
     viewer.close()
@@ -894,7 +907,7 @@ it('checks an entire side receipt before restoring it and gives the older edit a
   const first = await putSide(id, { subject, side: 1 }, receipt)
   expect(first.status).toBe(200)
   const olderTag = first.headers.get('ETag')!
-  const prior = await first.json<SideOverride>()
+  const { subject: restoredSubject, side, setAt, source } = await first.json<SideOverride>()
   const second = await putSideBatch(id, [{ subject, side: 0 }, { subject: other, side: 1 }], receipt)
   expect(second.status).toBe(200)
   const latestTag = second.headers.get('ETag')!
@@ -908,7 +921,6 @@ it('checks an entire side receipt before restoring it and gives the older edit a
   const undo = await restoreSides(id, throughLatest, latestTag)
   expect(undo.status).toBe(200)
   const restoredTag = undo.headers.get('ETag')!
-  const { subject: restoredSubject, side, setAt, source } = prior
   expect(await undo.json()).toMatchObject({ applied: [{ subject: restoredSubject, side, setAt, source }, { subject: other, side: -1 }] })
   expect(restoredTag).not.toBe(olderTag)
   expect((await state(id)).sideOverrides).toEqual([{ subject: restoredSubject, side, setAt, source }])
@@ -917,7 +929,7 @@ it('checks an entire side receipt before restoring it and gives the older edit a
   expect((await state(id)).sideOverrides).toEqual([])
 })
 
-it('rejects a restore atomically if a competing override for an affected pilot has changed', async () => {
+it('restores only its requested subject after a different group for the same pilot changes', async () => {
   const id = await prepare(0xb94)
   const log = await upload(id, 'valid log')
   expect(log.status).toBe(200)
@@ -930,8 +942,40 @@ it('rejects a restore atomically if a competing override for an affected pilot h
   const etag = edit.headers.get('ETag')!
   await editSide(id, ally, 2)
   const current = (await state(id)).sideOverrides
-  expect((await restoreSides(id, [{ subject, through: etag }], etag)).status).toBe(412)
-  expect((await state(id)).sideOverrides).toEqual(current)
+  expect((await restoreSides(id, [{ subject, through: `W/${etag}` }], `W/${etag}`)).status).toBe(200)
+  expect((await state(id)).sideOverrides).toEqual(current.filter((row) => row.subject === ally))
+})
+
+it('makes a repeated corporation assignment newest when an alliance currently wins', async () => {
+  const id = await prepare(0xc101)
+  const stub = env.BATTLE.getByName(id)
+  const log = await upload(id, 'valid log')
+  expect(log.status).toBe(200)
+  await log.json()
+  const corp = await editSide(id, 'corp:98108724', 2)
+  const ally = await editSide(id, 'ally:1042504553', 1)
+  const side = async () => {
+    expect(await runDurableObjectAlarm(stub)).toBe(true)
+    return (await decodeAnalysis(await rawAnalysis(id))).value.entities['char:100']?.side
+  }
+  expect(await side()).toBe(1)
+  const viewer = await connect(id)
+  try {
+    await viewer.next()
+    const saved = await putSide(id, { subject: corp.subject, side: corp.side }, { 'X-EVE-Undo': '1' })
+    const edit = await saved.json<{ revision: string; sequence: number }>()
+    expect(edit).toMatchObject({ revision: saved.headers.get('ETag'), related: [ally.subject] })
+    expect(edit.revision).toMatch(/^"/)
+    expect(await viewer.next()).toMatchObject({
+      type: 'sides_set', revision: edit.revision, sequence: edit.sequence, targets: [`side:${corp.subject}`],
+    })
+    expect(await side()).toBe(2)
+    const undo = await restoreSides(id, [{ subject: corp.subject, through: edit.revision }], edit.revision)
+    expect(undo.status).toBe(200)
+    expect(await side()).toBe(1)
+  } finally {
+    viewer.close()
+  }
 })
 
 it('accepts a side undo whose If-Match tag was weakened by a compressing proxy', async () => {
@@ -1005,7 +1049,7 @@ async function editSide(id: string, subject: SideOverride['subject'], side: numb
   const response = await putSide(id, { subject, side })
   expect(response.status).toBe(200)
   const override = { subject, side, source: 'manual', setAt: now } satisfies SideOverride
-  expect(await response.json()).toEqual(override)
+  await expectEdit(response, override)
   return override
 }
 
@@ -1037,18 +1081,22 @@ it('restores and reapplies a side batch with one viewer frame for each operation
     const response = await putSideBatch(id, removals)
     expect(response.status).toBe(200)
     const applied = removals.map((edit) => ({ ...edit, setAt: now, source: 'manual' }))
-    expect(await response.json()).toEqual({ applied, previous })
-    expect(await viewer.next()).toEqual({ type: 'sides_set', overrides: [] })
+    const stamp = await expectEdit(response, { applied, previous })
+    expect(await viewer.next()).toEqual({
+      type: 'sides_set', overrides: [], ...stamp, targets: removals.map(({ subject }) => `side:${subject}`),
+    })
     expect((await state(id)).sideOverrides).toEqual([])
     expect(await runDurableObjectAlarm(stub)).toBe(true)
     expect(await viewer.next()).toEqual({ type: 'analysis_ready', version: 1 })
 
     const undo = await putSideBatch(id, previous)
     expect(undo.status).toBe(200)
-    expect(await undo.json()).toEqual({
+    const restored = await expectEdit(undo, {
       applied: [low, high], previous: previous.map(({ subject }) => ({ subject, side: -1 })),
     })
-    expect(await viewer.next()).toEqual({ type: 'sides_set', overrides: [low, high] })
+    expect(await viewer.next()).toEqual({
+      type: 'sides_set', overrides: [low, high], ...restored, targets: previous.map(({ subject }) => `side:${subject}`),
+    })
     expect(await runDurableObjectAlarm(stub)).toBe(true)
     expect(await viewer.next()).toEqual({ type: 'analysis_ready', version: 2 })
     await evictDurableObject(stub)
@@ -1139,7 +1187,7 @@ it('atomically creates distinct sides for simultaneous new-side edits, then reje
   expect(results.map(({ status }) => status)).toEqual([200, 200])
   const replies = await Promise.all(results.map((response) => response.json<SideOverride>()))
   expect(replies.map(({ side }) => side).sort((a, b) => a - b)).toEqual([firstNew, firstNew + 1])
-  expect((await state(id)).sideOverrides).toEqual(expect.arrayContaining(replies))
+  expect((await state(id)).sideOverrides).toEqual(expect.arrayContaining(replies.map(({ subject, side, source, setAt }) => ({ subject, side, source, setAt }))))
 
   for (let side = firstNew + 2; side <= 7; side++) await editSide(id, `char:${100 + side}`, side)
   const response = await add(109)
@@ -1167,9 +1215,9 @@ it('F6b broadcasts effective edits before the coalesced analysis receives them',
   try {
     expect(await viewer.next()).toMatchObject({ type: 'snapshot', state: { sideOverrides: [], analysisVersion: 1 } })
     const first = await editSide(id, 'char:100', 0)
-    expect(await viewer.next()).toEqual({ type: 'sides_set', overrides: [first] })
+    expect(await viewer.next()).toMatchObject({ type: 'sides_set', overrides: [first], targets: ['side:char:100'] })
     const replacement = await editSide(id, 'char:100', 2)
-    expect(await viewer.next()).toEqual({ type: 'sides_set', overrides: [replacement] })
+    expect(await viewer.next()).toMatchObject({ type: 'sides_set', overrides: [replacement], targets: ['side:char:100'] })
     expect((await state(id)).analysisVersion).toBe(1)
     expect(analyze).not.toHaveBeenCalled()
 
@@ -1356,8 +1404,8 @@ it('validates, persists, publishes and removes identity merges across eviction',
     const ok = await put('name:NPC', 'char:101')
     expect(ok.status).toBe(200)
     const merge = { from: 'name:NPC', to: 'char:101', setAt: now }
-    expect(await ok.json()).toEqual(merge)
-    expect(await viewer.next()).toEqual({ type: 'identities_set', merges: [merge] })
+    const stamp = await expectEdit(ok, merge)
+    expect(await viewer.next()).toEqual({ type: 'identities_set', merges: [merge], ...stamp, targets: ['identity:name:NPC'] })
   } finally {
     viewer.close()
   }
@@ -1372,8 +1420,8 @@ it('validates, persists, publishes and removes identity merges across eviction',
     expect(value.interactions.filter(({ to }) => to === 'char:101')).toHaveLength(3)
     const remove = await put('name:NPC', null)
     expect(remove.status).toBe(200)
-    expect(await remove.json()).toEqual({ removed: 'name:NPC' })
-    expect(await after.next()).toEqual({ type: 'identities_set', merges: [] })
+    const stamp = await expectEdit(remove, { removed: 'name:NPC' })
+    expect(await after.next()).toEqual({ type: 'identities_set', merges: [], ...stamp, targets: ['identity:name:NPC'] })
     expect((await state(id)).identityMerges).toEqual([])
   } finally {
     after.close()
@@ -1443,10 +1491,12 @@ it('deletes a saved fit and broadcasts its removal to another viewer', async () 
     const remove = () => worker.default.fetch(`${battle(id)}/fits/100`, { method: 'DELETE' })
     const deleted = await remove()
     expect(deleted.status).toBe(200)
-    expect(await deleted.json()).toEqual({ removed: 100 })
-    expect(await viewer.next()).toEqual({ type: 'fit_removed', charId: 100 })
-    expect((await state(id)).fits).toEqual([])
-    expect((await remove()).status).toBe(200)
+    const stamp = await expectEdit(deleted, { removed: 100 })
+    expect(await viewer.next()).toEqual({ type: 'fit_removed', charId: 100, ...stamp, targets: ['fit:100'] })
+    expect(await state(id)).toMatchObject({ fits: [], editRevisions: [{ ...stamp, target: 'fit:100' }] })
+    const noChange = await remove()
+    expect(noChange.status).toBe(200)
+    expect(await noChange.json()).toEqual({ removed: 100, revision: null })
   } finally {
     viewer.close()
   }

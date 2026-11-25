@@ -57,7 +57,7 @@ const mutatedModules = ['Entropic Radiation Sink II']
 const importedFit = { charId: pilot.charId!, eft, setAt: 1, mutated: mutatedModules }
 const firstFit = { charId: pilot.charId!, eft: '[Leshak, First save]', setAt: 10_000 }
 const firstTag = '"first-save"'
-const firstReceipt = { ...firstFit, etag: firstTag }
+const firstReceipt = { ...firstFit, revision: firstTag }
 const newerFit = { charId: pilot.charId!, eft: '[Leshak, Other viewer]', setAt: 10_300 }
 const overwritten = '已被他人的新配装覆盖，无法撤销'
 const toast = () => host.querySelector('[data-battle-toast]')
@@ -80,8 +80,8 @@ async function submitFit(fit: FitEntry) {
 
 it.each(['newer', 'older'] as const)('keeps same-tab fit saves undoable and can undo the %s save', async (which) => {
   vi.useFakeTimers()
-  const second = { ...newerFit, eft: '[Leshak, Second save]', setAt: firstFit.setAt + 1300, etag: '"second"' }
-  const restored = { ...firstFit, setAt: second.setAt + 1, etag: '"restored"' }
+  const second = { ...newerFit, eft: '[Leshak, Second save]', setAt: firstFit.setAt + 1300, revision: '"second"' }
+  const restored = { ...firstFit, setAt: second.setAt + 1, revision: '"restored"' }
   let settle!: () => void
   const pending = new Promise<typeof second & { previous: typeof firstReceipt }>((resolve) => {
     settle = () => resolve({ ...second, previous: firstReceipt })
@@ -103,14 +103,14 @@ it.each(['newer', 'older'] as const)('keeps same-tab fit saves undoable and can 
 
   if (which === 'newer') {
     await act(async () => undoButtons()[1]!.click())
-    expect(put).toHaveBeenLastCalledWith(before.meta.brId, firstFit.charId, firstFit.eft, undefined, second.etag)
+    expect(put).toHaveBeenLastCalledWith(before.meta.brId, firstFit.charId, firstFit.eft, undefined, second.revision)
     await renderFit({ ...fixture, summary: withFits(restored) }, before)
     expect(undoButtons()).toHaveLength(1)
     await act(async () => undoButtons()[0]!.click())
-    expect(remove).toHaveBeenCalledWith(before.meta.brId, firstFit.charId, restored.etag)
+    expect(remove).toHaveBeenCalledWith(before.meta.brId, firstFit.charId, restored.revision)
   } else {
     await act(async () => undoButtons()[0]!.click())
-    expect(remove).toHaveBeenCalledWith(before.meta.brId, firstFit.charId, second.etag)
+    expect(remove).toHaveBeenCalledWith(before.meta.brId, firstFit.charId, second.revision)
     expect(host.textContent).toContain('撤销了 2 次修改')
     expect(undoButtons()).toHaveLength(0)
   }
@@ -177,7 +177,7 @@ it('distinguishes another editor’s equal EFT saved in the same millisecond', a
   const initial = withFits()
   await renderFit({ ...fixture, summary: initial })
   await submitFit(firstFit)
-  const identicalOther = { ...firstReceipt, etag: '"other-tab"' }
+  const identicalOther = { ...firstReceipt, revision: '"other-tab"' }
   await renderFit({ ...fixture, summary: withFits(identicalOther) }, initial, false)
   expect(toast()?.textContent).toBe(overwritten)
 })
@@ -201,7 +201,7 @@ it('shows the overwrite reason even when the fit notice was in the undo overflow
 
 it('leaves a newer fit intact when the live frame has not reached the viewer at undo time', async () => {
   const fetchFit = vi.spyOn(globalThis, 'fetch')
-    .mockResolvedValueOnce(Response.json(firstFit, { headers: { ETag: firstTag } }))
+    .mockResolvedValueOnce(Response.json(firstReceipt, { headers: { ETag: `W/${firstTag}` } }))
     .mockResolvedValueOnce(Response.json({ error: 'bad_request', message: 'The fit changed' }, { status: 412 }))
   await renderFit({ ...fixture, summary: withFits(importedFit) })
   await submitFit(firstFit)

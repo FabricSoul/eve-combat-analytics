@@ -142,26 +142,31 @@ function PilotFit({ pilot, charId, summary, interactions }: {
     const finish = beginUndo()
     try {
       const brId = summary.meta.brId
-      const key = `${brId}/${charId}`
+      const key = `${brId}/fit:${charId}`
       const putFit = ({ eft, mutated }: FitText) => mutated?.length
         ? services.save(brId, charId, eft, mutated)
         : services.save(brId, charId, eft)
-      const { previous, ...entry } = await history.run(key, () => putFit({ eft: text, mutated: draft?.mutated }))
-      const prior = previous === undefined ? fit : previous ?? undefined
-      const { etag } = entry
-      const edit = etag && history.record(finish.id, [{
-        key, before: { tag: prior?.etag ?? null, value: prior }, after: { tag: etag, value: entry },
-      }])
+      const { entry, edit } = await history.run(key, async () => {
+        const { previous, ...entry } = await putFit({ eft: text, mutated: draft?.mutated })
+        const prior = previous === undefined ? fit : previous ?? undefined
+        const { revision, sequence } = entry
+        const edit = revision && history.record(finish.id, [{
+          key, before: { tag: prior?.revision ?? null, value: prior }, after: { tag: revision, sequence, value: entry },
+        }])
+        return { entry, edit }
+      })
       let echoedTag: string | null = null
       finish(!edit ? { label: '已保存配装' } : {
         label: '已保存配装',
         conflict: {
           label: overwritten,
-          when: (state) => {
+          when: (state, revisions) => {
             if (state.meta.brId !== brId) return true
             if (history.isPending(key)) return false
-            if (!history.contains(key, edit)) return true
+            if (!history.canRevert(edit, revisions)) return true
             const head = history.current(key)!
+            if (head.sequence !== undefined) return false
+            // A legacy summary can still identify a newer fit by its saved value.
             const current = pilotFit(state, charId)
             if (isSameFit(current, head.value)) {
               echoedTag = head.tag
@@ -174,19 +179,20 @@ function PilotFit({ pilot, charId, summary, interactions }: {
             return current.setAt >= (head.value?.setAt ?? entry.setAt) && !isSameFit(current, remote)
           },
         },
-        revert: () => history.run(key, async () => {
-          const plan = history.plan(edit)
+        revert: (_version, readRevisions) => history.run(key, async () => {
+          const plan = history.plan(edit, readRevisions())
           if (!plan) return { unavailable: overwritten }
           const { value: priorFit, tag } = plan.changes[0]!
           try {
             let restored: VersionedFit | undefined
+            let receipt
             if (priorFit) {
               const { previous: _, ...result } = await services.save(brId, charId, priorFit.eft, priorFit.mutated, tag)
-              restored = result
+              restored = receipt = result
             } else {
-              await api.deleteFit(brId, charId, tag)
+              receipt = await api.deleteFit(brId, charId, tag)
             }
-            plan.commit(() => ({ value: restored, tag: restored?.etag ?? null }))
+            plan.commit(() => ({ value: restored, tag: receipt.revision ?? null, sequence: receipt.sequence }))
             setSaved(restored)
             return { reverted: plan.reverted }
           } catch (error) {
