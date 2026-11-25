@@ -234,7 +234,7 @@ export class BattleRoom extends DurableObject<Env> {
       }
       if (request.method === 'PUT' && route === 'identities') {
         const data = await readEdit(request, 'identity')
-        return await this.inOrder(() => this.setIdentity(data))
+        return await this.inOrder(() => this.setIdentity(data, request.headers))
       }
       if (request.method === 'GET' && route === 'ws') {
         if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
@@ -580,11 +580,14 @@ export class BattleRoom extends DurableObject<Env> {
     if (undoReceipt && ifMatch === null && previous[0]!.side === side) {
       return Response.json({ subject, side, source: 'manual', setAt: this.services.now(), ...metadata })
     }
-    const { applied: [override], etag } = await this.applySideEdits([{ subject, side }])
+    const { applied: [override], etag } = await this.applySideEdits([{ subject, side }], undoReceipt ? meta : undefined)
     return Response.json({ ...override, ...metadata }, { headers: { ETag: etag } })
   }
 
   private async setSideBatch(data: unknown, headers: Headers): Promise<Response> {
+    if (data && typeof data === 'object' && 'restore' in data) {
+      return this.restoreSideBatch(data.restore, headers.get('If-Match'))
+    }
     const { meta } = await this.battle()
     const limit = Math.max(MAX_BATTLE_SIDES, meta.teams.length)
     if (!data || typeof data !== 'object' || !('edits' in data) || !Array.isArray(data.edits) || !data.edits.length) {
@@ -608,10 +611,34 @@ export class BattleRoom extends DurableObject<Env> {
     const previous = current.filter(({ subject }) => changed.has(subject)).map(({ subject, side }) => ({ subject, side }))
     for (const { subject } of edits) if (!assigned.has(subject)) previous.push({ subject, side: -1 })
 
-    const { applied, etag } = edits.length ? await this.applySideEdits(edits) : { applied: [] }
+    const undoReceipt = headers.has(undoHeader)
+    const { applied, etag } = edits.length ? await this.applySideEdits(edits, undoReceipt ? meta : undefined) : { applied: [] }
     const result = { applied, previous } satisfies SideBatchResult
-    const previousTags = headers.has(undoHeader) ? { previousTags: Object.fromEntries(tags) } : undefined
+    const previousTags = undoReceipt ? { previousTags: Object.fromEntries(tags) } : undefined
     return Response.json({ ...result, ...previousTags }, { headers: etag ? { ETag: etag } : undefined })
+  }
+
+  private async restoreSideBatch(restore: unknown, ifMatch: string | null): Promise<Response> {
+    if (!Array.isArray(restore) || !restore.length) {
+      throw new ApiFailure('bad_request', 'Expected a nonempty list of side restores')
+    }
+    const requested = new Map<SideSubject, string>()
+    for (const item of restore as unknown[]) {
+      if (!item || typeof item !== 'object' || !('subject' in item) || !isSideSubject(item.subject)
+        || !('through' in item) || typeof item.through !== 'string' || !/^"[\da-f-]{36}"$/.test(item.through)
+        || requested.has(item.subject)) {
+        throw new ApiFailure('bad_request', 'Expected distinct subjects and side edit revisions')
+      }
+      requested.set(item.subject, item.through)
+    }
+    if (!ifMatch) throw new ApiFailure('bad_request', 'A side restore requires an edit revision', 412)
+    await this.requireSideMatch([...requested.keys()], ifMatch)
+    const etag = `"${crypto.randomUUID()}"`
+    await this.scheduleAnalysis()
+    const result = this.store.restoreSides(requested, etag, this.services.now())
+    if (!result) throw new ApiFailure('bad_request', 'Side assignments have changed', 412)
+    this.broadcast({ type: 'sides_set', overrides: result.overrides })
+    return Response.json({ applied: result.applied }, { headers: { ETag: etag } })
   }
 
   private async requireSideMatch(subjects: readonly SideSubject[], ifMatch: string | null) {
@@ -628,7 +655,7 @@ export class BattleRoom extends DurableObject<Env> {
     return entries
   }
 
-  private async applySideEdits(edits: SideBatchEdit['edits']) {
+  private async applySideEdits(edits: SideBatchEdit['edits'], captureFor?: BattleMeta) {
     const setAt = this.services.now()
     if (!this.store.canEditSide(setAt)) {
       throw new ApiFailure('bad_request', 'A battle can accept at most 30 side edits per minute', 429)
@@ -636,19 +663,26 @@ export class BattleRoom extends DurableObject<Env> {
     const applied = edits.map((edit): SideOverride => ({ ...edit, source: 'manual', setAt }))
     const etag = `"${crypto.randomUUID()}"`
     await this.scheduleAnalysis()
-    const overrides = this.store.setSides(applied, setAt, etag)
+    const overrides = this.store.setSides(applied, setAt, etag, captureFor)
     this.broadcast({ type: 'sides_set', overrides })
     return { applied, etag }
   }
 
-  private async setIdentity(data: unknown): Promise<Response> {
+  private async setIdentity(data: unknown, headers: Headers): Promise<Response> {
     if (!data || typeof data !== 'object' || !('from' in data) || !isMergeSource(data.from)
       || !('to' in data) || (data.to !== null && !isMergeTarget(data.to))) {
       throw new ApiFailure('bad_request', 'Expected an unresolved source and a character target or null')
     }
     const { from, to } = data
+    const ifMatch = headers.get('If-Match')
+    const previousTag = this.store.identityTag(from)
+    if (ifMatch !== null && (previousTag === null || !ifMatch.split(',').some((tag) => tag.trim() === previousTag))) {
+      throw new ApiFailure('bad_request', 'Identity merges have changed', 412)
+    }
     const current = this.store.identityMerges()
-    if (to !== null || !current?.some((merge) => merge.from === from)) {
+    const previous = current?.find((merge) => merge.from === from) ?? null
+    const undoReceipt = headers.has(undoHeader)
+    if ((to !== null && (to !== previous?.to || !undoReceipt)) || (ifMatch === null && !previous)) {
       const { meta } = await this.battle()
       const state = await this.store.state(meta)
       // Check the original source even when it has already disappeared into a merge.
@@ -658,12 +692,16 @@ export class BattleRoom extends DurableObject<Env> {
       }
     }
 
-    if (to === null && !current?.some((merge) => merge.from === from)) return Response.json({ removed: from })
+    if (ifMatch === null && (previous?.to ?? null) === to && (undoReceipt || to === null)) {
+      return Response.json(previous ?? { removed: from })
+    }
     const setAt = this.services.now()
+    const etag = `"${crypto.randomUUID()}"`
     await this.scheduleAnalysis()
-    const merges = this.store.setIdentity(from, to, setAt)
+    const merges = this.store.setIdentity(from, to, setAt, etag)
     this.broadcast({ type: 'identities_set', merges })
-    return Response.json(to === null ? { removed: from } : { from, to, setAt } satisfies IdentityMerge)
+    const result = to === null ? { removed: from } : { from, to, setAt } satisfies IdentityMerge
+    return Response.json(undoReceipt ? { ...result, previous, previousTag } : result, { headers: { ETag: etag } })
   }
 
   private openWebSocket(meta: BattleMeta): Response {

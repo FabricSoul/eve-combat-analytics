@@ -828,6 +828,112 @@ function putSideBatch(id: string, edits: unknown, headers?: Record<string, strin
   })
 }
 
+function restoreSides(id: string, restore: { subject: string; through: string }[], etag: string) {
+  return worker.default.fetch(`${battle(id)}/sides/batch`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', 'If-Match': etag },
+    body: JSON.stringify({ restore }),
+  })
+}
+
+it('restores the effective side and exact rows when the prior corporation lost a timestamp tie to the alliance', async () => {
+  const id = await prepare(0xb91)
+  const stub = env.BATTLE.getByName(id)
+  const log = await upload(id, 'valid log')
+  expect(log.status).toBe(200)
+  await log.json()
+  const corp = await editSide(id, 'corp:98108724', 2)
+  const ally = await editSide(id, 'ally:1042504553', 1)
+  const extra = 'char:250'
+  const side = async () => {
+    expect(await runDurableObjectAlarm(stub)).toBe(true)
+    return (await decodeAnalysis(await rawAnalysis(id))).value.entities['char:100']?.side
+  }
+  expect(await side()).toBe(1)
+  const edit = await putSideBatch(id, [{ subject: corp.subject, side: 0 }, { subject: extra, side: 2 }], { 'X-EVE-Undo': '1' })
+  expect(edit.status).toBe(200)
+  const etag = edit.headers.get('ETag')!
+  await edit.json()
+  expect(await side()).toBe(0)
+  await evictDurableObject(stub)
+  const viewer = await connect(id)
+  try {
+    expect(await viewer.next()).toMatchObject({ type: 'snapshot' })
+    const result = await restoreSides(id, [corp.subject, extra].map((subject) => ({ subject, through: etag })), etag)
+    expect(result.status).toBe(200)
+    await result.json()
+    expect(await viewer.next()).toEqual({ type: 'sides_set', overrides: [corp, ally] })
+    expect((await state(id)).sideOverrides).toEqual([corp, ally])
+  } finally {
+    viewer.close()
+  }
+  expect(await side()).toBe(1)
+})
+
+it('restores the 30th side edit with its revision without consuming an edit slot', async () => {
+  const id = await prepare(0xb92)
+  for (let i = 1; i < 30; i++) await editSide(id, `char:${i}`, 0)
+  const subject = 'char:30'
+  const edit = await putSide(id, { subject, side: 0 }, { 'X-EVE-Undo': '1' })
+  expect(edit.status).toBe(200)
+  const etag = edit.headers.get('ETag')!
+  expect((await putSide(id, { subject, side: 1 }, { 'If-Match': etag })).status).toBe(429)
+  expect((await restoreSides(id, [{ subject, through: etag }], etag)).status).toBe(200)
+  expect((await state(id)).sideOverrides).toHaveLength(29)
+  expect((await putSide(id, { subject, side: 0 })).status).toBe(429)
+  await runInDurableObject(env.BATTLE.getByName(id), (_, { storage }) => {
+    expect(storage.sql.exec<{ count: number }>('SELECT count(*) AS count FROM side_edits').one().count).toBe(30)
+  })
+})
+
+it('checks an entire side receipt before restoring it and gives the older edit a fresh validator', async () => {
+  const id = await prepare(0xb93)
+  const subject = 'char:250'
+  const other = 'char:251'
+  const receipt = { 'X-EVE-Undo': '1' }
+  const first = await putSide(id, { subject, side: 1 }, receipt)
+  expect(first.status).toBe(200)
+  const olderTag = first.headers.get('ETag')!
+  const prior = await first.json<SideOverride>()
+  const second = await putSideBatch(id, [{ subject, side: 0 }, { subject: other, side: 1 }], receipt)
+  expect(second.status).toBe(200)
+  const latestTag = second.headers.get('ETag')!
+  await second.json()
+  const throughLatest = [{ subject, through: latestTag }, { subject: other, through: latestTag }]
+  const current = (await state(id)).sideOverrides
+  const rejected = await restoreSides(id, throughLatest.slice(0, 1), latestTag)
+  expect(rejected.status).toBe(412)
+  await rejected.json()
+  expect((await state(id)).sideOverrides).toEqual(current)
+  const undo = await restoreSides(id, throughLatest, latestTag)
+  expect(undo.status).toBe(200)
+  const restoredTag = undo.headers.get('ETag')!
+  const { subject: restoredSubject, side, setAt, source } = prior
+  expect(await undo.json()).toMatchObject({ applied: [{ subject: restoredSubject, side, setAt, source }, { subject: other, side: -1 }] })
+  expect(restoredTag).not.toBe(olderTag)
+  expect((await state(id)).sideOverrides).toEqual([{ subject: restoredSubject, side, setAt, source }])
+  await evictDurableObject(env.BATTLE.getByName(id))
+  expect((await restoreSides(id, [{ subject, through: olderTag }], restoredTag)).status).toBe(200)
+  expect((await state(id)).sideOverrides).toEqual([])
+})
+
+it('rejects a restore atomically if a competing override for an affected pilot has changed', async () => {
+  const id = await prepare(0xb94)
+  const log = await upload(id, 'valid log')
+  expect(log.status).toBe(200)
+  await log.json()
+  const subject = 'corp:98108724'
+  const ally = 'ally:1042504553'
+  await editSide(id, ally, 1)
+  const edit = await putSide(id, { subject, side: 0 }, { 'X-EVE-Undo': '1' })
+  expect(edit.status).toBe(200)
+  const etag = edit.headers.get('ETag')!
+  await editSide(id, ally, 2)
+  const current = (await state(id)).sideOverrides
+  expect((await restoreSides(id, [{ subject, through: etag }], etag)).status).toBe(412)
+  expect((await state(id)).sideOverrides).toEqual(current)
+})
+
 it('guardedly restores a single move and rejects an intervening edit even after the override is removed', async () => {
   const id = await prepare(0xb85)
   const subject = 'corp:12345'
@@ -1261,6 +1367,34 @@ it('validates, persists, publishes and removes identity merges across eviction',
   } finally {
     after.close()
   }
+})
+
+it('returns identity predecessors and rejects a stale merge undo after a removal and empty restore', async () => {
+  const id = await prepare(0xb95)
+  const log = await upload(id, 'valid log')
+  expect(log.status).toBe(200)
+  await log.json()
+  const from = 'name:NPC'
+  const to = 'char:101'
+  const put = (to: string | null, tag?: string) => worker.default.fetch(`${battle(id)}/identities`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-EVE-Undo': '1', ...(tag ? { 'If-Match': tag } : {}) },
+    body: JSON.stringify({ from, to }),
+  })
+  const saved = await put(to)
+  expect(saved.status).toBe(200)
+  const mergedTag = saved.headers.get('ETag')!
+  expect(await saved.json()).toMatchObject({ from, to, previous: null, previousTag: null })
+  const removed = await put(null)
+  expect(removed.status).toBe(200)
+  const removedTag = removed.headers.get('ETag')!
+  expect(await removed.json()).toMatchObject({ removed: from, previous: { from, to, setAt: now }, previousTag: mergedTag })
+  await evictDurableObject(env.BATTLE.getByName(id))
+  const restored = await put(null, removedTag)
+  expect(restored.status).toBe(200)
+  expect(restored.headers.get('ETag')).not.toBe(removedTag)
+  expect((await put(to, removedTag)).status).toBe(412)
+  expect((await state(id)).identityMerges).toEqual([])
 })
 
 it('filters known ships, drones, and charges out of ESI counterparty name batches', async () => {

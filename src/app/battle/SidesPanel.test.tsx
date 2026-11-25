@@ -193,7 +193,10 @@ describe('SidesPanel', () => {
     putSide.mockResolvedValueOnce({
       subject: 'corp:10', side: -1, source: 'manual', setAt: 4, etag: '"removed"',
       previous: [{ subject: 'corp:10', side: 0 }], previousTags: { 'corp:10': null },
-    }).mockResolvedValueOnce({ subject: 'corp:10', side: 0, source: 'manual', setAt: 5, etag: '"restored"' })
+    })
+    const restoreSides = vi.spyOn(api, 'restoreSides').mockResolvedValue({
+      applied: [{ subject: 'corp:10', side: 0, source: 'manual', setAt: 2 }], etag: '"restored"',
+    })
     await act(async () => remove.click())
     expect(putSide).toHaveBeenCalledWith('tiny', 'corp:10', -1)
     expect(document.activeElement).toBe(opener)
@@ -205,7 +208,7 @@ describe('SidesPanel', () => {
     const undo = toast.querySelector('button')!
     expect(undo.textContent).toBe('撤销')
     await act(async () => undo.click())
-    expect(putSide).toHaveBeenLastCalledWith('tiny', 'corp:10', 0, '"removed"')
+    expect(restoreSides).toHaveBeenCalledWith('tiny', [{ subject: 'corp:10', through: '"removed"' }], new Map([['corp:10', '"removed"']]))
   })
 
   it('offers removal through the right-click menu only for rows with their own override', () => {
@@ -297,7 +300,9 @@ describe('SidesPanel', () => {
     await act(async () => toasts[0]!.querySelector('button')!.click())
     expect(fetchBatch).toHaveBeenCalledTimes(2)
     expect(fetchBatch).toHaveBeenLastCalledWith('/api/battles/tiny/sides/batch', expect.objectContaining({
-      method: 'PUT', body: JSON.stringify({ edits: edits(summary.sideOverrides) }),
+      method: 'PUT', body: JSON.stringify({
+        restore: summary.sideOverrides.map(({ subject }) => ({ subject, through: '"removed"' })),
+      }),
     }))
     expect(new Headers(fetchBatch.mock.calls[1]?.[1]?.headers).get('If-Match')).toBe('"removed"')
     const undone = { ...published, analysisVersion: published.analysisVersion + 1, sideOverrides: reinstated }

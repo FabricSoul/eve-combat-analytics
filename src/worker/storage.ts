@@ -1,4 +1,5 @@
 import { ANALYZER_VERSION } from '../core/analysis/version'
+import { indexSideAssignments } from '../core/analysis/sides'
 import type { HistoryKind } from '../core/esi/history'
 import type {
   BattleMeta, BattleState, BattleSummary, EntityKey, FitEntry, IdentityMerge, LogEvent, NameIndex, ParsedLog, SideOverride,
@@ -16,6 +17,11 @@ type LogRow = Omit<UploadedLogSummary, keyof LogEventSummary> & {
 }
 type FitRow = Omit<FitEntry, 'mutated'> & { mutated: string | null; etag: string | null }
 type VersionedFit = FitEntry & { etag?: string }
+type SideRow = { subject: SideSubject; side: number; setAt: number; position: number }
+type SideSnapshot = {
+  previous: [subject: SideSubject, row: SideOverride & { position: number } | null, cursor: string | null][]
+  context: [subject: SideSubject, row: SideOverride & { position: number } | null][]
+}
 
 function readFitRow({ mutated, etag, ...fit }: FitRow): VersionedFit {
   const names: string[] | undefined = mutated === null ? undefined : JSON.parse(mutated)
@@ -158,7 +164,7 @@ export class BattleStorage {
     })
   }
 
-  private hasColumn(table: 'logs' | 'names' | 'fits', column: string): boolean {
+  private hasColumn(table: 'logs' | 'names' | 'fits' | 'side_revisions', column: string): boolean {
     return this.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray()
       .some(({ name }) => name === column)
   }
@@ -299,11 +305,13 @@ export class BattleStorage {
     return { meta, logs, fits, names, sideOverrides, identityMerges }
   }
 
-  sideOverrides(): SideOverride[] {
+  private sideRows(): SideRow[] {
     if (!this.hasTable('side_overrides')) return []
-    return this.sql.exec<{ subject: SideSubject; side: number; setAt: number }>(
-      'SELECT subject, side, setAt FROM side_overrides ORDER BY id',
-    ).toArray().map((entry) => ({ ...entry, source: 'manual' }))
+    return this.sql.exec<SideRow>('SELECT subject, side, setAt, id AS position FROM side_overrides ORDER BY id').toArray()
+  }
+
+  sideOverrides(): SideOverride[] {
+    return this.sideRows().map(({ subject, side, setAt }) => ({ subject, side, setAt, source: 'manual' }))
   }
 
   canEditSide(setAt: number): boolean {
@@ -321,7 +329,37 @@ export class BattleStorage {
     ).toArray()[0]?.tag ?? null)
   }
 
-  setSides(edits: readonly SideOverride[], setAt: number, etag: string): SideOverride[] {
+  private sideCursor(subject: SideSubject): string | null {
+    return this.sql.exec<{ cursor: string | null }>(
+      'SELECT cursor FROM side_revisions WHERE subject = ?', subject,
+    ).toArray()[0]?.cursor ?? null
+  }
+
+  private captureSides(meta: BattleMeta, subjects: ReadonlySet<SideSubject>): SideSnapshot {
+    const rows = new Map(this.sideRows().map((row) => [row.subject, { ...row, source: 'manual' as const }]))
+    const logs = this.logRows().map((row) => this.summarizeLog(row))
+    const { affiliations } = indexSideAssignments({ meta, logs, names: this.nameIndex(), sideOverrides: [] })
+    // Keep the other candidates for every affected pilot, including absent overrides.
+    const context = new Set<SideSubject>()
+    for (const [id, { corpId, allyId }] of affiliations) {
+      const candidates: SideSubject[] = [`char:${id}`]
+      if (corpId != null) candidates.push(`corp:${corpId}`)
+      if (allyId != null) candidates.push(`ally:${allyId}`)
+      if (candidates.some((subject) => subjects.has(subject))) {
+        for (const subject of candidates) if (!subjects.has(subject)) context.add(subject)
+      }
+    }
+    return {
+      previous: [...subjects].map((subject) => [subject, rows.get(subject) ?? null, this.sideCursor(subject)]),
+      context: [...context].map((subject) => [subject, rows.get(subject) ?? null]),
+    }
+  }
+
+  private writeSideRevision(subject: SideSubject, etag: string, cursor: string | null): void {
+    this.sql.exec('INSERT OR REPLACE INTO side_revisions (subject, tag, cursor) VALUES (?, ?, ?)', subject, etag, cursor)
+  }
+
+  setSides(edits: readonly SideOverride[], setAt: number, etag: string, captureFor?: BattleMeta): SideOverride[] {
     return this.storage.transactionSync(() => {
       if (!this.hasTable('side_edits')) {
         this.sql.exec(`
@@ -333,15 +371,79 @@ export class BattleStorage {
       }
       // A removed override still has a revision so removing it again cannot revive a stale undo.
       this.sql.exec('CREATE TABLE IF NOT EXISTS side_revisions (subject TEXT PRIMARY KEY, tag TEXT NOT NULL)')
+      if (!this.hasColumn('side_revisions', 'cursor')) this.sql.exec('ALTER TABLE side_revisions ADD COLUMN cursor TEXT')
+      if (!this.hasTable('side_order')) this.sql.exec(`
+        CREATE TABLE side_order (last INTEGER NOT NULL);
+        INSERT INTO side_order SELECT coalesce(max(id), 0) FROM side_overrides;
+      `)
+      if (captureFor) {
+        this.sql.exec('CREATE TABLE IF NOT EXISTS side_undo (tag TEXT PRIMARY KEY, snapshot TEXT NOT NULL)')
+        const snapshot = this.captureSides(captureFor, new Set(edits.map(({ subject }) => subject)))
+        this.sql.exec('INSERT INTO side_undo (tag, snapshot) VALUES (?, ?)', etag, JSON.stringify(snapshot))
+      }
       this.sql.exec('DELETE FROM side_edits WHERE setAt <= ?', setAt - SIDE_EDIT_WINDOW_MS)
       this.sql.exec('INSERT INTO side_edits (setAt) VALUES (?)', setAt)
+      let { last } = this.sql.exec<{ last: number }>('SELECT last FROM side_order').one()
       for (const { subject, side } of edits) {
-        this.sql.exec('INSERT OR REPLACE INTO side_revisions (subject, tag) VALUES (?, ?)', subject, etag)
+        this.writeSideRevision(subject, etag, captureFor ? etag : null)
         if (side === -1) this.sql.exec('DELETE FROM side_overrides WHERE subject = ?', subject)
-        else this.sql.exec('INSERT OR REPLACE INTO side_overrides (subject, side, setAt) VALUES (?, ?, ?)', subject, side, setAt)
+        else this.sql.exec('INSERT OR REPLACE INTO side_overrides (id, subject, side, setAt) VALUES (?, ?, ?, ?)', ++last, subject, side, setAt)
       }
+      this.sql.exec('UPDATE side_order SET last = ?', last)
       this.markAnalysisDirty()
       return this.sideOverrides()
+    })
+  }
+
+  restoreSides(requested: ReadonlyMap<SideSubject, string>, etag: string, setAt: number) {
+    return this.storage.transactionSync(() => {
+      if (!this.hasTable('side_undo')) return
+      const visited = new Map<string, { snapshot: SideSnapshot; subjects: Set<SideSubject> }>()
+      const restore: SideSnapshot['previous'] = []
+      const targetSnapshots = new Set<SideSnapshot>()
+      for (const [subject, through] of requested) {
+        let cursor = this.sideCursor(subject)
+        while (cursor) {
+          let receipt = visited.get(cursor)
+          if (!receipt) {
+            const record = this.sql.exec<{ snapshot: string }>('SELECT snapshot FROM side_undo WHERE tag = ?', cursor).toArray()[0]
+            if (!record) return
+            receipt = { snapshot: JSON.parse(record.snapshot) as SideSnapshot, subjects: new Set() }
+            visited.set(cursor, receipt)
+          }
+          const prior = receipt.snapshot.previous.find(([key]) => key === subject)
+          if (!prior) return
+          receipt.subjects.add(subject)
+          if (cursor === through) {
+            restore.push(prior)
+            targetSnapshots.add(receipt.snapshot)
+            break
+          }
+          cursor = prior[2]
+        }
+        if (!cursor) return
+      }
+      // An older undo can unwind a newer batch only as a whole.
+      if ([...visited.values()].some(({ snapshot, subjects }) => snapshot.previous.length !== subjects.size)) return
+      const positions = new Map(this.sideRows().map(({ subject, position }) => [subject, position]))
+      for (const { context } of targetSnapshots) {
+        if (context.some(([subject, row]) => !requested.has(subject) && positions.get(subject) !== row?.position)) return
+      }
+
+      const applied = restore.map(([subject, row, cursor]): SideOverride => {
+        this.writeSideRevision(subject, etag, cursor)
+        if (!row) {
+          this.sql.exec('DELETE FROM side_overrides WHERE subject = ?', subject)
+          return { subject, side: -1, source: 'manual', setAt }
+        }
+        const { position, ...override } = row
+        this.sql.exec('INSERT OR REPLACE INTO side_overrides (id, subject, side, setAt) VALUES (?, ?, ?, ?)',
+          position, subject, row.side, row.setAt)
+        return override
+      })
+      for (const tag of visited.keys()) this.sql.exec('DELETE FROM side_undo WHERE tag = ?', tag)
+      this.markAnalysisDirty()
+      return { applied, overrides: this.sideOverrides() }
     })
   }
 
@@ -352,13 +454,20 @@ export class BattleStorage {
     ).toArray().map(({ source, target, setAt }) => ({ from: source, to: target, setAt }))
   }
 
-  setIdentity(from: EntityKey, to: IdentityMerge['to'] | null, setAt: number): IdentityMerge[] {
+  identityTag(from: EntityKey): string | null {
+    if (!this.hasTable('identity_revisions')) return null
+    return this.sql.exec<{ tag: string }>('SELECT tag FROM identity_revisions WHERE source = ?', from).toArray()[0]?.tag ?? null
+  }
+
+  setIdentity(from: EntityKey, to: IdentityMerge['to'] | null, setAt: number, etag: string): IdentityMerge[] {
     return this.storage.transactionSync(() => {
       this.sql.exec(`CREATE TABLE IF NOT EXISTS identity_merges (
         source TEXT PRIMARY KEY, target TEXT NOT NULL, setAt INTEGER NOT NULL
       )`)
       if (to === null) this.sql.exec('DELETE FROM identity_merges WHERE source = ?', from)
       else this.sql.exec('INSERT OR REPLACE INTO identity_merges VALUES (?, ?, ?)', from, to, setAt)
+      this.sql.exec('CREATE TABLE IF NOT EXISTS identity_revisions (source TEXT PRIMARY KEY, tag TEXT NOT NULL)')
+      this.sql.exec('INSERT OR REPLACE INTO identity_revisions (source, tag) VALUES (?, ?)', from, etag)
       this.markAnalysisDirty()
       return this.identityMerges()!
     })

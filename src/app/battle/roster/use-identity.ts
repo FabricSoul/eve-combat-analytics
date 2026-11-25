@@ -1,42 +1,60 @@
 import { useState } from 'react'
 import type { EntityKey, IdentityMerge } from '@/core/contract'
 import { useLocalIdentity } from '../../state/battle-store'
-import { useBattleUndo } from '../undo'
+import { useBattleUndo, useEditHistory } from '../undo'
 import { api, ApiFailure } from '../../api/client'
 
-/**
- * Writes identity merges through PUT /identities. The change shows in the roster at once (applied locally, rolled back
- * if the call fails) until identities_set brings the server's list; the toast offers 撤销
- * from the first moment (undo reverts the local change and sends the removal).
- */
+const overwritten = '身份合并已被其他编辑更改，无法撤销'
+
 export function useIdentity(brId: string, merges: readonly IdentityMerge[] = [], _version = -1) {
   const begin = useBattleUndo()
+  const history = useEditHistory('identity')
   const applyLocal = useLocalIdentity()
   const [error, setError] = useState<string | null>(null)
 
-  /** `label` is the toast text. The change shows at once and 撤销 is offered from the first moment. */
-  async function put(from: EntityKey, to: IdentityMerge['to'] | null, label?: string): Promise<boolean> {
+  async function put(from: EntityKey, to: IdentityMerge['to'] | null, label = to ? '已合并身份' : '已取消合并'): Promise<boolean> {
     setError(null)
+    const key = `${brId}/${from}`
     const previous = merges.find((merge) => merge.from === from)?.to ?? null
     const rollBack = applyLocal?.(from, to)
-    const saving = api.putIdentity(brId, from, to)
-    // The shared toast starts its clock now and offers 撤销 at once; undo reverts the local change, then sends the removal.
-    const finish = begin(previous === to ? undefined : {
-      label: label ?? (to ? '已合并身份' : '已取消合并'),
-      revert: async () => {
-        const undo = applyLocal?.(from, previous)
+    let edit: ReturnType<typeof history.record> | undefined
+    const revert = async () => {
+      const rollBackUndo = applyLocal?.(from, previous)
+      return history.run(key, async () => {
+        const plan = edit && history.plan(edit)
+        if (!plan) {
+          rollBackUndo?.()
+          return { unavailable: edit ? overwritten : '无法撤销，未收到修改确认' }
+        }
+        const { value, tag } = plan.changes[0]!
+        const target = value?.to ?? null
+        const rollBackRestore = target === previous ? rollBackUndo : applyLocal?.(from, target)
         try {
-          await saving.catch(() => undefined)
-          await api.putIdentity(brId, from, previous)
+          const restored = await api.putIdentity(brId, from, target, tag)
+          plan.commit(() => ({ value: 'to' in restored ? restored : null, tag: restored.etag ?? null }))
+          return { reverted: plan.reverted }
         } catch (failure) {
-          undo?.()
+          rollBackRestore?.()
+          if (failure instanceof ApiFailure && failure.status === 412) return { unavailable: overwritten }
           throw failure
         }
-      },
-    })
-    if (previous === to) finish()
+      })
+    }
+    const finish = begin({ label, revert: previous === to ? undefined : revert })
     try {
-      await saving
+      await history.run(key, async () => {
+        const { previous, previousTag, etag, ...saved } = await api.putIdentity(brId, from, to)
+        if (!etag || previous === undefined) {
+          finish()
+          return
+        }
+        edit = history.record(finish.id, [{
+          key,
+          before: { value: previous, tag: previousTag ?? null },
+          after: { value: 'to' in saved ? saved : null, tag: etag },
+        }])
+        finish({ label, revert })
+      })
       return true
     } catch (failure) {
       rollBack?.()

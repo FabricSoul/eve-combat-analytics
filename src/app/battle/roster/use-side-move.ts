@@ -12,10 +12,25 @@ export function useSideMove(brId: string, _overrides: readonly SideOverride[] = 
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(0)
 
-  async function edit(save: () => Promise<Receipt>, batch: boolean): Promise<boolean> {
+  async function edit(save: () => Promise<Receipt>): Promise<boolean> {
     setError(null)
     setPending((n) => n + 1)
-    const finish = begin()
+    let edit: ReturnType<typeof history.record> | undefined
+    const revert = () => history.run(brId, async () => {
+      const plan = edit && history.plan(edit)
+      if (!plan) return { unavailable: edit ? overwritten : '无法撤销，未收到修改确认' }
+      const restore = plan.changes.map(({ value: subject, through }) => ({ subject, through }))
+      const tags = new Map(plan.changes.map(({ value, tag }) => [value, tag]))
+      try {
+        const restored = await api.restoreSides(brId, restore, tags)
+        plan.commit((_, value) => ({ value, tag: restored.etag ?? null }))
+        return { reverted: plan.reverted }
+      } catch (failure) {
+        if (failure instanceof ApiFailure && failure.status === 412) return { unavailable: overwritten }
+        throw failure
+      }
+    })
+    const finish = begin({ label: '正在应用…', pending: true, revert })
     try {
       await history.run(brId, async () => {
         const { applied, previous, previousTags, etag } = await save()
@@ -23,35 +38,14 @@ export function useSideMove(brId: string, _overrides: readonly SideOverride[] = 
           finish()
           return
         }
-        const bySubject = new Map(applied.map((override) => [override.subject, override]))
-        const edit = history.record(finish.id, previous.map((before) => ({
-          key: `${brId}/${before.subject}`,
-          before: { value: before, tag: previousTags[before.subject] ?? null },
-          after: { value: bySubject.get(before.subject)!, tag: etag },
+        edit = history.record(finish.id, previous.map(({ subject }) => ({
+          key: `${brId}/${subject}`,
+          before: { value: subject, tag: previousTags[subject] ?? null },
+          after: { value: subject, tag: etag },
         })))
         finish({
           label: applied.every(({ side }) => side === -1) ? '已恢复报告阵营' : '已改为所选阵营',
-          revert: () => history.run(brId, async () => {
-            const plan = history.plan(edit)
-            if (!plan) return { unavailable: overwritten }
-            const edits = plan.changes.map(({ value: { subject, side } }) => ({ subject, side }))
-            const tags = new Map(plan.changes.map(({ value, tag }) => [value.subject, tag]))
-            try {
-              const single = edits[0]!
-              const restored = !batch && edits.length === 1
-                ? await api.putSide(brId, single.subject, single.side, tags.get(single.subject))
-                  .then((result) => ({ applied: [result], etag: result.etag }))
-                : await api.putSideBatch(brId, edits, tags)
-              const changed = new Set(restored.applied.map(({ subject }) => subject))
-              plan.commit((_, value) => ({
-                value, tag: (changed.has(value.subject) ? restored.etag : undefined) ?? tags.get(value.subject)!,
-              }))
-              return { reverted: plan.reverted }
-            } catch (failure) {
-              if (failure instanceof ApiFailure && failure.status === 412) return { unavailable: overwritten }
-              throw failure
-            }
-          }),
+          revert,
         })
       })
       return true
@@ -68,11 +62,11 @@ export function useSideMove(brId: string, _overrides: readonly SideOverride[] = 
     return edit(async () => {
       const { etag, previous = [], previousTags, ...applied } = await api.putSide(brId, subject, side)
       return { applied: etag ? [applied] : [], previous, previousTags, etag }
-    }, false)
+    })
   }
 
   function moveMany(edits: SideBatchEdit['edits']): Promise<boolean> {
-    return edit(() => api.putSideBatch(brId, edits), true)
+    return edit(() => api.putSideBatch(brId, edits))
   }
 
   return { move, moveMany, error, busy: pending > 0, clearError: () => setError(null) }

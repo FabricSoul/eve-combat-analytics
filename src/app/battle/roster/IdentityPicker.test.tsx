@@ -155,8 +155,11 @@ describe('IdentityPicker', () => {
 
   it('撤销 straight away reverts the optimistic merge and sends the removal after the first call settles', async () => {
     let finish!: () => void
-    const put = vi.spyOn(api, 'putIdentity').mockReturnValueOnce(new Promise((resolve) => { finish = () => resolve({ from: 'name:Hidden', to: 'char:2', setAt: 1 }) }))
-      .mockResolvedValue({ removed: 'name:Hidden' })
+    const put = vi.spyOn(api, 'putIdentity')
+      .mockReturnValueOnce(new Promise((resolve) => {
+        finish = () => resolve({ from: 'name:Hidden', to: 'char:2', setAt: 1, previous: null, previousTag: null, etag: '"merged"' })
+      }))
+      .mockResolvedValue({ removed: 'name:Hidden', etag: '"restored"' })
     mounted = mountApp(createElement(BattleUndo, null, createElement(Roster)), { summary: tinySummary, analysis })
     act(() => row('Hidden').querySelector<HTMLButtonElement>('.roster-more')!.click())
     act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === '这是谁…')!.click())
@@ -164,8 +167,9 @@ describe('IdentityPicker', () => {
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[data-battle-toast] button')].find((b) => b.textContent === '撤销')!.click())
     expect(row('Pilot2').querySelector('.app-tag')).toBeNull()
     expect(put).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('[data-battle-toast]')?.textContent).toBe('正在撤销…')
     await act(async () => finish())
-    expect(put).toHaveBeenLastCalledWith('tiny', 'name:Hidden', null)
+    expect(put).toHaveBeenLastCalledWith('tiny', 'name:Hidden', null, '"merged"')
   })
 
   it('scrolls the merged pilot into view inside the list and flashes it once', async () => {
@@ -179,6 +183,29 @@ describe('IdentityPicker', () => {
     await act(async () => { vi.advanceTimersByTime(2000) })
     expect(row('Pilot2').hasAttribute('data-flash')).toBe(false)
     vi.useRealTimers()
+  })
+
+  it('undoing the older merge also withdraws the later unmerge and its undo', async () => {
+    const from = 'name:Hidden'
+    const merge = { from, to: 'char:2', setAt: 1 } as const
+    const put = vi.spyOn(api, 'putIdentity')
+      .mockResolvedValueOnce({ ...merge, previous: null, previousTag: null, etag: '"merged"' })
+      .mockResolvedValueOnce({ removed: from, previous: merge, previousTag: '"merged"', etag: '"unmerged"' })
+      .mockResolvedValueOnce({ removed: from, etag: '"restored"' })
+    mounted = mountApp(createElement(BattleUndo, null, createElement(Roster)), { summary: tinySummary, analysis })
+    act(() => row('Hidden').querySelector<HTMLButtonElement>('.roster-more')!.click())
+    act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === '这是谁…')!.click())
+    await act(async () => picker()!.querySelector<HTMLButtonElement>('[data-suggestion]')!.click())
+    act(() => row('Pilot2').querySelector<HTMLButtonElement>('.roster-more')!.click())
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find((b) => b.textContent?.startsWith('取消合并'))!.click())
+    const undos = () => [...document.querySelectorAll<HTMLButtonElement>('[data-battle-toast] button')]
+    expect(undos()).toHaveLength(2)
+    await act(async () => undos()[0]!.click())
+    expect(put).toHaveBeenLastCalledWith('tiny', from, null, '"unmerged"')
+    expect(document.querySelector('[data-battle-toast]')?.textContent).toBe('撤销了 2 次修改')
+    expect(undos()).toHaveLength(0)
+    expect(row('Pilot2').querySelector('.app-tag')).toBeNull()
   })
 
   it('labels a merged character with its merge time and keeps undo in the pilot menu', async () => {

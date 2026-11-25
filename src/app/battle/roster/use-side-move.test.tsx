@@ -31,11 +31,12 @@ async function mount() {
   document.body.appendChild(host)
   const root = createRoot(host)
   function Probe() {
-    const { move, moveMany } = useSideMove(summary.meta.brId, [], summary.analysisVersion)
+    const { move, moveMany, error } = useSideMove(summary.meta.brId, [], summary.analysisVersion)
     return <>
       <button onClick={() => void move(subject, first.side)}>First</button>
       <button onClick={() => void move(subject, second.side)}>Second</button>
       <button onClick={() => void moveMany([{ subject, side: second.side }, { subject: other, side: 1 }])}>Batch</button>
+      {error && <p role="alert">{error}</p>}
     </>
   }
   const render = (analyzed = summary) => act(() => root.render(
@@ -54,6 +55,42 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.useRealTimers()
   vi.unstubAllGlobals()
+})
+
+it('queues undo from the first moment and submits it after a response held past ten seconds', async () => {
+  let settle!: (response: Response) => void
+  const pending = new Promise<Response>((resolve) => { settle = resolve })
+  const fetch = vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(pending)
+    .mockResolvedValueOnce(Response.json({ applied: [] }, { headers: { ETag: '"restored"' } }))
+  const app = await mount()
+  try {
+    await app.move('First')
+    expect(app.buttons()).toHaveLength(1)
+    await act(async () => app.buttons()[0]!.click())
+    expect(app.host.textContent).toContain('正在撤销…')
+    expect(app.buttons()).toHaveLength(0)
+    await act(() => vi.advanceTimersByTime(10_200))
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(app.host.textContent).toContain('正在撤销…')
+    await act(async () => settle(receipt(first, -1, firstTag, null)))
+    expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get('If-Match')).toBe(firstTag)
+    expect(app.host.textContent).toContain('已撤销')
+  } finally {
+    await app.unmount()
+  }
+})
+
+it('renders the side limit error in Chinese even when the API responds in English', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({
+    error: 'bad_request', message: 'A battle can accept at most 30 side edits per minute',
+  }, { status: 429 }))
+  const app = await mount()
+  try {
+    await app.move('First')
+    expect(app.host.querySelector('[role="alert"]')?.textContent).toBe('每分钟最多改 30 次排边，请稍后再试')
+  } finally {
+    await app.unmount()
+  }
 })
 
 it('offers undo on HTTP success even when only the overtaking side edit reaches analysis', async () => {
@@ -90,7 +127,7 @@ it('undoes both own side moves from the older toast without an intervening publi
     expect(app.buttons()).toHaveLength(2)
     await act(async () => app.buttons()[0]!.click())
     expect(new Headers(fetch.mock.calls[2]?.[1]?.headers).get('If-Match')).toBe(secondTag)
-    expect(JSON.parse(String(fetch.mock.calls[2]?.[1]?.body))).toEqual({ subject, side: -1 })
+    expect(JSON.parse(String(fetch.mock.calls[2]?.[1]?.body))).toEqual({ restore: [{ subject, through: firstTag }] })
     expect(app.host.textContent).toContain('撤销了 2 次修改')
     expect(app.buttons()).toHaveLength(0)
   } finally {
@@ -123,7 +160,7 @@ it('atomically undoes a batch and a subsequent move using both current subject v
     expect(path).toMatch(/\/sides\/batch$/)
     expect(digest).toHaveBeenCalledWith('SHA-256', new TextEncoder().encode(entries))
     expect(new Headers(request?.headers).get('If-Match')).toBe(`"${Buffer.from(expected).toString('hex')}"`)
-    expect(JSON.parse(String(request?.body)).edits).toEqual([{ subject, side: -1 }, { subject: other, side: -1 }])
+    expect(JSON.parse(String(request?.body)).restore).toEqual([{ subject, through: secondTag }, { subject: other, through: secondTag }])
     expect(app.host.textContent).toContain('撤销了 2 次修改')
     expect(app.buttons()).toHaveLength(0)
   } finally {

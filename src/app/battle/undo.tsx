@@ -1,13 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { BattleSummary, SideBatchEdit } from '@/core/contract'
+import type { BattleSummary, IdentityMerge, SideSubject } from '@/core/contract'
 import type { VersionedFit } from '../api/client'
 import { useBattleContext } from '../state/battle-store'
 
 type Visible = (summary: BattleSummary) => boolean
 type Revert = (publishedVersion: number) => Promise<Visible | { unavailable: string } | { reverted: number[] } | void>
 type Conflict = { label: string; when: Visible }
-type Toast = { label: string; revert?: Revert; visible?: Visible; conflict?: Conflict }
+type Toast = { label: string; revert?: Revert; visible?: Visible; conflict?: Conflict; pending?: true }
 type Finish = ((result?: Toast) => void) & { id: number }
 type Begin = (optimistic?: Toast) => Finish
 type Notice = {
@@ -21,7 +21,8 @@ type Update = (id: number, change: (notice: Notice) => Notice | undefined, promo
 
 const UndoContext = createContext<Begin>(() => Object.assign(() => {}, { id: 0 }))
 const EditHistoryContext = createContext<ReturnType<typeof createHistories> | null>(null)
-const applying: Toast = { label: '正在应用…' }
+const applying: Toast = { label: '正在应用…', pending: true }
+const reverting: Toast = { label: '正在撤销…', pending: true }
 const undoDuration = 10_000
 const feedbackDuration = 2500
 const fullNoticeCount = 3
@@ -29,7 +30,7 @@ const stackItemStyle = { position: 'static', translate: 'none', maxWidth: '100%'
 const touchTarget = 'max-[760px]:min-h-[44px]! max-[760px]:min-w-[44px] pointer-coarse:min-h-[44px]! pointer-coarse:min-w-[44px]'
 
 function waiting(toast: Toast) {
-  return toast === applying || toast.visible !== undefined
+  return toast.pending || toast.visible !== undefined
 }
 
 function expire(notice: Notice) {
@@ -37,7 +38,7 @@ function expire(notice: Notice) {
 }
 
 function canUndo({ toast, remaining }: Notice) {
-  return Boolean(toast.revert && remaining > 0 && !waiting(toast))
+  return Boolean(toast.revert && remaining > 0 && !toast.visible)
 }
 
 function feedback(notice: Notice, toast: Toast): Notice {
@@ -48,7 +49,7 @@ export function useBattleUndo() { return useContext(UndoContext) }
 
 type Revision<T> = { tag: string | null; value: T }
 type Head<T> = Revision<T> & { edit?: Edit<T>; overwritten?: T }
-type Edit<T> = { id: number; before: Map<string, Head<T>> }
+type Edit<T> = { id: number; before: Map<string, Head<T>>; tags: Map<string, string> }
 
 // A receipt links to a local edit only when the server confirms it was the immediate predecessor.
 // Keep the chain at the battle level so a toast can outlive its menu or drawer.
@@ -73,11 +74,12 @@ class EditHistory<T> {
 
   clear() { this.heads.clear() }
 
-  record(id: number, changes: { key: string; before: Revision<T>; after: Revision<T> }[]) {
-    const edit: Edit<T> = { id, before: new Map() }
+  record(id: number, changes: { key: string; before: Revision<T>; after: Revision<T> & { tag: string } }[]) {
+    const edit: Edit<T> = { id, before: new Map(), tags: new Map() }
     for (const { key, before, after } of changes) {
       const head = this.heads.get(key)
       edit.before.set(key, head && head.tag === before.tag ? { ...head, value: before.value } : before)
+      edit.tags.set(key, after.tag)
       this.heads.set(key, { ...after, edit, overwritten: before.value })
     }
     return edit
@@ -91,7 +93,7 @@ class EditHistory<T> {
   }
 
   plan(target: Edit<T>) {
-    const restored = new Map<string, Head<T>>()
+    const restored = new Map<string, Head<T> & { through: string }>()
     const reverted = new Set<Edit<T>>()
     const visit = (edit: Edit<T>): boolean => {
       if (reverted.has(edit)) return true
@@ -108,14 +110,14 @@ class EditHistory<T> {
       }
       for (const [key, before] of edit.before) {
         restored.delete(key)
-        restored.set(key, before)
+        restored.set(key, { ...before, through: edit.tags.get(key)! })
       }
       reverted.add(edit)
       return true
     }
     if (!visit(target)) return undefined
     return {
-      changes: [...restored].map(([key, { value }]) => ({ key, value, tag: this.heads.get(key)!.tag! })),
+      changes: [...restored].map(([key, { value, through }]) => ({ key, value, through, tag: this.heads.get(key)!.tag! })),
       reverted: [...reverted].map(({ id }) => id),
       commit: (read: (key: string, restored: T) => Revision<T>) => {
         for (const [key, before] of restored) {
@@ -130,7 +132,8 @@ class EditHistory<T> {
 function createHistories() {
   return {
     fit: new EditHistory<VersionedFit | undefined>(),
-    side: new EditHistory<SideBatchEdit['edits'][number]>(),
+    side: new EditHistory<SideSubject>(),
+    identity: new EditHistory<IdentityMerge | null>(),
   }
 }
 
@@ -173,20 +176,30 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
 
   const begin = useCallback<Begin>((optimistic) => {
     const id = ++nextId.current
+    let resolveReceipt!: (result: Toast | undefined) => void
+    const receipt = new Promise<Toast | undefined>((resolve) => { resolveReceipt = resolve })
+    const revert: Revert = async (version) => {
+      const result = await receipt
+      return result?.revert ? result.revert(version) : { unavailable: '无法撤销，未收到修改确认' }
+    }
     const notice: Notice = {
-      id, toast: optimistic ?? applying, deadline: Date.now() + undoDuration, remaining: undoDuration,
+      id, toast: optimistic ?? { ...applying, revert }, deadline: Date.now() + undoDuration, remaining: undoDuration,
     }
     // Completed feedback yields its space when another action begins.
     const active = current.current.filter((entry) => waiting(entry.toast) || canUndo(entry))
     if (!active.length) {
       histories.fit.clear()
       histories.side.clear()
+      histories.identity.clear()
     }
     show([...active, notice])
-    const finish: Finish = Object.assign((result?: Toast) => update(id, (latest) => {
-      if (latest.undoStarted) return latest
-      if (result) return { ...latest, toast: result }
-    }), { id })
+    const finish: Finish = Object.assign((result?: Toast) => {
+      resolveReceipt(result)
+      update(id, (latest) => {
+        if (latest.undoStarted) return latest
+        if (result) return { ...latest, toast: result }
+      })
+    }, { id })
     return finish
   }, [histories, show, update])
 
@@ -203,7 +216,7 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
     const revert = edit?.toast.revert
     if (!edit || !revert || !canUndo(edit)) return
     if (edit.deadline !== undefined && Date.now() >= edit.deadline) return
-    update(id, (notice) => ({ ...notice, toast: applying, undoStarted: true }))
+    update(id, (notice) => ({ ...notice, toast: reverting, undoStarted: true }))
     try {
       const result = await revert(publishedVersion)
       if (result && typeof result === 'object' && 'reverted' in result) {
@@ -339,7 +352,7 @@ function UndoNotice({ notice, update, domId, shown, onUndo }: {
     }}>
     {toast.conflict && <WatchUndoConflict id={id} conflict={toast.conflict} update={update} />}
     <div className="min-w-0 [overflow-wrap:anywhere]">
-      <span role="status">{pending ? applying.label : toast.label}</span>
+      <span role="status">{toast.visible ? applying.label : toast.label}</span>
     </div>
     {remaining > 0 && (pending || undoable) && <span role="timer" aria-label={`撤销剩余时间 ${secondsLeft} 秒`}
       data-seconds={`${secondsLeft}s`}

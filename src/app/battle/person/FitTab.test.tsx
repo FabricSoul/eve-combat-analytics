@@ -124,7 +124,7 @@ it('settles an overtaken PUT even when analysis only publishes the other viewer�
   const before = withFits()
   await renderFit({ ...fixture, summary: before })
   await submitFit(firstFit)
-  expect(toast()?.textContent).toBe('正在应用…')
+  expect(toast()?.textContent).toBe('正在应用…撤销')
 
   await act(async () => vi.advanceTimersByTimeAsync(300))
   const coalesced = { ...withFits(newerFit), analysisVersion: before.analysisVersion + 1 }

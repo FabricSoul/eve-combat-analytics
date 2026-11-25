@@ -19,18 +19,33 @@ export type UploadProgress = (fraction: number) => void
 export type VersionedFit = FitEntry & { etag?: string }
 type FitReceipt = VersionedFit & { previous?: VersionedFit | null }
 type SideReceipt = { etag?: string; previousTags?: Partial<Record<SideSubject, string | null>> }
+type IdentityReceipt = (IdentityMerge | { removed: EntityKey }) & {
+  etag?: string
+  previous?: IdentityMerge | null
+  previousTag?: string | null
+}
 
-const apiCodes = {
-  bad_br_url: true, br_not_found: true, br_unavailable: true, not_a_gamelog: true,
-  no_overlap: true, unknown_character: true, bad_eft: true, too_large: true,
-  bad_request: true, killmail_unavailable: true,
-} satisfies Record<ApiErrorCode, true>
+const apiMessages = {
+  bad_br_url: '请输入有效的战斗报告链接或战斗编号',
+  br_not_found: '找不到这场战斗',
+  br_unavailable: '战斗数据暂时无法获取，请稍后再试',
+  not_a_gamelog: '这不是 EVE 战斗日志',
+  no_overlap: '这份日志的时间与战斗时间不重合',
+  unknown_character: '找不到日志所属的飞行员',
+  bad_eft: '配装格式有误，请检查 EFT 文本',
+  too_large: '提交的内容超过大小限制',
+  bad_request: '请求无效，请检查后重试',
+  killmail_unavailable: '暂时无法获取这份击毁报告',
+} satisfies Record<ApiErrorCode, string>
 
 function failure(payload: Partial<ApiError> | null, status: number): ApiFailure {
-  const code = payload?.error
+  const error = payload?.error
+  const code = typeof error === 'string' && Object.hasOwn(apiMessages, error) ? error : 'network'
   return new ApiFailure(
-    typeof code === 'string' && Object.hasOwn(apiCodes, code) ? code : 'network',
-    typeof payload?.message === 'string' ? payload.message : `请求失败（${status}）`,
+    code,
+    status === 429 ? '每分钟最多改 30 次排边，请稍后再试'
+      : status === 412 ? '修改已被其他编辑更改，请刷新后重试'
+        : code === 'network' ? `请求失败（${status}）` : apiMessages[code],
     status,
   )
 }
@@ -161,8 +176,12 @@ export const api = {
     return edit(`${battleApiPath(brId)}/sides/batch`, json('PUT', { edits }), tags && await sideBatchMatch(tags))
   },
 
-  putIdentity(brId: string, from: EntityKey, to: IdentityMerge['to'] | null): Promise<IdentityMerge | { removed: EntityKey }> {
-    return request(`${battleApiPath(brId)}/identities`, json('PUT', { from, to }))
+  async restoreSides(brId: string, restore: { subject: SideSubject; through: string }[], tags: ReadonlyMap<string, string>) {
+    return edit<{ applied: SideOverride[] }>(`${battleApiPath(brId)}/sides/batch`, json('PUT', { restore }), await sideBatchMatch(tags))
+  },
+
+  putIdentity(brId: string, from: EntityKey, to: IdentityMerge['to'] | null, ifMatch?: string): Promise<IdentityReceipt> {
+    return edit(`${battleApiPath(brId)}/identities`, json('PUT', { from, to }), ifMatch)
   },
 
   getKillmailFit(id: number, hash: string): Promise<KillmailFit> {
