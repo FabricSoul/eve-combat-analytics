@@ -26,6 +26,35 @@ const fightsWidth = 336
 const fightsHeight = 164
 const compactFightsWidth = 1200
 const minPhoneFightsWidth = 188
+const phoneFightsTitleLineHeight = 14
+const phoneFightsFrameBorders = 2
+const phoneFightsCompactHeight = 2 * phoneFightsTitleLineHeight + phoneFightsFrameBorders
+
+// In a shallow strip, put the title bar beside the list to leave the full
+// height available for scrolling rows. The collapsed window keeps its usual bar.
+const phoneFightsSideTitle = [
+  '[.battle-replay-overlay:has(&)]:flex-row!',
+  '[.battle-replay-overlay:has(&)_.battle-window-titlebar]:relative',
+  '[.battle-replay-overlay:has(&)_.battle-window-titlebar]:h-full!',
+  '[.battle-replay-overlay:has(&)_.battle-window-titlebar]:w-[calc(2*var(--touch-target)+2*var(--space-2))]!',
+  '[.battle-replay-overlay:has(&)_.battle-window-titlebar]:grid!',
+  '[.battle-replay-overlay:has(&)_.battle-window-titlebar]:grid-cols-[repeat(2,var(--touch-target))]',
+  '[.battle-replay-overlay:has(&)_.battle-window-titlebar]:place-content-center',
+  '[.battle-replay-overlay:has(&)_.battle-window-titlebar]:gap-0!',
+  '[.battle-replay-overlay:has(&)_.battle-window-titlebar]:border-r',
+  '[.battle-replay-overlay:has(&)_.battle-window-titlebar]:border-b-0!',
+  '[.battle-replay-overlay:has(&)_.battle-window-titlebar]:border-app-hair',
+  '[.battle-replay-overlay:has(&)_.battle-window-titlebar]:px-0!',
+  '[.battle-replay-overlay:has(&)_.battle-module-handle]:absolute',
+  '[.battle-replay-overlay:has(&)_.battle-module-handle]:left-1',
+  '[.battle-replay-overlay:has(&)_.battle-module-handle]:top-1',
+  '[.battle-replay-overlay:has(&)_.battle-window-heading]:col-span-2',
+  '[.battle-replay-overlay:has(&)_.battle-window-heading]:block!',
+  '[.battle-replay-overlay:has(&)_.battle-window-heading]:text-center',
+  '[.battle-replay-overlay:has(&)_.battle-window-heading]:leading-[14px]',
+  '[.battle-replay-overlay:has(&)_.battle-window-subtitle]:block',
+  '[.battle-replay-overlay:has(&)_.battle-window-subtitle]:ml-0!',
+].join(' ')
 
 function paddedRect({ left, top, right, bottom }: DOMRect, gap: number): Rect {
   return { x: Math.floor(left) - gap, y: Math.floor(top) - gap,
@@ -39,12 +68,13 @@ function sameRects(previous: readonly Rect[], next: readonly Rect[]) {
   })
 }
 
-function phoneFightsRegion(stage: Rect, controls: readonly Rect[], barHeight: number, touch: number) {
+function phoneFightsRegion(stage: Rect, controls: readonly Rect[], minExpandedHeight: number, barHeight: number, touch: number) {
   const viewport = { x: stage.x + overlayGap, y: stage.y + overlayGap,
     width: stage.width - 2 * overlayGap, height: stage.height - 2 * overlayGap }
-  const minExpandedHeight = barHeight + touch + 2
   const expanded = replayWindowRegions(viewport, controls, minPhoneFightsWidth, minExpandedHeight)
-  const regions = expanded.length ? expanded : replayWindowRegions(viewport, controls, minPhoneFightsWidth, barHeight)
+  const sideTitleHeight = touch + phoneFightsCompactHeight
+  const compact = expanded.length ? expanded : replayWindowRegions(viewport, controls, minPhoneFightsWidth, sideTitleHeight)
+  const regions = compact.length ? compact : replayWindowRegions(viewport, controls, minPhoneFightsWidth, barHeight)
   const area = (region: Rect) => Math.min(region.width, fightsWidth) * Math.min(region.height, fightsHeight)
   return regions.sort((a, b) => area(b) - area(a) || b.x + b.width - a.x - a.width || a.y - b.y).slice(0, 1)
 }
@@ -71,7 +101,7 @@ export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, p
   const { open: fightsOpen, collapsed: fightsPreference, rect: savedFights } = layout.overlays.fights
   const [geometry, setGeometry] = useState(() => ({
     width: window.innerWidth, height: window.innerHeight, stageWidth: window.innerWidth, left: 24, legendTop: 120, mapFloor: 0,
-    top: 0, barHeight: windowHeight, protectedControls: [] as Rect[], phoneFightsRegions: [] as Rect[],
+    top: 0, barHeight: windowHeight, minExpandedFightsHeight: 0, protectedControls: [] as Rect[], phoneFightsRegions: [] as Rect[],
     fights: { x: window.innerWidth - fightsWidth - 12, y: 92, width: fightsWidth, height: fightsHeight },
   }))
 
@@ -97,6 +127,7 @@ export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, p
       const touch = parseFloat(style.getPropertyValue('--touch-reserve')) || 0
       const mapMin = parseFloat(style.getPropertyValue('--replay-map-min')) || 0
       const barHeight = touch ? touch + (phone ? 2 : 3) : windowHeight
+      const minExpandedFightsHeight = barHeight + touch + phoneFightsFrameBorders
       const mapFloor = !phone && stageBox.height > 0 && stageBox.height <= Math.max(shortMapHeight, mapMin + 1)
         ? Math.max(0, Math.min(window.innerHeight - barHeight, Math.ceil(bounds.bottom) + overlayGap)) : 0
       const actionBottom = controls.getBoundingClientRect().bottom + overlayGap
@@ -125,17 +156,18 @@ export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, p
         .map((element) => paddedRect(element.getBoundingClientRect(), 2))
       const phoneFightsRegions = phone ? phoneFightsRegion(stageBox, [
         ...protectedControls, ...Array.from(sides?.children ?? [], (element) => paddedRect(element.getBoundingClientRect(), 2)),
-      ], barHeight, touch) : []
+      ], minExpandedFightsHeight, barHeight, touch) : []
       const top = Math.max(0, Math.ceil(bounds.top), Math.ceil(battleLayout?.getBoundingClientRect().top ?? 0), mapFloor)
       const next = { width: window.innerWidth, height: window.innerHeight,
         left: legendLeft, stageWidth: stageBox.width, legendTop, mapFloor, phoneFightsRegions,
-        top, barHeight, protectedControls,
+        top, barHeight, minExpandedFightsHeight, protectedControls,
         fights: { ...fights, height: fightsHeight } }
       setGeometry((previous) => previous.width === next.width && previous.height === next.height
         && previous.left === next.left && previous.stageWidth === next.stageWidth
         && previous.legendTop === next.legendTop && previous.mapFloor === mapFloor
         && sameRects(previous.phoneFightsRegions, phoneFightsRegions)
-        && previous.top === top && previous.barHeight === barHeight && sameRects(previous.protectedControls, protectedControls)
+        && previous.top === top && previous.barHeight === barHeight && previous.minExpandedFightsHeight === minExpandedFightsHeight
+        && sameRects(previous.protectedControls, protectedControls)
         && previous.fights.x === fights.x && previous.fights.y === fights.y && previous.fights.width === fights.width ? previous : next)
     }
     const schedule = () => { frame ??= requestAnimationFrame(measure) }
@@ -181,6 +213,10 @@ export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, p
       const viewport = geometry.phoneFightsRegions[0]
       const open = phoneFightsOpen && Boolean(viewport)
       const rect = { x: Math.max(0, (viewport?.width ?? 0) - fightsWidth), y: 0, width: fightsWidth, height: fightsHeight }
+      const minSideTitleHeight = geometry.minExpandedFightsHeight - geometry.barHeight - phoneFightsFrameBorders
+        + phoneFightsCompactHeight
+      const sideTitle = viewport && viewport.height >= minSideTitleHeight && viewport.height < geometry.minExpandedFightsHeight
+        && !phoneFightsCollapsed
       return <div className="replay-overlay-trigger" key={id}>
         <button ref={trigger} type="button" className="replay-control-trigger" data-replay-trigger={id}
           aria-expanded={open} aria-controls={open ? domId : undefined} onClick={(event) => {
@@ -202,6 +238,7 @@ export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, p
                 trigger.current?.focus({ preventScroll: true })
               }
             }}>
+            {sideTitle && <span className={phoneFightsSideTitle} hidden />}
             {closeFights}
           </WindowFrame>, workspace?.layer ?? document.body)}
       </div>

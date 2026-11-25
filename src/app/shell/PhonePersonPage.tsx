@@ -18,7 +18,8 @@ export function PhonePersonPage({ children, setToastHost }: {
     }
   }, [setToastHost])
 
-  return <dialog ref={ref} className="battle-person-page" aria-label="个人详情" onCancel={(event) => event.preventDefault()}>
+  return <dialog ref={ref} className="battle-person-page" aria-label="个人详情"
+    style={{ inset: 0, height: '100%' }} onCancel={(event) => event.preventDefault()}>
     {children}
   </dialog>
 }

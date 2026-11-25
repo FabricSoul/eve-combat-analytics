@@ -933,15 +933,15 @@ try {
       await measurePanelBounds(sheet, `${prefix} · peek`, header)
 
       const expected = height < 600 ? '0' : '1'
-      const auditHalf = async (action) => {
+      const auditHalf = async (action, expectedSnap = expected) => {
         await grip.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
         const reached = await grip.getAttribute('aria-valuenow')
-        if (reached !== expected) touchFailures.add(`${prefix} · ${action} reached snap ${reached}, expected ${expected}`)
+        if (reached !== expectedSnap) touchFailures.add(`${prefix} · ${action} reached snap ${reached}, expected ${expectedSnap}`)
         if (reached !== '2') await auditMap(action)
         await measurePanelBounds(sheet, `${prefix} · ${action}`, header)
       }
       await sheet.getByRole('tab', { name: '事件', exact: true }).tap()
-      await auditHalf('half requested by tapping Events')
+      await auditHalf('open requested by tapping Events', expected === '0' ? '2' : '1')
       await grip.press('Home')
 
       // Select half where it fits, then shrink with the selected range still active.
@@ -1294,6 +1294,158 @@ try {
     } finally {
       await context.close()
     }
+  }
+
+  async function checkL2PhoneSheetAndFights() {
+    const failures = []
+    const verify = (ok, message) => { if (!ok) failures.push(message) }
+    const tabs = [['名单', '.roster-main'], ['事件', '.feed'], ['对比', '.u7-compare']]
+    for (const [width, height, halfFits] of [[320, 568, false], [390, 844, true], [740, 420, false]]) {
+      const size = `${width}×${height}`
+      const { page, context, errors } = await open(width, height, 'light', 'reduce', '?t=1750606982420', true)
+      const sheet = page.getByRole('region', { name: '战斗数据', exact: true })
+      const grip = sheet.getByRole('slider', { name: '面板高度' })
+      const map = page.locator('.replay-stage')
+      const hint = page.getByRole('button', { name: '关闭时间轴提示' })
+      const range = page.locator('.eca-timeline-range-chip')
+      const snap = () => grip.getAttribute('aria-valuenow')
+      const settled = () => grip.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+      const capture = (state) => page.screenshot({ path: join(output, `l2-${width}x${height}-${state}.png`) })
+      try {
+        await map.locator('.replay-marker[data-present]').first().waitFor({ state: 'attached' })
+        await settled()
+
+        for (const state of ['first-visit', 'active-range', 'hint-dismissed']) {
+          for (const start of ['0', '1', '2']) {
+            if (start === '1' && !halfFits) continue
+            for (const [name, selector] of tabs) {
+              await grip.press(start === '2' ? 'End' : 'Home')
+              if (start === '1') await grip.press('ArrowUp')
+              await settled()
+              const label = `${size} ${state} ${name} from snap ${start}`
+              assert.equal(await snap(), start, `${label} starts at the requested snap`)
+              const tab = sheet.getByRole('tab', { name, exact: true })
+              await tab.tap()
+              const panelId = await tab.getAttribute('aria-controls')
+              const panel = sheet.locator(`[id="${panelId}"]`)
+              const visible = await panel.locator(selector).first().isVisible()
+              const expected = start === '0' ? (halfFits ? '1' : '2') : start
+              verify(visible && await tab.getAttribute('aria-selected') === 'true', `${label} renders the selected panel`)
+              verify(await snap() === expected, `${label} opens to snap ${expected}, reached ${await snap()}`)
+              if (name === '对比' && start === '0') await capture(state)
+            }
+          }
+          await grip.press('End')
+          await grip.press('ArrowDown')
+          await settled()
+          verify(await snap() === (halfFits ? '1' : '0'), `${size} ${state} lowers to the next usable snap`)
+          if (halfFits) verify((await map.boundingBox()).height >= 160, `${size} ${state} preserves the 160 px map floor at Half`)
+          if (state === 'active-range' && width < 400) {
+            const fights = page.getByRole('region', { name: '此刻交火', exact: true })
+            await page.getByRole('button', { name: '此刻交火', exact: true }).tap()
+            await fights.waitFor()
+            const body = fights.locator('.battle-window-body')
+            await body.locator('tbody tr').first().waitFor()
+            await capture('active-range-fights')
+            const measured = await body.evaluate((body) => {
+              const scrollHeight = body.scrollHeight
+              const { top, left } = body.getBoundingClientRect()
+              const bottom = top + body.clientHeight
+              const right = left + body.clientWidth
+              let smallest = Infinity
+              const buttons = [...body.querySelectorAll('tbody button')]
+              for (const button of buttons) {
+                const position = button.getBoundingClientRect()
+                body.scrollTop += position.top - top - Math.max(0, (body.clientHeight - position.height) / 2)
+                body.scrollLeft += position.left - left
+                const rect = button.getBoundingClientRect()
+                const x = Math.max(rect.left, left)
+                const first = Math.max(rect.top, top)
+                const last = Math.min(rect.bottom, bottom)
+                const middle = (first + last) / 2
+                const reachable = Math.min(rect.right, right) - x >= 44 && last > first &&
+                  [[x + 1, middle], [x + 43, middle], [x + 22, first + 1], [x + 22, last - 1]]
+                    .every(([x, y]) => button.contains(document.elementFromPoint(x, y)))
+                smallest = Math.min(smallest, reachable ? last - first : 0)
+              }
+              return { height: body.clientHeight, scrollHeight, controls: buttons.length, smallest }
+            })
+            verify(measured.height >= 44 && measured.scrollHeight > measured.height && measured.controls > 0 && measured.smallest >= 44,
+              `${size} active-range fights scrollport exposes every participant control for 44 px: ${JSON.stringify(measured)}`)
+            console.log(`L2 ${size} active-range fights: ${JSON.stringify(measured)}`)
+            await fights.getByRole('button', { name: '收起 此刻交火' }).tap()
+            verify(!await body.isVisible(), `${size} fights collapses in the shallow map`)
+            await fights.getByRole('button', { name: '还原 此刻交火' }).tap()
+            verify(await body.isVisible(), `${size} fights restores its scroll body`)
+            await page.keyboard.press('Escape')
+            await fights.waitFor({ state: 'hidden' })
+            verify(await range.isVisible(), `${size} Escape closes fights before clearing the range`)
+          }
+          if (state === 'first-visit') {
+            await page.getByRole('button', { name: '选段', exact: true }).tap()
+            const editor = page.getByRole('dialog', { name: '编辑选段' })
+            await editor.getByLabel('开始').fill('15:42:00')
+            await editor.getByLabel('结束').fill('15:44:00')
+            await editor.getByRole('button', { name: '应用' }).tap()
+            await range.waitFor()
+          }
+          if (state === 'active-range') {
+            await range.getByRole('button', { name: '取消选段' }).tap()
+            await hint.tap()
+          }
+        }
+
+        const dragGrip = async (distance) => {
+          const { x, y, width, height } = await grip.boundingBox()
+          await page.mouse.move(x + width / 2, y + height / 2)
+          await page.mouse.down()
+          await page.mouse.move(x + width / 2, y + height / 2 + distance)
+          await page.mouse.up()
+          await settled()
+        }
+        await grip.press('Home')
+        await dragGrip(-32)
+        verify(await snap() === (halfFits ? '1' : '2'), `${size} pointer opens from Peek`)
+        await grip.press('End')
+        await dragGrip(32)
+        verify(await snap() === (halfFits ? '1' : '0') && (await map.boundingBox()).height >= 160,
+          `${size} pointer lowers from Full and preserves the map floor`)
+
+        if (!halfFits) {
+          await page.setViewportSize({ width, height: 900 })
+          await settled()
+          await grip.press('Home')
+          await grip.press('ArrowUp')
+          assert.equal(await snap(), '1', `${size} makes Half available when the same width leaves room for the map`)
+          for (const [name, selector] of tabs) {
+            await sheet.getByRole('tab', { name, exact: true }).tap()
+            verify(await snap() === '1' && await sheet.getByRole('tabpanel', { name }).locator(selector).first().isVisible(),
+              `${size} taller viewport shows ${name} from Half`)
+          }
+          await page.setViewportSize({ width, height })
+          await settled()
+          verify(await snap() === '0', `${size} protects the map floor after shrinking from Half`)
+        }
+
+        await grip.press('End')
+        await sheet.getByRole('tab', { name: '名单', exact: true }).tap()
+        const row = sheet.locator('.roster-main').filter({ hasText: pilot })
+        await row.tap()
+        const dialog = page.getByRole('dialog', { name: '个人详情' })
+        const box = await dialog.boundingBox()
+        verify(box?.x === 0 && box.y === 0 && box.width === width && box.height === height,
+          `${size} pilot detail covers the full viewport: ${JSON.stringify(box)}`)
+        await capture('person')
+        await dialog.getByRole('button', { name: '关闭个人详情' }).tap()
+        assert.ok(await row.evaluate((node) => node === document.activeElement), `${size} pilot close restores focus`)
+        assert.deepEqual(errors, [])
+      } finally {
+        await context.close()
+      }
+    }
+    assert.deepEqual(failures, [], 'L2 phone tabs, pilot detail and active-range fights')
+    console.log('L2 phone tabs: three viewports, all available starting snaps, with the hint, after dismissal and with an active range.')
+    console.log('L2 phone details and fights: viewport-sized dialogs and scrollable 44 px participant controls at both widths.')
   }
 
   async function checkTouchSurfaces() {
@@ -1720,8 +1872,8 @@ try {
   const phoneTime = await phoneChart.getAttribute('aria-valuenow')
   await phonePilot.click()
   const detail = phonePage.getByRole('dialog', { name: '个人详情' })
-  assert.deepEqual(await detail.boundingBox(), { x: 0, y: 44, width: 390, height: 800 },
-    'phone pilot detail fills the page below the top bar')
+  assert.deepEqual(await detail.boundingBox(), { x: 0, y: 0, width: 390, height: 844 },
+    'phone pilot detail fills the viewport')
   await detail.getByRole('tab', { name: '事件' }).click()
   await detail.getByRole('tab', { name: '配装' }).click()
   assert.equal(await phoneChart.evaluate((el) => { el.focus(); return document.activeElement === el }), false)
@@ -1758,6 +1910,7 @@ try {
   const fullBattle = await (await fetch(`${origin}/api/battles/${brId}/analysis`)).json()
   assert.equal(fullBattle.coverage.find(({ side }) => side === 1)?.known, 41, 'J125990 has 41 known pilots on the uploaders’ side')
   console.log('J125990 battle-time affiliations: 我方 41 with all 17 uploads')
+  await checkL2PhoneSheetAndFights()
   await checkReplayStageEdges()
   await checkH2StageLimitsAndTabletHeader()
   await checkScrolledWorkspaceAndFullPages()

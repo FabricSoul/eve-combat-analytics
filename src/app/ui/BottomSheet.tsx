@@ -72,6 +72,7 @@ export function BottomSheet<T extends string>({ tabs, value, onChange, children 
   }
 
   function step(delta: number) {
+    // Lowering from full reveals the timeline for a fresh fit check before paint.
     chooseHeight(delta > 0 ? height === peek ? nextSnapFromPeek : full : height === full ? half : peek)
   }
 
@@ -115,7 +116,7 @@ export function BottomSheet<T extends string>({ tabs, value, onChange, children 
         onPointerDown={beginDrag} onPointerUp={endDrag} onLostPointerCapture={() => { drag.current = null }} />
       <Tabs id={id} label="战斗数据" tabs={tabs} value={value} onChange={(tab) => {
         onChange(tab)
-        if (height === peek) chooseHeight(half)
+        if (height === peek) chooseHeight(nextSnapFromPeek)
       }} />
       {tabs.map((tab) => {
         const active = tab.value === value
