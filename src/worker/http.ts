@@ -72,3 +72,12 @@ export async function readText(request: Request, limit: number, message: string)
     reader.releaseLock()
   }
 }
+
+/**
+ * Whether an If-Match header names `current`, one of our own opaque revision tokens.
+ * Weak comparison on purpose: Cloudflare weakens ETag to W/"…" when it compresses a response, and clients echo what they received.
+ */
+export function ifMatchAccepts(header: string, current: string | null): boolean {
+  if (current === null) return false
+  return header.split(',').some((tag) => tag.trim().replace(/^W\//i, '') === current)
+}

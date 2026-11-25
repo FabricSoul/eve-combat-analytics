@@ -11,7 +11,7 @@ import type {
 } from '../core/contract'
 import { analysisJson } from './analysis-json'
 import { battleAffiliations } from './affiliation-history'
-import { ApiFailure, battlePath, errorResponse, readText, upstreamFailure } from './http'
+import { ApiFailure, battlePath, errorResponse, ifMatchAccepts, readText, upstreamFailure } from './http'
 import type { Env } from './index'
 import { fetchKillmailFit } from './killmail-fit'
 import { abortable, createServices, withDeadline } from './services'
@@ -528,7 +528,7 @@ export class BattleRoom extends DurableObject<Env> {
     const currentTag = this.store.fitEtag(charId)
     const matches = ifMatch.trim() === '*'
       ? currentTag !== undefined
-      : typeof currentTag === 'string' && ifMatch.split(',').some((tag) => tag.trim() === currentTag)
+      : typeof currentTag === 'string' && ifMatchAccepts(ifMatch, currentTag)
     if (!matches) throw new ApiFailure('bad_request', 'The fit has changed', 412)
   }
 
@@ -648,7 +648,7 @@ export class BattleRoom extends DurableObject<Env> {
     if (ifMatch !== null) {
       const sameTag = tags[0] && tags.every((tag) => tag === tags[0]) ? tags[0] : null
       const validator = sameTag ?? `"${await sha256(JSON.stringify(entries))}"`
-      if (!ifMatch.split(',').some((tag) => tag.trim() === validator)) {
+      if (!ifMatchAccepts(ifMatch, validator)) {
         throw new ApiFailure('bad_request', 'Side assignments have changed', 412)
       }
     }
@@ -676,7 +676,7 @@ export class BattleRoom extends DurableObject<Env> {
     const { from, to } = data
     const ifMatch = headers.get('If-Match')
     const previousTag = this.store.identityTag(from)
-    if (ifMatch !== null && (previousTag === null || !ifMatch.split(',').some((tag) => tag.trim() === previousTag))) {
+    if (ifMatch !== null && !ifMatchAccepts(ifMatch, previousTag)) {
       throw new ApiFailure('bad_request', 'Identity merges have changed', 412)
     }
     const current = this.store.identityMerges()

@@ -934,6 +934,17 @@ it('rejects a restore atomically if a competing override for an affected pilot h
   expect((await state(id)).sideOverrides).toEqual(current)
 })
 
+it('accepts a side undo whose If-Match tag was weakened by a compressing proxy', async () => {
+  // Cloudflare rewrites ETag: "x" to W/"x" on compressed responses; the browser echoes the weak form back.
+  const id = await prepare(0xb86)
+  const subject = 'corp:12346'
+  const saved = await putSide(id, { subject, side: 0 }, { 'X-EVE-Undo': '1' })
+  const etag = saved.headers.get('ETag')!
+  const undo = await putSide(id, { subject, side: -1 }, { 'If-Match': `W/${etag}` })
+  expect(undo.status).toBe(200)
+  expect((await state(id)).sideOverrides).toEqual([])
+})
+
 it('guardedly restores a single move and rejects an intervening edit even after the override is removed', async () => {
   const id = await prepare(0xb85)
   const subject = 'corp:12345'
