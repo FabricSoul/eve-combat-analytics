@@ -1,6 +1,4 @@
 @media (pointer: coarse), (max-width: 759px) {
-  :root { --touch-target: 44px; }
-
   /* A checkbox and its label form one target, with the native glyph inside. */
   :is(button, summary, a[href], input, select, textarea,
     [role="button"], [role="menuitem"], [role="option"], [role="tab"],

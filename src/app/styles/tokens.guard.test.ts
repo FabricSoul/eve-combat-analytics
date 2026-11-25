@@ -6,12 +6,13 @@ import { createRoot, type Root } from 'react-dom/client'
 import { parseSync, Visitor, type ESTree } from 'vite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Analysis, BattleSummary, ServerMessage } from '@/core/contract'
-import { tokenGroups } from '../gallery/TokensPage'
+import { tokenGroups, TokensPage } from '../gallery/TokensPage'
 import { defaultOursSide, sideColor, sideLetter, sideOrder } from '../lib/sides'
 import { useBattle } from '../state/battle-store'
 import { usePlayback, useView, ViewProvider } from '../state/view-store'
 
 const appDirectory = resolve('src/app')
+const tokenStylesheet = resolve(appDirectory, 'styles/tokens.css')
 
 function channels(value: string) {
   const values = value.match(/[\d.]+/g)?.map(Number) ?? []
@@ -55,6 +56,31 @@ function filesIn(directory: string): string[] {
     const path = resolve(directory, entry.name)
     return entry.isDirectory() ? filesIn(path) : [path]
   })
+}
+
+function rootCustomProperties(css: string): string[] {
+  const sheet = new CSSStyleSheet()
+  sheet.replaceSync(css)
+  const roots = ['', 'light', 'dark'].map((appearance) => {
+    const root = document.implementation.createHTMLDocument().documentElement
+    if (appearance) root.setAttribute('data-appearance', appearance)
+    return root
+  })
+  function scan(rules: CSSRuleList, parent = ''): string[] {
+    return [...rules].flatMap((rule) => {
+      let selector = parent
+      if (rule instanceof CSSStyleRule) {
+        const nested = rule.selectorText
+        selector = !parent ? nested : nested.includes('&')
+          ? nested.replaceAll('&', `:is(${parent})`) : `:is(${parent}) ${nested}`
+      }
+      const declarations = 'style' in rule
+        ? [...(rule.style as CSSStyleDeclaration)].filter((property) => property.startsWith('--')) : []
+      const found = declarations.length && selector && roots.some((root) => root.matches(selector)) ? declarations : []
+      return rule instanceof CSSGroupingRule ? [...found, ...scan(rule.cssRules, selector)] : found
+    })
+  }
+  return scan(sheet.cssRules)
 }
 
 const originalColorLiteral = /(?<![\w-])#(?:[\da-f]{8}|[\da-f]{6}|[\da-f]{4}|[\da-f]{3})(?![\w-])|\brgba?\s*\(/i
@@ -342,6 +368,45 @@ describe('design tokens', () => {
     const listed = tokenGroups.flatMap(({ tokens }) => tokens.map(({ name }) => name))
     expect(listed.sort()).toEqual(declared.sort())
     expect(tokenGroups.every(({ tokens }) => tokens.every(({ use }) => use.trim()))).toBe(true)
+  })
+
+  it('defines root custom properties only in tokens.css', () => {
+    const violations = filesIn(appDirectory)
+      .filter((path) => path.endsWith('.css') && path !== tokenStylesheet)
+      .flatMap((path) => rootCustomProperties(readFileSync(path, 'utf8'))
+        .map((property) => `${path}: ${property}`))
+    expect(violations).toEqual([])
+  })
+
+  it('detects root rules in conditional groups and allows component-scoped declarations', () => {
+    expect(rootCustomProperties(`
+      @media (pointer: coarse) {
+        .button, :root { --root-size: 44px; }
+        :root .button { --local-size: 44px; }
+      }
+      @layer defaults {
+        html[data-appearance="dark"] { --dark-size: 44px; }
+      }
+    `)).toEqual(['--root-size', '--dark-size'])
+  })
+
+  it('shows the shared touch target in the runtime catalogue on desktop', () => {
+    const style = document.createElement('style')
+    style.textContent = readFileSync(tokenStylesheet, 'utf8')
+    document.head.appendChild(style)
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+    try {
+      act(() => root.render(createElement(TokensPage)))
+      const value = container.querySelector('[data-token="--touch-target"]')
+      expect(value?.textContent).toBe('44px')
+      expect(value?.closest('dd')?.nextElementSibling?.textContent).toContain('触控')
+    } finally {
+      act(() => root.unmount())
+      vi.unstubAllGlobals()
+      style.remove()
+    }
   })
 
   it('keeps color literals in tokens.css', () => {

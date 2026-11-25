@@ -7,6 +7,7 @@ import { useView } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { Portrait } from '../ui/Portrait'
 import { HitQualityBar } from './compare/HitQualityBar'
+import { hitSegments } from './compare/hit-quality'
 import { observedLabel } from './compare/metrics'
 import { HitTrend } from './hits/HitTrend'
 import { HitRateValue, UngradedShots, WeaponClasses, WeaponClassSummary } from './hits/WeaponClasses'
@@ -147,6 +148,7 @@ export function HitAnalysis() {
           <summary>样本不足 <span className="app-number">{fmtNum(insufficient.length)}</span> 人 · 少于 {MIN_RANKED_SHOTS} 发</summary>
           <ul>{insufficient.map((pilot) => {
             const { entity, shots, ungraded } = pilot
+            const grades = hitSegments(pilot)
             return <li key={entity.key} data-pilot-key={entity.key} data-selected={selected === entity.key || undefined} onContextMenu={(event) => pilotMenu?.open(entity.key, event)}>
               <div className="hit-pilot-cell">
                 <button className="hit-pilot-name" type="button" onClick={() => select(entity.key)}>
@@ -156,8 +158,12 @@ export function HitAnalysis() {
               </div>
               <small>{sideLabel(entity.side, order)}</small>
               <span className="app-number">{fmtNum(shots)} 发</span>
-              {ungraded > 0 && <div className="hit-insufficient-coverage">
-                <UngradedShots count={ungraded} /><span>命中率 <HitRateValue counts={pilot} /></span>
+              {(shots > 0 || ungraded > 0) && <div className="hit-insufficient-coverage">
+                <span>命中率 <HitRateValue counts={pilot} /></span>
+                {ungraded > 0 && <UngradedShots count={ungraded} />}
+              </div>}
+              {grades.length > 0 && <div className="hit-insufficient-coverage" role="group" aria-label="命中质量">
+                {grades.map(({ key, label, count }) => <span key={key}>{label} <span className="app-number">{fmtNum(count)}</span></span>)}
               </div>}
             </li>
           })}</ul>

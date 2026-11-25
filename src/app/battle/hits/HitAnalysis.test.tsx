@@ -26,6 +26,7 @@ it('keeps observed and uploaded hit samples in Hits, Compare and the drawer for 
   const emptySide = analysis.coverage.find(({ side, withLog }) => sides.includes(side) && withLog === 0)!.side
   const samples = [
     { key: 'char:2116097640', name: 'Dwell nowhere', shots: 1, count: '1 发', rate: '100%' },
+    { key: 'char:94613071', name: 'Andrei Deat', shots: 20, count: '20 发', rate: '100%' },
     { key: 'char:1099648393', name: 'Neomen', shots: 123, count: '123 发', rate: '95%' },
     { key: 'char:2121605780', name: 'Blanchard2213', shots: 1854, count: '1,854 发', rate: '90%' },
   ] as const
@@ -52,9 +53,11 @@ it('keeps observed and uploaded hit samples in Hits, Compare and the drawer for 
         const distribution = compare.querySelector('[data-metric="hitQuality"] [role="img"]')?.getAttribute('aria-label') ?? ''
         const compareShots = [...distribution.matchAll(/ ([\d,]+)（/g)]
           .reduce((total, [, value]) => total + Number(value!.replaceAll(',', '')), 0)
+        const insufficientRate = [...(insufficient?.querySelectorAll('.hit-insufficient-coverage > span') ?? [])]
+          .find((span) => span.textContent?.startsWith('命中率 '))?.querySelector('.app-number')?.textContent
         expect.soft({
           hits: [ranked?.cells[0]?.textContent?.split(' · ')[1] ?? insufficient?.querySelector('.app-number')?.textContent,
-            ranked?.cells[2]?.textContent ?? insufficient?.querySelector('.hit-insufficient-coverage span:last-child .app-number')?.textContent],
+            ranked?.cells[2]?.textContent ?? insufficientRate],
           compare: [compareShots, compare.querySelector('[data-metric="hitRate"] .app-number')?.textContent],
           drawer: [drawerRank?.querySelector('dd:last-child .app-number')?.textContent?.split(' · ')[1]
             ?? drawer.querySelector('.hit-secondary .app-number')?.textContent, drawerRate?.querySelector('.app-number')?.textContent],
@@ -64,6 +67,17 @@ it('keeps observed and uploaded hit samples in Hits, Compare and the drawer for 
         if (name === 'Dwell nowhere') {
           expect.soft(insufficient?.querySelector('.hit-ungraded .app-number')?.textContent).toBe('1,362')
           expect.soft(drawer.querySelector('.hit-ungraded .app-number')?.textContent).toBe('1,362')
+        }
+        if (name === 'Andrei Deat') {
+          const grades = ['强力一击 4', '穿透 6', '命中 6', '擦过 3', '轻轻擦过 1']
+          const hitsGrades = [...(insufficient?.querySelectorAll('[aria-label="命中质量"] > span') ?? [])]
+            .map((grade) => grade.textContent)
+          const drawerGrades = [...drawer.querySelectorAll('.u7-hit-counts li')]
+            .map((grade) => grade.textContent?.split(' · ')[0])
+          const compareGrades = distribution.split('、').map((grade) => grade.split('（')[0])
+          expect.soft(insufficient?.closest('details')?.querySelector('summary')?.textContent).toContain('样本不足')
+          expect.soft([hitsGrades, compareGrades, drawerGrades], `Andrei Deat grades with 我方 side ${side}`)
+            .toEqual([grades, grades, grades])
         }
       }
     }

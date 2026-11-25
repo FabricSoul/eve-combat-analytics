@@ -8,6 +8,7 @@
   --font-ui: Inter, "PingFang SC", "Noto Sans SC", system-ui, sans-serif; --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --fs: 13px; --fs-s: 12px; --fs-l: 16px; --fs-title: 24px; --lh: 20px;
   --row: 32px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px; --space-8: 32px;
+  --touch-target: 44px; /* Minimum target width and height on phones and coarse pointers. */
   --row-compact: 24px; --fs-compact-table: 11px; --fs-compact-body: 12px;
   --radius-ctl: 6px; --radius-card: 10px;
   --layer-popover: 20;
