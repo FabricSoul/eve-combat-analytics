@@ -61,26 +61,31 @@ export function StageGrip({ height, limits, dispatch }: {
   height: number; limits: { min: number; max: number; fixedHeight: number }; dispatch: Dispatch<ModuleAction>
 }) {
   const pointer = useRef<{ id: number; start: number; height: number } | null>(null)
+  const fixed = limits.min === limits.max
   function release(event: PointerEvent) {
     if (pointer.current?.id === event.pointerId) pointer.current = null
   }
-  return <div className="battle-stage-grip" role="separator" tabIndex={0} title="拖动调整高度，双击恢复"
+  return <div className="battle-stage-grip" role="separator" tabIndex={0} aria-disabled={fixed || undefined}
+    title={fixed ? '屏幕太矮，舞台高度固定' : '拖动调整高度，双击恢复'}
+    style={fixed ? { cursor: 'default', touchAction: 'pan-y' } : undefined}
     aria-label="调整舞台高度" aria-orientation="horizontal" aria-valuemin={limits.min + limits.fixedHeight}
     aria-valuemax={limits.max + limits.fixedHeight} aria-valuenow={height + limits.fixedHeight}
-    onDoubleClick={() => dispatch({ type: 'stage', height: null })}
+    onDoubleClick={() => {
+      if (!fixed) dispatch({ type: 'stage', height: null })
+    }}
     onKeyDown={(event) => {
-      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown' && event.key !== 'Home') return
+      if (fixed || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown' && event.key !== 'Home')) return
       event.preventDefault()
       dispatch({ type: 'stage', height: event.key === 'Home' ? null : clampStage(height + (event.key === 'ArrowUp' ? -16 : 16), limits) })
     }}
     onPointerDown={(event) => {
-      if (event.button !== 0) return
+      if (fixed || event.button !== 0) return
       event.currentTarget.setPointerCapture(event.pointerId)
       pointer.current = { id: event.pointerId, start: event.clientY, height }
     }}
     onPointerMove={(event) => {
       const drag = pointer.current
-      if (drag?.id === event.pointerId) dispatch({ type: 'stage', height: clampStage(drag.height + event.clientY - drag.start, limits) })
+      if (!fixed && drag?.id === event.pointerId) dispatch({ type: 'stage', height: clampStage(drag.height + event.clientY - drag.start, limits) })
     }} onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release} />
 }
 

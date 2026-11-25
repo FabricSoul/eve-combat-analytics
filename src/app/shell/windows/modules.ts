@@ -96,12 +96,11 @@ export const timelineMinHeight = 150
 export function replayHeightBounds(viewportHeight: number, availableHeight: number, timelineHeight: number,
   chromeHeight = 2, mapMin = 0) {
   const fixedHeight = Math.max(timelineMinHeight, timelineHeight) + chromeHeight
-  const available = Math.floor(availableHeight)
   // The persisted height is the replay alone. Apply the limits to the whole stage.
-  const mapFloor = mapMin ? Math.ceil(fixedHeight + mapMin) - fixedHeight : 0
-  const max = Math.max(mapFloor, Math.min(Math.floor(viewportHeight * 0.75), available) - fixedHeight)
-  const min = Math.min(max, Math.max(mapFloor, 300 - fixedHeight))
-  const initial = Math.min(Math.round(viewportHeight * 0.62), available - 220) - fixedHeight
+  const min = Math.max(300, Math.ceil(fixedHeight + mapMin)) - fixedHeight
+  // Keep the usable minimum even when it exceeds the percentage cap.
+  const max = Math.max(min, Math.floor(viewportHeight * 0.75) - fixedHeight)
+  const initial = Math.min(Math.round(viewportHeight * 0.62), Math.floor(availableHeight) - 220) - fixedHeight
   return { min, max, initial: Math.min(max, Math.max(min, initial)), fixedHeight }
 }
 

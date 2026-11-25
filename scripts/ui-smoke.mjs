@@ -372,26 +372,7 @@ try {
     const pilots = await replay.locator('.replay-marker[data-present] .replay-pilot').evaluateAll((nodes) =>
       nodes.map((node) => node.getBoundingClientRect().toJSON()))
     if (pilots.some((node) => node.top < pills.y + pills.height - 0.5)) issues.push('live pilot markers enter the replay control inset')
-    if (width === 900) {
-      const title = await page.locator('.app-topbar-title').evaluate((node) => ({
-        width: node.clientWidth, textWidth: node.querySelector('.app-topbar-short-title').getBoundingClientRect().width,
-      }))
-      if (title.width < 179 || title.textWidth > title.width) issues.push(`tablet title is clipped: ${JSON.stringify(title)}`)
-      const header = await page.locator('.app-topbar').evaluate((node) => ({
-        width: node.clientWidth, contentWidth: node.scrollWidth,
-      }))
-      if (header.contentWidth > header.width + 1) issues.push(`tablet battle actions overflow: ${JSON.stringify(header)}`)
-      const side = await page.getByRole('combobox', { name: '我方' }).evaluate((button) => {
-        const label = button.querySelector('.app-side-picker-compact-label')
-        const name = label?.querySelector('.app-side-picker-compact-name')
-        const dot = button.querySelector('.app-side-picker-dot')
-        return { width: button.clientWidth, label: label?.textContent, nameWidth: name?.clientWidth, dot: dot?.getBoundingClientRect().width }
-      })
-      if (side.width < 118 || side.dot !== 8 || !/^DeltaForce… 等 \d+ 人$/.test(side.label ?? '') || side.nameWidth < 48) {
-        issues.push(`tablet side picker has no readable compact affiliation: ${JSON.stringify(side)}`)
-      }
-    }
-    assert.deepEqual(issues, [], `replay and top bar at ${width}px`)
+    assert.deepEqual(issues, [], `replay chrome at ${width}px`)
     assert.ok(defaults.x >= replayBox.x && defaults.y >= replayBox.y
       && defaults.x + defaults.width <= replayBox.x + replayBox.width
       && defaults.y + defaults.height <= replayBox.y + replayBox.height, 'the automatic fight window stays inside the replay')
@@ -803,6 +784,127 @@ try {
     await choice.tap()
     await page.locator(`.replay-marker[data-pilot-key="${key}"][data-selected="true"]`).waitFor({ state: 'attached' })
     await page.getByRole('button', { name: '关闭个人详情' }).tap()
+  }
+
+  async function checkH2StageLimitsAndTabletHeader() {
+    const issues = []
+    const stageCases = [
+      [820, 500, true, 439, 439, 439],
+      [900, 800, true, 439, 496, 600],
+      [1280, 800, false, 300, 496, 600],
+      [1630, 940, false, 300, 583, 705],
+    ]
+    const tabletWidths = [760, 820, 900, 979, 980, 1099, 1100]
+    for (const hasTouch of [false, true]) {
+      const { page, context } = await open(820, 500, 'dark', 'reduce', '?t=1750606982420', hasTouch)
+      try {
+        const side = page.getByRole('combobox', { name: '我方' })
+        await side.waitFor()
+        for (const width of tabletWidths) {
+          await page.setViewportSize({ width, height: 500 })
+          const result = await page.getByRole('banner').evaluate((header) => {
+            const title = header.querySelector('.app-topbar-title')
+            const side = header.querySelector('.app-side-picker-trigger')
+            const text = (root, selectors) => [...root.querySelectorAll(selectors)].find((node) => node.checkVisibility())
+            const fits = (node, container) => {
+              const range = document.createRange()
+              range.selectNodeContents(node)
+              const bounds = container.getBoundingClientRect()
+              return [...range.getClientRects()].every((rect) =>
+                rect.left >= bounds.left - 0.5 && rect.right <= bounds.right + 0.5 &&
+                rect.top >= bounds.top - 0.5 && rect.bottom <= bounds.bottom + 0.5)
+            }
+            const titleText = text(title, '.app-topbar-short-title, .app-topbar-full-title')
+            const sideText = text(side, '.app-side-picker-label, .app-side-picker-compact-label')
+            return {
+              title: titleText.textContent, titleFits: fits(titleText, title) && fits(titleText, header),
+              side: sideText.textContent, affiliation: side.title,
+              sideFits: fits(sideText, side) && fits(sideText, header),
+              fitsViewport: header.scrollWidth <= header.clientWidth + 1,
+            }
+          })
+          if (width === 820) await page.screenshot({ path: join(output, `h2-tablet-${hasTouch ? 'coarse' : 'fine'}.png`) })
+          if (!/^J125990 · (?:2025-)?06-22$/.test(result.title) || !result.titleFits ||
+            result.side !== result.affiliation || !result.sideFits || !result.fitsViewport) {
+            issues.push(`${width}×500 ${hasTouch ? 'coarse' : 'fine'} top bar: ${JSON.stringify(result)}`)
+          }
+        }
+      } finally {
+        await context.close()
+      }
+    }
+    for (const [width, height, hasTouch, min, initial, max] of stageCases) {
+      const prefix = `${width}×${height} ${hasTouch ? 'coarse' : 'fine'}`
+      const { page, context } = await open(width, height, 'dark', 'reduce', '?t=1750606982420', hasTouch)
+      try {
+        const grip = page.getByRole('separator', { name: '调整舞台高度' })
+        await page.locator('.replay-marker[data-present] .replay-pilot[data-log="true"]').first().waitFor()
+        const fixed = min === max
+        const measure = async (expected, action) => {
+          const result = await grip.evaluate(async (node) => {
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+            return {
+              height: node.closest('.battle-stage').getBoundingClientRect().height,
+              now: Number(node.getAttribute('aria-valuenow')), min: Number(node.getAttribute('aria-valuemin')),
+              max: Number(node.getAttribute('aria-valuemax')), disabled: node.getAttribute('aria-disabled') === 'true',
+            }
+          })
+          if (result.height !== expected || result.now !== expected || result.min !== min ||
+            result.max !== max || result.disabled !== fixed) {
+            issues.push(`${prefix} stage after ${action}, expected ${min}/${expected}/${max} and disabled=${fixed}: ${JSON.stringify(result)}`)
+          }
+        }
+        const drag = async (destination) => {
+          const box = await grip.boundingBox()
+          const x = box.x + box.width / 2
+          await page.mouse.move(x, Math.min(height - 1, box.y + box.height / 2))
+          await page.mouse.down()
+          await page.mouse.move(x, destination, { steps: 8 })
+          await page.mouse.up()
+        }
+        await measure(initial, 'opening')
+        if (fixed) {
+          if (!/舞台高度固定/.test(await grip.getAttribute('title') ?? '')) issues.push(`${prefix} grip has no fixed-height explanation`)
+          await grip.evaluate((node) => {
+            node.addEventListener('gotpointercapture', () => node.dataset.h2Captured = 'true')
+            const save = Storage.prototype.setItem
+            Storage.prototype.setItem = function (key, value) {
+              if (key === 'eve-combat-analytics:module-layout') node.dataset.h2LayoutWritten = 'true'
+              return save.call(this, key, value)
+            }
+          })
+          await drag(10)
+          for (const key of ['ArrowUp', 'ArrowDown', 'Home']) await grip.press(key)
+          await grip.dispatchEvent('dblclick')
+          await measure(initial, 'fixed grip input')
+          if (await grip.getAttribute('data-h2-captured') || await grip.getAttribute('data-h2-layout-written')) {
+            issues.push(`${prefix} fixed grip captured a drag or wrote a resize preference`)
+          }
+          const module = page.locator('[data-module="feed"] .battle-window-titlebar')
+          await module.scrollIntoViewIfNeeded()
+          const scrollTop = await page.locator('.battle-layout').evaluate((node) => node.scrollTop)
+          const visible = await module.evaluate((node) => {
+            const bounds = node.getBoundingClientRect()
+            return bounds.top >= 0 && bounds.bottom <= innerHeight
+          })
+          if (!scrollTop || !visible) issues.push(`${prefix} cannot scroll down to a complete module heading`)
+        } else {
+          await grip.press('ArrowUp')
+          await measure(Math.max(initial - 16, min), 'ArrowUp')
+          await drag(1)
+          await measure(min, 'minimum drag')
+          await drag(height - 1)
+          await measure(max, 'maximum drag')
+          await grip.dblclick()
+          await measure(initial, 'double-click reset')
+        }
+      } finally {
+        await context.close()
+      }
+    }
+    assert.deepEqual(issues, [], 'X12 replay stage limits and tablet top bar')
+    console.log('X12 stage limits: exact measured and accessible limits at four viewports, including a fixed short touch stage.')
+    console.log('X12 tablet top bar: full system, date and affiliation at 760–1100 px with both pointer types.')
   }
 
   async function checkTouchSurfaces() {
@@ -1243,6 +1345,7 @@ try {
   const fullBattle = await (await fetch(`${origin}/api/battles/${brId}/analysis`)).json()
   assert.equal(fullBattle.coverage.find(({ side }) => side === 1)?.known, 41, 'J125990 has 41 known pilots on the uploaders’ side')
   console.log('J125990 battle-time affiliations: 我方 41 with all 17 uploads')
+  await checkH2StageLimitsAndTabletHeader()
   await checkTouchSurfaces()
   const density = []
   const failures = []

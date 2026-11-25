@@ -82,8 +82,8 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   const stageLimits = replayHeightBounds(window.innerHeight, availableStageHeight,
     stageChrome.timeline, stageChrome.frame, stageChrome.mapMin)
   const stageHeight = clampStage(moduleLayout.stageHeight ?? stageLimits.initial, stageLimits)
-  const stageOverflow = stageChrome.touchTarget > 0
-    && availableStageHeight - stageHeight - stageLimits.fixedHeight < stageChrome.touchTarget
+  const stageOverflow = stageLimits.min === stageLimits.max
+    || availableStageHeight - stageHeight - stageLimits.fixedHeight < Math.max(1, stageChrome.touchTarget)
   const [search, setSearch] = useState<'feed' | 'roster' | null>(null)
   const [eventFilters, setEventFilters] = useState(true)
   const [rosterAlphabetical, setRosterAlphabetical] = useState(false)
