@@ -63,6 +63,10 @@
 
 .eca-timeline-help-header h2 { font-weight: 600; }
 
+@media (width < 760px), (pointer: coarse) {
+  .eca-timeline-help-header .app-button { min-width: 44px; min-height: 44px; }
+}
+
 .eca-timeline-help-popover ul {
   display: grid;
   gap: var(--space-1);

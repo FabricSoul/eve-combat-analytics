@@ -200,6 +200,10 @@
 .identity-sub { color: var(--color-text-3); font-size: var(--fs-s); }
 .identity-close { align-self: flex-end; background: none; border: 0; color: var(--color-text-3); font: inherit; cursor: pointer; }
 
+@media (width < 760px), (pointer: coarse) {
+  :is(.identity-search, .identity-item, .identity-close) { min-width: 44px; min-height: 44px; }
+}
+
 .identity-item[data-active] { background: var(--color-raised); }
 .identity-item:disabled { cursor: progress; opacity: .6; }
 .identity-spinner {

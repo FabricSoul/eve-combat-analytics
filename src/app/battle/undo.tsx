@@ -6,7 +6,8 @@ import { useOptionalBattleContext, type EditRevisions } from '../state/battle-st
 
 type Visible = (summary: BattleSummary) => boolean
 type ReadRevisions = () => EditRevisions | undefined
-type Revert = (publishedVersion: number, readRevisions: ReadRevisions) => Promise<Visible | { unavailable: string } | { reverted: number[]; skipped?: string } | void>
+type RevertedEdits = { complete: number[]; partialTargets: string[][] }
+type Revert = (publishedVersion: number, readRevisions: ReadRevisions) => Promise<Visible | { unavailable: string } | { reverted: RevertedEdits; skipped?: string } | void>
 type ConflictStatus = { label: string; partial?: true }
 type Conflict = { label: string; when: (summary: BattleSummary, revisions?: EditRevisions) => boolean }
   | { status: (summary: BattleSummary, revisions?: EditRevisions) => ConflictStatus | undefined }
@@ -54,6 +55,23 @@ export function useBattleUndo() { return useContext(UndoContext) }
 type Revision<T> = { tag: string | null; value: T; sequence?: number }
 type Head<T> = Revision<T> & { edit?: Edit<T>; overwritten?: T }
 type Edit<T> = { id: number; before: Map<string, Head<T>>; tags: Map<string, string>; related: readonly string[] }
+
+function revisionTarget(key: string) {
+  return key.slice(key.indexOf('/') + 1)
+}
+
+function restoreLabel({ complete, partialTargets }: RevertedEdits, summary?: BattleSummary | null) {
+  const count = complete.length + partialTargets.length
+  if (count <= 1) return '已撤销'
+  const countLabel = `撤销了 ${count} 次修改`
+  if (!partialTargets.length) return countLabel
+  const names = new Set(partialTargets.flat().map((target) => {
+    const subject = target.replace(/^side:/, '')
+    const id = Number(subject.split(':')[1])
+    return summary?.meta.names[id]?.name ?? summary?.logs.find(({ charId }) => charId === id)?.charName ?? subject
+  }))
+  return `${countLabel}（含 ${[...names].join('、')} 的批量恢复）`
+}
 
 // A receipt links to a local edit only when the server confirms it was the immediate predecessor.
 // Keep the chain at the battle level so a toast can outlive its menu or drawer.
@@ -108,7 +126,7 @@ class EditHistory<T> {
 
   private chain(target: Edit<T>, key: string, revisions?: EditRevisions) {
     const head = this.heads.get(key)
-    const subject = key.slice(key.indexOf('/') + 1)
+    const subject = revisionTarget(key)
     const live = revisions?.get(subject)
     const remembered = this.observed.get(subject)
     const observed = remembered && (!live || remembered.sequence > live.sequence) ? remembered : live
@@ -169,7 +187,11 @@ class EditHistory<T> {
         includesRelated ||= restored.size > count
       }
     }
-    const reverted = [...selected].flatMap(([edit, keys]) => keys.size === edit.before.size ? [edit.id] : [])
+    const reverted: RevertedEdits = { complete: [], partialTargets: [] }
+    for (const [edit, keys] of selected) {
+      if (keys.size === edit.before.size) reverted.complete.push(edit.id)
+      else reverted.partialTargets.push([...keys].map(revisionTarget))
+    }
     return {
       changes: [...restored].map(([key, { before, edit }]) => ({
         key, value: before.value, through: edit.tags.get(key)!, tag: this.heads.get(key)!.tag!,
@@ -287,9 +309,9 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
     try {
       const result = await revert(publishedVersion, () => liveRevisions.current)
       if (result && typeof result === 'object' && 'reverted' in result) {
-        const restored = result.reverted.length > 1 ? `撤销了 ${result.reverted.length} 次修改` : '已撤销'
+        const restored = restoreLabel(result.reverted, battle?.summary ?? analyzedSummary)
         const label = result.skipped ? `${restored} · ${result.skipped}` : restored
-        const reverted = new Set(result.reverted)
+        const reverted = new Set(result.reverted.complete)
         show(current.current.flatMap((notice) => notice.id === id ? [feedback(notice, { label })]
           : reverted.has(notice.id) ? [] : [notice]))
       } else if (typeof result === 'object') {

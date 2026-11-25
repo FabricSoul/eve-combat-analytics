@@ -619,6 +619,7 @@ try {
   await tablet.page.getByRole('button', { name: '关闭个人详情' }).waitFor()
   await tablet.context.close()
 
+  const touchTime = fourSides.interactions.find(({ kind }) => kind === 'damage').t
   const phone = await open(390, 844, 'light', 'reduce')
   const phonePage = phone.page
   const touchFailures = []
@@ -645,6 +646,65 @@ try {
     touchFailures.push(...result.offenders.map(({ kind, size, count, example }) =>
       `${view} · ${kind} ${size} px (${count}, e.g. ${example})`))
   }
+
+  async function checkSecondaryReplayTargets(page, prefix) {
+    const filter = page.locator('.replay-noise summary')
+    await filter.click()
+    const options = page.locator('.replay-noise-popover')
+    await measureTouchTargets(options, `${prefix} damage filter`, 'label')
+    assert.equal(await options.getByRole('checkbox').count(), 4)
+    const drone = options.getByText('隐藏无人机/战斗机伤害', { exact: true })
+    const box = await drone.boundingBox()
+    await drone.click({ position: { x: box.width - 2, y: box.height / 2 } })
+    assert.equal(await options.getByRole('checkbox', { name: '隐藏无人机/战斗机伤害' }).isChecked(), true)
+    await drone.click({ position: { x: box.width - 2, y: box.height / 2 } })
+    await page.screenshot({ path: join(output, `${prefix}-touch-damage-filter.png`) })
+    await filter.click()
+    await options.waitFor({ state: 'hidden' })
+
+    for (const [id, title] of [['legend', '交互图例'], ['fights', '此刻交火']]) {
+      const window = page.getByRole('region', { name: title, exact: true })
+      if (!await window.isVisible()) await page.getByRole('button', { name: title, exact: true }).click()
+      const restore = window.getByRole('button', { name: `还原 ${title}` })
+      if (await restore.isVisible()) await restore.click()
+      if (id === 'fights') await window.locator('tbody button.feed-who').first().waitFor()
+      await measureTouchTargets(window, `${prefix} ${title}`, '.battle-window-titlebar, .battle-window-grip')
+      await page.screenshot({ path: join(output, `${prefix}-touch-${id}.png`) })
+      await window.getByRole('button', { name: `收起 ${title}` }).click()
+      await measureTouchTargets(window, `${prefix} collapsed ${title}`, '.battle-window-titlebar')
+      const bar = window.getByRole('group', { name: `${title} 标题栏` })
+      await bar.focus()
+      for (let y = 0; y < page.viewportSize().height; y += 32) await page.keyboard.press('Shift+ArrowDown')
+      const close = window.getByRole('button', { name: `关闭 ${title}` })
+      const closeBox = await close.boundingBox()
+      if (closeBox.y + closeBox.height > page.viewportSize().height) {
+        touchFailures.push(`${prefix} collapsed ${title} · Close is clipped at the bottom of the viewport`)
+      }
+      await close.click()
+    }
+
+    await page.getByRole('button', { name: '时间轴用法' }).click()
+    const help = page.getByRole('dialog', { name: '时间轴使用说明' })
+    await measureTouchTargets(help, `${prefix} timeline help`)
+    await page.screenshot({ path: join(output, `${prefix}-touch-timeline-help.png`) })
+    await help.getByRole('button', { name: '关闭时间轴使用说明' }).click()
+    await help.waitFor({ state: 'hidden' })
+  }
+
+  async function checkIdentityTargets(page, roster, prefix) {
+    await roster.locator('[data-pilot-key^="ship:"] .roster-more').first().click()
+    await page.getByRole('menuitem', { name: '这是谁…' }).click()
+    const identity = page.getByRole('dialog', { name: /^这是谁 ·/ })
+    const search = identity.getByRole('searchbox', { name: '搜索已知飞行员' })
+    await measureTouchTargets(identity, `${prefix} identity picker`, 'input')
+    await search.fill(pilot)
+    await identity.locator('[data-result]').filter({ hasText: pilot }).waitFor()
+    await measureTouchTargets(identity, `${prefix} identity search results`, 'input')
+    await page.screenshot({ path: join(output, `${prefix}-touch-identity.png`) })
+    await identity.getByRole('button', { name: '取消' }).click()
+    await identity.waitFor({ state: 'hidden' })
+  }
+
   const feedMode = phonePage.getByRole('button', { name: '逐条' })
   assert.equal(await feedMode.getAttribute('aria-pressed'), 'true', 'phone feed shows each event by default')
   assert.ok((await feedMode.boundingBox())?.height >= 44, 'phone feed mode has a 44px touch target')
@@ -702,6 +762,7 @@ try {
   await measureTouchTargets(phoneRosterMenu, 'Roster menu')
   await phonePage.screenshot({ path: join(output, '390-touch-roster-menu.png') })
   await phonePage.keyboard.press('Escape')
+  await checkIdentityTargets(phonePage, phonePage.locator('.battle-sheet .roster'), '390')
   const phoneChart = phonePage.locator('[data-timeline-chart]')
   const phoneTime = await phoneChart.getAttribute('aria-valuenow')
   await phonePilot.click()
@@ -740,10 +801,20 @@ try {
   assert.deepEqual(phone.errors, [])
   await phone.context.close()
 
-  const coarse = await open(900, 800, 'dark', 'reduce', '', true)
+  const phoneReplay = await open(390, 844, 'light', 'reduce', `?t=${touchTime}`)
+  try {
+    await checkSecondaryReplayTargets(phoneReplay.page, '390')
+    assert.deepEqual(phoneReplay.errors, [])
+  } finally {
+    await phoneReplay.context.close()
+  }
+
+  const coarse = await open(900, 800, 'dark', 'reduce', `?t=${touchTime}`, true)
   try {
     const page = coarse.page
     assert.ok(await page.evaluate(() => matchMedia('(pointer: coarse)').matches && innerWidth >= 760))
+    await checkSecondaryReplayTargets(page, '900-coarse')
+    await checkIdentityTargets(page, page.locator('[data-module="roster"] .roster'), '900-coarse')
     const row = page.locator('.roster-row').filter({ hasText: pilot })
     await row.getByRole('button', { name: `${pilot} 的操作`, exact: true }).tap()
     await measureTouchTargets(page.getByRole('menu', { name: '飞行员操作' }), 'Coarse pointer roster menu')

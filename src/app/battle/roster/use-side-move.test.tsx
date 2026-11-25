@@ -134,6 +134,9 @@ it.each<{ mode: string; weak: boolean; external: SideSubject }>([
     expect(JSON.parse(String(request?.body))).toEqual({
       restore: [{ subject: surviving, through: surviving === subject ? firstTag : secondTag }],
     })
+    if (surviving === subject) {
+      expect(older.querySelector('[role="status"]')?.textContent).toBe('撤销了 2 次修改（含 Blanchard2213 的批量恢复）')
+    }
     expect(app.buttons()).toHaveLength(0)
     expect(app.host.textContent).toContain(externalName)
   } finally {

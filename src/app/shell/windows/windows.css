@@ -243,6 +243,24 @@ body.battle-window-dragging * {
 .replay-close-fights .feed-who { gap: var(--space-1); }
 .replay-close-fights td:last-child, .replay-close-fights th:last-child { width: 54px; text-align: end; }
 .replay-close-fights p { padding: var(--space-2); color: var(--color-text-3); }
+@media (width < 760px), (pointer: coarse) {
+  .battle-replay-overlay {
+    min-height: 46px;
+    position-try-fallbacks: --replay-overlay-bottom;
+  }
+  @position-try --replay-overlay-bottom { top: auto; bottom: 0; }
+  .battle-replay-overlay .battle-window-titlebar { min-height: 45px; }
+  .battle-replay-overlay :is(.battle-window-titlebar button, .battle-window-grip, .replay-close-fights button) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .battle-replay-overlay .battle-window-grip {
+    background-size: var(--space-4) var(--space-4);
+    background-position: right bottom;
+    background-repeat: no-repeat;
+  }
+  .replay-close-fights .pilot-more { opacity: 1; }
+}
 .replay-stage-zoom { position: absolute; z-index: 2; inset: auto auto var(--space-2) var(--space-2); }
 .replay-stage-zoom .replay-zoom { align-items: center; }
 .replay-stage-zoom .replay-number { padding-inline: var(--space-1); }
