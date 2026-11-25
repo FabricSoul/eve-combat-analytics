@@ -16,7 +16,8 @@ import { EventFeed } from '../EventFeed'
 import { HitAnalysis } from '../HitAnalysis'
 import { PersonDrawer } from '../PersonDrawer'
 import { Roster } from '../Roster'
-import { Timeline } from '../Timeline'
+import { PilotTimelineModule, Timeline } from '../Timeline'
+import { plotScale } from './model'
 import { Plot } from './Plot'
 
 const fixture = loadUiFixture()
@@ -36,11 +37,11 @@ function Probe() {
   return null
 }
 
-async function render(compact = false, data = fixture, other?: ReactNode) {
+async function render(compact = false, data = fixture, other?: ReactNode, separateLanes = false) {
   await act(() => root.render(
     <BattleProvider static={data}>
       <ViewProvider initialTime={start} endTime={end} defaultSide={1} syncUrl={false}>
-        <Timeline compact={compact} />
+        <Timeline compact={compact} separateLanes={separateLanes} />
         {other}
         <Probe />
       </ViewProvider>
@@ -127,6 +128,7 @@ describe('timeline', () => {
 
   it('persists dismissal of the single touch hint from compact mode across layouts', async () => {
     await render(true)
+    expect(button('关闭时间轴提示').title).toBe('关闭时间轴提示')
     expect(button('选段')).toBeDefined()
     expect([...host.querySelectorAll('.eca-timeline-hint span')].map((hint) => hint.textContent))
       .toEqual(['拖动时间轴跳转，双指缩放地图'])
@@ -295,6 +297,41 @@ describe('timeline', () => {
     expect(curve()?.getAttribute('stroke')).toBe('var(--color-repair)')
     expect(lane().textContent).toContain('峰值')
     expect(host.querySelectorAll('[data-pilot-lane]')[1]?.textContent).toContain('据他人日志')
+  })
+
+  it('shares the zoomed time domain and playhead with detached pilot lanes', async () => {
+    await render(false, fixture, <PilotTimelineModule />, true)
+    await act(() => {
+      view.setPinned(new Set(['char:2121605780', 'char:2120391968']))
+      view.seek(start)
+    })
+    const laneCharts = () => [...host.querySelectorAll<SVGSVGElement>('.eca-pilot-chart')]
+    const playhead = (svg: SVGSVGElement) => svg.querySelector('line[stroke="var(--color-accent)"]')
+    expect(laneCharts()).toHaveLength(2)
+    expect(laneCharts().every((lane) => playhead(lane))).toBe(true)
+    const originalCurve = laneCharts()[0]?.querySelector('path[fill="none"]')?.getAttribute('d')
+    const [from, to] = [Date.UTC(2025, 5, 22, 16, 23), Date.UTC(2025, 5, 22, 16, 36)]
+    const [fullStart, fullEnd] = [Number(chart().dataset.domainStart), Number(chart().dataset.domainEnd)]
+    const scale = (to - from) / (fullEnd - fullStart)
+    const anchor = fullStart + (from - fullStart) / (1 - scale)
+    await act(() => chart().dispatchEvent(new WheelEvent('wheel', {
+      deltaY: 360 * Math.log(scale), clientX: xAt(anchor), bubbles: true, cancelable: true,
+    })))
+    expect(Number(chart().dataset.domainStart)).toBeCloseTo(from)
+    expect(Number(chart().dataset.domainEnd)).toBeCloseTo(to)
+    for (const lane of laneCharts()) {
+      expect(lane.dataset.domainStart).toBe(chart().dataset.domainStart)
+      expect(lane.dataset.domainEnd).toBe(chart().dataset.domainEnd)
+      expect(playhead(lane)).toBeNull()
+    }
+    expect(playhead(chart())).toBeNull()
+    expect(laneCharts()[0]?.querySelector('path[fill="none"]')?.getAttribute('d')).not.toBe(originalCurve)
+    const midpoint = from + (to - from) / 2
+    await act(() => view.seek(midpoint))
+    for (const lane of laneCharts()) {
+      const width = Number(lane.getAttribute('width'))
+      expect(Number(playhead(lane)?.getAttribute('x1'))).toBeCloseTo(plotScale(width, 82, 10, from, to)(midpoint))
+    }
   })
 
   it('shares roster menu pins, compare checkboxes, and the lane remove button', async () => {

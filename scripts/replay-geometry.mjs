@@ -140,6 +140,20 @@ function check(condition, name) {
   if (!condition) failures.push(name)
 }
 
+function routeAssets(context, origin) {
+  return context.route('**/*', (route) => {
+    const url = new URL(route.request().url())
+    return url.origin === origin || url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com'
+      ? route.continue() : route.abort()
+  })
+}
+
+async function waitForInter(page) {
+  await page.evaluate(() => document.fonts.ready)
+  assert.ok(await page.evaluate(() => [...document.fonts].some(({ family, status }) =>
+    family === 'Inter' && status === 'loaded')), 'the geometry probe uses downloaded Inter')
+}
+
 await mkdir(output, { recursive: true })
 const server = await startFixtureBattle()
 const { origin } = server
@@ -165,14 +179,14 @@ try {
   for (const { width, height, mapHeight, sheet, coarseStage } of samples) {
     const context = await browser.newContext({ viewport: { width, height }, colorScheme: 'dark', hasTouch: Boolean(sheet || coarseStage),
       reducedMotion: normalMotion ? 'no-preference' : 'reduce' })
-    await context.route('**/*', (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
+    await routeAssets(context, origin)
     const page = await context.newPage()
     page.setDefaultTimeout(15000)
     await page.goto(`${origin}/b/${brId}?t=${t}`)
     const stage = page.locator('.replay-stage')
     const grip = page.getByRole('separator', { name: '调整舞台高度' })
     await stage.locator('.replay-marker[data-present] .replay-pilot[data-log="true"]').first().waitFor()
-    await page.evaluate(() => document.fonts.ready)
+    await waitForInter(page)
     const sheetGrip = page.getByRole('slider', { name: '面板高度' })
     if (sheet === 'peek') await sheetGrip.press('Home')
     if (sheet === 'half') {
@@ -252,8 +266,11 @@ try {
       continue
     }
     if (sheet === 'first') {
+      const zoomReadout = stage.getByRole('group', { name: '回放缩放' }).locator('.replay-number')
+      check(await zoomReadout.allTextContents().then((texts) => texts.join()) === '100%', `${name} zoom shows 100% initially`)
       await stage.getByRole('button', { name: '放大', exact: true }).tap()
       check(await stage.getAttribute('data-zoomed') !== null, `${name} zoom-in control changes the camera`)
+      check(await zoomReadout.allTextContents().then((texts) => texts.join()) === '125%', `${name} zoom shows the changed percentage`)
       await stage.getByRole('button', { name: '缩小', exact: true }).tap()
       check(await stage.getAttribute('data-zoomed') === null, `${name} zoom-out control returns to the overview`)
       await stage.getByRole('button', { name: '放大', exact: true }).tap()
@@ -270,6 +287,18 @@ try {
     }))
     console.log(name, 'paused DOM drift (px)', drift)
     check(drift < 0.02, `${name} paused DOM remains still`)
+    if (width === 1630) {
+      const label = stage.locator('[data-pilot-label="char:2121605780"][data-positioned]')
+      const getWidth = (node) => node.getBoundingClientRect().width
+      const before = await label.evaluate(getWidth)
+      await label.evaluate((node) => { node.style.letterSpacing = '0.5px' })
+      await stabilize(page)
+      const after = await label.evaluate(getWidth)
+      check(after > before, 'a paused pilot label is repacked when its text grows without a font load')
+      console.log('Paused label width after letter spacing changes', { before, after })
+      await label.evaluate((node) => node.style.removeProperty('letter-spacing'))
+      await stabilize(page)
+    }
 
     const forces = await page.evaluate(async ({ analysisPath, summary, present, width, height, chrome, topInset, t }) => {
       const { buildScene, makeLayout } = await import('/src/app/battle/replay/scene.ts')
@@ -495,14 +524,14 @@ try {
   for (const coarse of [true, false]) {
     const context = await browser.newContext({ viewport: { width: 900, height: coarse ? 800 : 680 }, hasTouch: coarse,
       colorScheme: 'dark', reducedMotion: normalMotion ? 'no-preference' : 'reduce' })
-    await context.route('**/*', (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
+    await routeAssets(context, origin)
     const page = await context.newPage()
     for (const time of coarse ? auditedTimes : denseTimes) {
       await page.goto(`${origin}/b/${brId}?t=${time}`)
       const stage = page.locator('.replay-stage')
       const blan = stage.getByRole('button', { name: /^Blanchard2213(?: ·|$)/ })
       await blan.waitFor()
-      await page.evaluate(() => document.fonts.ready)
+      await waitForInter(page)
       const fights = page.getByRole('button', { name: '关闭 此刻交火' })
       if (await fights.isVisible()) await fights.click()
       const grip = page.getByRole('separator', { name: '调整舞台高度' })
@@ -530,9 +559,11 @@ try {
             overlaps: state.overlaps, unnamed: unnamed.map(({ name }) => name) }))
           check(unnamed.length === 0 && state.overlaps === 0, `audit ${time} at ${scale}× names every in-view hull without overlap`)
           if (time === auditedTimes[0] && scale === 1.5) {
-            const clareence = state.ships.find(({ name }) => name.startsWith('Clareence · Eris'))
-            check(clareence?.hullFits && clareence.gridHit && clareence.labelVisible,
+            const clareence = state.ships.find(({ key }) => key === 'char:2119895356')
+            check(clareence?.name === 'Clareence · Eris' && clareence.hullFits && clareence.gridHit
+              && clareence.labelVisible && !clareence.truncated,
               'audit 16:04:54 at 150% shows Clareence’s Eris and its name')
+            console.log('Inter-loaded Clareence witness', JSON.stringify(clareence))
             await page.screenshot({ path: join(output, 'audit-fine-min-150-clareence.png') })
           }
           if (unnamed.length > 0) await writeFile(join(output, `audit-fine-min-${time}-${scale}.json`), JSON.stringify(state, null, 2))

@@ -151,8 +151,11 @@
 .replay-pilot-label[data-compact-label] { font: var(--fs-compact-table)/12px var(--font-ui); }
 .replay-pilot-label[data-wrap-label] { white-space: normal; overflow-wrap: anywhere; }
 .replay-pilot-label[data-dim] { opacity: .3; }
-.replay-pilot-label > span:last-child { overflow: hidden; text-overflow: ellipsis; }
-.replay-pilot-label[data-wrap-label] > span { overflow: visible; min-inline-size: 0; }
+.replay-pilot-label > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.replay-pilot-label[data-wrap-label] > span:first-child { overflow: visible; min-inline-size: 0; }
+/* Intrinsic text width stays observable while the displayed label has a packed width. */
+[data-replay-label-measure] { position: absolute; inline-size: max-content; visibility: hidden; white-space: nowrap; }
+[data-replay-label-measure]::before { content: attr(data-replay-label-measure); }
 .replay-pilot-label[data-inspected="true"] { color: var(--color-text); }
 .replay-pilot-label[data-selected="true"] { color: var(--color-text); }
 

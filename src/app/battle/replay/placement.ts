@@ -449,6 +449,8 @@ export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], ob
         }
       }
     }
+    // Downloaded fonts can saturate the available row width on the shortest maps.
+    packLanes(fallback.obstacles, lineHeight, false, 0.7, undefined, 0)
     return positions
   }
 

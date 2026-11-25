@@ -67,6 +67,41 @@ function button(name: string) {
 
 const marker = (name: string) => button(name).parentElement!
 
+it('updates the phone zoom readout as the camera zooms and fits', async () => {
+  await act(() => root.render(
+    <ReplayStage analysis={analysis()} killmails={killmails} order={order} t={time} playing={false}
+      stage={false} selected={null} focusOnly={false} select={select} />,
+  ))
+  const readout = () => host.querySelector('.replay-zoom .replay-number')?.textContent
+  expect(readout()).toBe('100%')
+  await act(() => button('放大').click())
+  expect(readout()).toBe('125%')
+  await act(() => host.querySelector<HTMLButtonElement>('.replay-zoom button:last-child')!.click())
+  expect(readout()).toBe('100%')
+})
+
+it('remeasures paused pilot labels after the font set finishes a later load', async () => {
+  const originalFonts = Object.getOwnPropertyDescriptor(document, 'fonts')
+  const fonts = Object.assign(new EventTarget(), { ready: Promise.resolve() })
+  Object.defineProperty(document, 'fonts', { configurable: true, value: fonts })
+  let width = 30
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    return this.matches('.replay-pilot-label') ? new DOMRect(0, 0, width, 16) : new DOMRect()
+  })
+  try {
+    await render(analysis())
+    const label = host.querySelector<HTMLElement>(`[data-pilot-label="${alpha.key}"]`)!
+    expect(label.style.width).toBe('30px')
+    width = 52
+    fonts.dispatchEvent(new Event('loadingdone'))
+    await refresh()
+    expect(label.style.width).toBe('52px')
+  } finally {
+    if (originalFonts) Object.defineProperty(document, 'fonts', originalFonts)
+    else Reflect.deleteProperty(document, 'fonts')
+  }
+})
+
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))

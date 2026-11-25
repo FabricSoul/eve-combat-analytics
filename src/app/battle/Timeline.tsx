@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import type { Analysis, BattleSummary } from '@/core/contract'
 import { fmtHms, fmtNum } from '../lib/format'
 import { sideColor, sideLetter } from '../lib/sides'
@@ -9,7 +9,7 @@ import { Portrait } from '../ui/Portrait'
 import { rangeLabel } from './RangeChip'
 import { useTimelineGestures } from './timeline/gestures'
 import { clamp, nextEvent, plotScale, pointed, repairs, second, timelineData, timelineLayout, timelineSides } from './timeline/model'
-import { PilotLanes } from './timeline/PilotLanes'
+import { PilotLanes, TimelinePlayhead } from './timeline/PilotLanes'
 import { Plot } from './timeline/Plot'
 import { TimelineHelp, useCoarsePointer, useTimelineHint } from './timeline/TimelineHelp'
 import { TimelineRange } from './timeline/TimelineRange'
@@ -66,13 +66,39 @@ function Controls({ view, next, skip, canPlay, compact, draft, activity, touchRa
   </div>
 }
 
-function TimelinePlayhead({ width, left, right, start, end, bottom }: {
-  width: number; left: number; right: number; start: number; end: number; bottom: number
-}) {
-  const { t } = usePlayback()
-  if (t < start || t > end) return null
-  const x = plotScale(width, left, right, start, end)(t)
-  return <line x1={x} x2={x} y1="2" y2={bottom} stroke="var(--color-accent)" strokeWidth="2" />
+function createTimelineDomain() {
+  let current: TimeRange | null = null
+  const listeners = new Set<() => void>()
+  return {
+    get: () => current,
+    set(domain: TimeRange | null) {
+      current = domain
+      for (const listener of listeners) listener()
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+  }
+}
+
+// getTime has a stable identity for each ViewProvider, including across live analysis updates.
+const timelineDomains = new WeakMap<ReturnType<typeof useView>['getTime'], ReturnType<typeof createTimelineDomain>>()
+
+function timelineDomain(getTime: ReturnType<typeof useView>['getTime']) {
+  let domain = timelineDomains.get(getTime)
+  if (!domain) {
+    domain = createTimelineDomain()
+    timelineDomains.set(getTime, domain)
+  }
+  return domain
+}
+
+function timelineBrush(range: TimeRange | null, start: number, end: number, x: (time: number) => number) {
+  if (!range) return null
+  const from = Math.max(range[0], start)
+  const to = Math.min(range[1], end)
+  return to >= from ? { x: x(from), width: Math.max(1, x(to) - x(from)) } : null
 }
 
 function TimelineRoom({ compact, separateLanes, summary, analysis }: {
@@ -108,6 +134,9 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
   const activity = data.activity ?? data.full
   const { chart, width, start, end, readout, focusReadout, range, draft, events } =
     useTimelineGestures(data.full, left, right, view, dismissHint, activity)
+  const sharedDomain = separateLanes ? timelineDomain(view.getTime) : null
+  useLayoutEffect(() => () => sharedDomain?.set(null), [sharedDomain])
+  useLayoutEffect(() => { sharedDomain?.set([start, end]) }, [sharedDomain, start, end])
   const seriesEnd = analysis?.interactions.at(-1)?.t ?? data.start
   const showRepair = !compact && layers.has('repOurs')
   const showPoint = !compact && layers.has('point')
@@ -121,12 +150,7 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
 
   const x = plotScale(width, left, right, start, end)
   const bottom = layout.height - (compact ? 2 : 16)
-  const rangeStart = range ? Math.max(range[0], start) : 0
-  const rangeEnd = range ? Math.min(range[1], end) : 0
-  const brush = range && rangeEnd >= rangeStart
-    ? { x: x(rangeStart), width: Math.max(1, x(rangeEnd) - x(rangeStart)) }
-    : null
-  const cursorX = view.t >= start && view.t <= end ? x(view.t) : null
+  const brush = timelineBrush(range, start, end, x)
   const readoutOnPlot = readout !== null && readout >= start && readout <= end
   const readoutBucket = readoutOnPlot ? Math.floor((readout - (analysis?.timeline.start ?? data.start)) / second) : -1
   // Reconstructed target spans can overlap at a switch. Prefer the newer call.
@@ -162,7 +186,7 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
 
   const hint = showHint && <div className="eca-timeline-hint">
       <span>{touchRange ? '拖动时间轴跳转，双指缩放地图' : 'Shift+拖动可以只看一段'}</span>
-      <Button variant="ghost" aria-label="关闭时间轴提示"
+      <Button variant="ghost" aria-label="关闭时间轴提示" title="关闭时间轴提示"
         style={touchRange ? { minWidth: 'var(--row)', minHeight: 'var(--row)' } : undefined}
         onClick={(event) => {
           dismissHint()
@@ -204,7 +228,7 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
           {brush && <rect x={brush.x} y="4" width={brush.width}
             height={Math.max(1, bottom - 6)} fill="var(--color-sel)" stroke="var(--color-accent-line)" strokeDasharray="3 3" />}
           {readoutOnPlot && <line x1={x(readout)} x2={x(readout)} y1="2" y2={bottom} stroke="var(--color-text-3)" />}
-          <TimelinePlayhead width={width} left={left} right={right} start={start} end={end} bottom={bottom} />
+          <TimelinePlayhead width={width} left={left} right={right} start={start} end={end} top={2} bottom={bottom} />
         </g>
       </svg>
       {readoutOnPlot && <div id={tipId} className="eca-timeline-tip" role="tooltip" style={{ '--hover-x': `${x(readout)}px` } as CSSProperties}>
@@ -219,9 +243,9 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
         </div> : <div>这一秒没有主目标</div>}
       </div>}
     </div>
-    {!compact && !separateLanes && <PilotLanes analysis={analysis} logs={summary.logs} oursSide={oursSide} sideOrder={order}
+    {!compact && !separateLanes && <PilotLanes analysis={analysis} logs={summary.logs} sideOrder={order}
       pinned={view.pinned} onRemove={view.togglePin} width={width} left={left} right={right} start={start} end={end}
-      cursorX={cursorX} brush={brush} />}
+      brush={brush} />}
   </div>
 }
 
@@ -232,8 +256,9 @@ export function Timeline({ compact = false, separateLanes = false }: TimelinePro
 
 export function PilotTimelineModule() {
   const { summary, analysis } = useBattleContext()
-  const { oursSide, pinned, togglePin, range } = useView()
-  const { t } = usePlayback('coarse')
+  const { oursSide, pinned, togglePin, range, getTime } = useView()
+  const domain = timelineDomain(getTime)
+  const shared = useSyncExternalStore(domain.subscribe, domain.get)
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(300)
   useLayoutEffect(() => {
@@ -247,12 +272,12 @@ export function PilotTimelineModule() {
   }, [])
   const data = useMemo(() => summary ? timelineData(summary, analysis, oursSide) : null, [summary, analysis, oursSide])
   const order = useMemo(() => summary ? timelineSides(summary, analysis, oursSide) : [], [summary, analysis, oursSide])
-  const [start, end] = data?.full ?? [0, 1]
+  const [start, end] = shared ?? data?.full ?? [0, 1]
   // The touch label column reserves space for both independent pilot actions.
   const left = useCoarsePointer() ? 92 : 82
   const x = plotScale(width, left, 10, start, end)
-  const brush = range ? { x: x(range[0]), width: x(range[1]) - x(range[0]) } : null
-  return <div ref={ref}>{summary && <PilotLanes analysis={analysis} logs={summary.logs} oursSide={oursSide}
+  const brush = timelineBrush(range, start, end, x)
+  return <div ref={ref}>{summary && <PilotLanes analysis={analysis} logs={summary.logs}
     sideOrder={order} pinned={pinned} onRemove={togglePin} width={width} left={left} right={10} start={start} end={end}
-    cursorX={t >= start && t <= end ? x(t) : null} brush={brush} />}</div>
+    brush={brush} />}</div>
 }

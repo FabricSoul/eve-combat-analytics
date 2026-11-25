@@ -1,4 +1,4 @@
-import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from 'react'
 import type { Analysis, EntityKey, Killmail } from '@/core/contract'
@@ -47,19 +47,21 @@ interface PilotMarkerProps {
   register: (key: EntityKey, element: HTMLDivElement | null) => void
   onInspect: (key: EntityKey | null) => void
   onSelect: (key: EntityKey) => void
+  tooltipId?: string
 }
 
-const PilotMarker = memo(function PilotMarker({ node, selected, register, onInspect, onSelect }: PilotMarkerProps) {
+const PilotMarker = memo(function PilotMarker({ node, selected, register, onInspect, onSelect, tooltipId }: PilotMarkerProps) {
   const menu = usePilotMenu()
   const { entity: { key, name, charId, hasLog, side }, color, radius, ship, shipId, letter } = node
   const label = charId === null ? ship ?? name : name
+  const description = ship && ship !== label ? `${label} · ${ship}` : label
 
   return (
     <div ref={(element) => { register(key, element) }} className="replay-marker" data-pilot-key={key} data-selected={selected} inert
       data-unassigned={side === -1 || undefined}
       style={{ '--replay-side': color, '--replay-diameter': `${radius * 2}px` } as CSSProperties}>
       <button type="button" tabIndex={-1} className="replay-pilot" data-log={hasLog} aria-pressed={selected}
-        aria-label={ship && ship !== label ? `${label} · ${ship}` : label}
+        aria-label={description} aria-describedby={tooltipId} title={tooltipId ? undefined : description}
         onContextMenu={(event) => menu?.open(key, event)} onPointerEnter={() => onInspect(key)} onPointerLeave={() => onInspect(null)} onClick={() => onSelect(key)}>
         {shipId !== null && (
           <img key={shipId} data-src={typeRenderUrl(shipId, radius * 2)} alt="" draggable={false}
@@ -177,6 +179,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
   const over = useRef<HTMLCanvasElement>(null)
   const bracket = useRef<HTMLDivElement>(null)
   const tooltip = useRef<HTMLDivElement>(null)
+  const tooltipId = useId()
   const effectTooltip = useRef<HTMLDivElement>(null)
   const effectTooltipTransform = useRef('')
   const missTracers = useRef<readonly MissTracer[]>([])
@@ -362,11 +365,28 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       schedule()
     })
     const painter = makePainter(lineCanvas, effectsCanvas, element, schedule, playback)
-    void document.fonts?.ready.then(() => {
+    function fontsChanged() {
+      if (disposed) return
       labelSizes = new WeakMap()
       labelKey = ''
       tooltipKey = undefined
       schedule()
+    }
+    const fonts = document.fonts
+    void fonts?.ready.then(fontsChanged)
+    fonts?.addEventListener('loadingdone', fontsChanged)
+    const labelResize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver((entries) => {
+      for (const { target, contentRect } of entries) {
+        const label = target.parentElement
+        if (!label) continue
+        const sizes = labelSizes.get(label)
+        if (!sizes) continue
+        const measured = label.hasAttribute('data-compact-label') ? sizes.compactSize : sizes.size
+        if (Math.abs(contentRect.width - measured.width) < 0.02) continue
+        labelSizes.delete(label)
+        labelKey = ''
+        schedule()
+      }
     })
     function appearanceChanged() {
       painter.refreshTokens()
@@ -552,9 +572,13 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
           element.style.width = `${wrapWidth}px`
         }
         const wrappedSizes = new Map(wrapped.map((element) => [element, measureLabel(element)]))
-        uncached.forEach((element, index) => labelSizes.set(element, {
-          size: naturalSizes[index]!, compactSize: compactSizes[index]!, wrappedSize: wrappedSizes.get(element),
-        }))
+        uncached.forEach((element, index) => {
+          labelSizes.set(element, {
+            size: naturalSizes[index]!, compactSize: compactSizes[index]!, wrappedSize: wrappedSizes.get(element),
+          })
+          const probe = element.lastElementChild
+          if (probe) labelResize?.observe(probe)
+        })
         const names = labels.map((label) => {
           const { element, node } = label
           const labelBounds = !split || node.entity.side < 0 ? labelFrame : node.entity.side === layout.ours ? ourBounds : enemyBounds
@@ -603,6 +627,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       invalidate.current = () => {}
       appearanceObserver.disconnect()
       obstacles.disconnect()
+      fonts?.removeEventListener('loadingdone', fontsChanged)
+      labelResize?.disconnect()
       reduced.removeEventListener('change', schedule)
     }
   }, [layout, scene, width, height, visibleWidth, visibleHeight, dpr, getTime, playback, updateTargets, updateEffectTooltip])
@@ -614,24 +640,26 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
 
   const pilotMarkers = useMemo(() => layout?.nodes.map((node) => (
     <PilotMarker key={node.entity.key} node={node} selected={selected === node.entity.key}
-      register={register} onInspect={inspect} onSelect={select} />
-  )), [layout, register, select, selected])
-  const pilotLabels = useMemo(() => layout?.nodes.map(({ entity: { key, name, charId }, ship }) => (
-    <span key={`${key}:${key === selected}`} className="replay-pilot-label" data-pilot-label={key}
-      data-selected={key === selected || undefined} data-inspected={key === detailKey || undefined}
-      ref={(element) => {
-        if (element) labelElements.current.set(key, element)
-        else labelElements.current.delete(key)
-      }}>
-      <span>{charId === null ? ship ?? name : name}</span>
-    </span>
-  )), [detailKey, layout, selected])
+      register={register} onInspect={inspect} onSelect={select} tooltipId={detailKey === node.entity.key ? tooltipId : undefined} />
+  )), [detailKey, layout, register, select, selected, tooltipId])
+  const pilotLabels = useMemo(() => layout?.nodes.map(({ entity: { key, name, charId }, ship }) => {
+    const label = charId === null ? ship ?? name : name
+    return <span key={key} className="replay-pilot-label" data-pilot-label={key}
+        data-selected={key === selected || undefined} data-inspected={key === detailKey || undefined}
+        ref={(element) => {
+          if (element) labelElements.current.set(key, element)
+          else labelElements.current.delete(key)
+        }}>
+        <span>{label}</span>
+        <span data-replay-label-measure={label} />
+      </span>
+  }), [detailKey, layout, selected])
 
   const locked = lockedKey ? layout?.byKey.get(lockedKey) : undefined
 
   const zoomControls = <div className="replay-zoom" role="group" aria-label="回放缩放">
     <button type="button" title="缩小" aria-label="缩小" disabled={camera.scale <= minZoom} onClick={() => zoom(1 / zoomStep)}>−</button>
-    {stage && <span className="replay-number">{Math.round(camera.scale * 100)}%</span>}
+    {stage !== undefined && <span className="replay-number">{Math.round(camera.scale * 100)}%</span>}
     <button type="button" title="放大" aria-label="放大" disabled={camera.scale >= maxZoom} onClick={() => zoom(zoomStep)}>+</button>
     <button type="button" onClick={reset}>适应全部</button>
   </div>
@@ -671,7 +699,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       </div>
       {stage !== undefined && <div className="replay-stage-zoom">{zoomControls}</div>}
       {detail && (
-        <div ref={tooltip} className="replay-tooltip" role="tooltip">
+        <div ref={tooltip} id={tooltipId} className="replay-tooltip" role="tooltip">
           <Portrait charId={detail.entity.charId} size={32} />
           <div><strong>{detail.entity.name}</strong><span>{detail.ship ?? '舰船未知'}</span></div>
         </div>

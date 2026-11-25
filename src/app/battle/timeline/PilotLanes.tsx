@@ -2,7 +2,7 @@ import { memo, useId, useMemo, useState } from 'react'
 import type { Analysis, BattleSummary, EntityKey } from '@/core/contract'
 import { fmtNum } from '@/app/lib/format'
 import { sideColor } from '@/app/lib/sides'
-import { useView } from '@/app/state/view-store'
+import { usePlayback, useView } from '@/app/state/view-store'
 import { noPilotLogReason, observedHint, observedLabel } from '../compare/metrics'
 import { observedPilots } from '../compare/observations'
 import { PilotMore, usePilotMenu } from '../roster/PilotActions'
@@ -28,12 +28,17 @@ interface Geometry {
 interface PilotLanesProps extends Geometry {
   analysis: Analysis | null
   logs: BattleSummary['logs']
-  oursSide: number
   sideOrder: readonly number[]
   pinned: ReadonlySet<EntityKey>
   onRemove(key: EntityKey): void
-  cursorX: number | null
   brush: { x: number; width: number } | null
+}
+
+export function TimelinePlayhead({ width, left, right, start, end, top, bottom }: Geometry & { top: number; bottom: number }) {
+  const { t } = usePlayback()
+  if (t < start || t > end) return null
+  const x = plotScale(width, left, right, start, end)(t)
+  return <line x1={x} x2={x} y1={top} y2={bottom} stroke="var(--color-accent)" strokeWidth="2" />
 }
 
 const PilotTrace = memo(function PilotTrace({ geometry, bucketStart, color, series }: {
@@ -51,7 +56,7 @@ const PilotTrace = memo(function PilotTrace({ geometry, bucketStart, color, seri
   </>
 })
 
-export function PilotLanes({ analysis, logs, sideOrder, pinned, onRemove, cursorX, brush, width, left, right, start, end }: PilotLanesProps) {
+export function PilotLanes({ analysis, logs, sideOrder, pinned, onRemove, brush, width, left, right, start, end }: PilotLanesProps) {
   const { selected, select } = useView()
   const menu = usePilotMenu()
   const [metric, setMetric] = useState<PilotMetric>('damageOut')
@@ -83,19 +88,18 @@ export function PilotLanes({ analysis, logs, sideOrder, pinned, onRemove, cursor
               <Portrait charId={pilot.charId} size={16} />
               <span className="eca-pilot-name">{pilot.name}</span>
             </button>
-            {menu ? <PilotMore pilot={key} name={pilot.name} /> : <button type="button" className="eca-pilot-remove" aria-label={`移除 ${pilot.name} 的时间轴对比`}
+            {menu ? <PilotMore pilot={key} name={pilot.name} /> : <button type="button" className="eca-pilot-remove" aria-label={`移除 ${pilot.name} 的时间轴对比`} title="移出时间轴对比"
               onClick={() => onRemove(key)}>×</button>}
             {hasObservation && <span className="eca-pilot-observed" title={observedHint}>{observedLabel}</span>}
           </div>
           <svg className="eca-pilot-chart" width={width} height={height} viewBox={`0 0 ${width} ${height}`}
-            role="img" aria-label={`${pilot.name} · ${peak}`}>
+            data-domain-start={start} data-domain-end={end} role="img" aria-label={`${pilot.name} · ${peak}`}>
             {hasMeasurement
               ? <PilotTrace geometry={geometry} bucketStart={analysis.timeline.start} color={color} series={data} />
               : <title>{noPilotLogReason}</title>}
             {brush && <rect x={brush.x} y="1" width={brush.width} height={height - 2}
               fill="var(--color-sel)" stroke="var(--color-accent-line)" strokeDasharray="3 3" />}
-            {cursorX !== null && <line x1={cursorX} x2={cursorX} y1="0" y2={height}
-              stroke="var(--color-accent)" strokeWidth="2" />}
+            <TimelinePlayhead {...geometry} top={0} bottom={height} />
             <text x={width - right} y="12" textAnchor="end" className="eca-pilot-peak">{peak}</text>
           </svg>
         </div>

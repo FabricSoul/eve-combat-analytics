@@ -82,8 +82,10 @@ export function TopBar({
         {live ? '' : reconnecting ? '重连中…' : '离线'}
       </span>}
       {stats && <span className="app-topbar-meta">{stats}</span>}
-      {onUpload && <Button className="app-topbar-upload-mobile" onClick={onUpload} aria-label="上传日志"><Icon name="upload" size={18} /></Button>}
-      {summary && <Button ref={menuTrigger} className="app-topbar-menu-toggle" variant="ghost" aria-label="更多战斗操作"
+      {onUpload && <Button className="app-topbar-upload-mobile" onClick={onUpload} aria-label="上传日志" title="上传日志">
+        <Icon name="upload" size={18} />
+      </Button>}
+      {summary && <Button ref={menuTrigger} className="app-topbar-menu-toggle" variant="ghost" aria-label="更多战斗操作" title="更多战斗操作"
         aria-expanded={menuOpen} aria-controls="battle-topbar-actions" onClick={() => onMenuOpenChange?.(!menuOpen)}>⋯</Button>}
       <div className="app-topbar-actions" id={summary ? 'battle-topbar-actions' : undefined} data-menu-open={menuOpen}>
         {stats && <span className="app-topbar-menu-meta">{stats}</span>}

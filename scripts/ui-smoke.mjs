@@ -52,6 +52,22 @@ try {
     }))
   }
 
+  async function auditIconButtonHints(page, layout) {
+    const missing = await page.locator('button:visible, [role="button"]:visible').evaluateAll((buttons) => {
+      return buttons.filter((button) => {
+        if (!button.checkVisibility({ visibilityProperty: true, opacityProperty: true }) || button.closest('[inert]')) return false
+        const content = button.cloneNode(true)
+        content.querySelectorAll('svg, [aria-hidden="true"]').forEach((icon) => icon.remove())
+        if (/[\p{L}\p{N}]/u.test(content.textContent)) return false
+        const tooltip = button.getAttribute('aria-describedby')?.split(/\s+/).some((id) =>
+          document.getElementById(id)?.matches('[role="tooltip"]'))
+        return !button.getAttribute('title')?.trim() && !tooltip
+      }).map((button) => button.getAttribute('aria-label') ?? button.outerHTML)
+    })
+    assert.deepEqual(missing, [], `${layout} icon-only buttons expose a hover title or tooltip`)
+    console.log(`Icon-button hover hints: ${layout} passed`)
+  }
+
   async function auditTagAndKillStyles() {
     const { page, context } = await open(1630, 940, 'dark')
     try {
@@ -631,6 +647,22 @@ try {
 
   const phone = await open(390, 844, 'light', 'reduce')
   const phonePage = phone.page
+  await phonePage.locator('.replay-stage').waitFor()
+  await auditIconButtonHints(phonePage, 'phone')
+  const phoneZoom = phonePage.getByRole('group', { name: '回放缩放' })
+  await phoneZoom.getByText('100%', { exact: true }).waitFor()
+  await phoneZoom.getByRole('button', { name: '放大', exact: true }).click()
+  await phoneZoom.getByText('125%', { exact: true }).waitFor()
+  await phonePage.screenshot({ path: join(output, 'phone-zoom-readout.png') })
+  await phoneZoom.getByRole('button', { name: '适应全部' }).click()
+  await phoneZoom.getByText('100%', { exact: true }).waitFor()
+  const iconDesktop = await open(1280, 800, 'dark', 'reduce')
+  try {
+    await iconDesktop.page.locator('.replay-stage').waitFor()
+    await auditIconButtonHints(iconDesktop.page, 'desktop')
+  } finally {
+    await iconDesktop.context.close()
+  }
   async function measureTouchTargets(scope, view, strict = false) {
     const result = await scope.evaluate(async (root, strict) => {
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
@@ -1923,6 +1955,30 @@ try {
       await shot.page.getByRole('complementary', { name: '个人详情' }).getByRole('button', { name: '关闭个人详情' }).click()
       await compare.getByRole('checkbox', { name: '并排对比 ' + pilot, exact: true }).check()
       const lane = shot.page.locator('[data-pilot-lane]').filter({ hasText: pilot })
+      const laneChart = lane.locator('.eca-pilot-chart')
+      const playhead = 'line[stroke="var(--color-accent)"]'
+      await laneChart.locator(playhead).waitFor({ state: 'attached' })
+      const domain = (plot) => plot.evaluate(({ dataset }) => [+dataset.domainStart, +dataset.domainEnd])
+      const [fullStart, fullEnd] = await domain(chart)
+      const from = Date.UTC(2025, 5, 22, 16, 23)
+      const to = Date.UTC(2025, 5, 22, 16, 36)
+      const scale = (to - from) / (fullEnd - fullStart)
+      const anchor = (from - fullStart) / (fullEnd - fullStart - (to - from))
+      const box = await chart.boundingBox()
+      const clientX = box.x + 72 + (box.width - 72 - 12) * anchor
+      const wheel = (deltaY) => chart.dispatchEvent('wheel', { clientX, deltaY, bubbles: true, cancelable: true })
+      await wheel(360 * Math.log(scale))
+      const zoomDomain = await domain(chart)
+      // Chromium dispatches wheel coordinates in whole pixels.
+      assert.ok(Math.abs(zoomDomain[0] - from) < 5_000 && Math.abs(zoomDomain[1] - to) < 5_000)
+      assert.deepEqual(await domain(laneChart), zoomDomain, 'the detached lane uses the top plot’s zoom domain')
+      assert.equal(await chart.locator(playhead).count(), 0)
+      assert.equal(await laneChart.locator(playhead).count(), 0, 'the off-window playback cursor is hidden in the detached lane')
+      await lane.scrollIntoViewIfNeeded()
+      await page.screenshot({ path: join(output, 'timeline-shared-domain.png') })
+      await wheel(-360 * Math.log(scale))
+      await laneChart.locator(playhead).waitFor({ state: 'attached' })
+      console.log('Detached pilot lane: shared 16:23–16:36 window and hid the off-window playhead')
       await lane.getByRole('button', { name: pilot, exact: true }).click()
       assert.equal(await lane.getAttribute('data-selected'), 'true')
       assert.equal(await roster.getAttribute('aria-pressed'), 'true')
