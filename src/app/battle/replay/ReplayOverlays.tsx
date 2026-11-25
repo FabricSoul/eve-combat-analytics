@@ -6,7 +6,7 @@ import { windowHeight } from '../../shell/windows/layout'
 import { defaultReplayOverlays, replayOverlayIds, replayOverlayReducer,
   type ReplayOverlayAction, type ReplayOverlayId, type ReplayOverlayLayout } from '../../shell/windows/replay-layout'
 import { InteractionKey } from './InteractionKey'
-import { placeFightsWindow, placeReplayWindow, shortMapHeight, type Rect } from './placement'
+import { placeFightsWindow, placeReplayWindow, replayWindowRegions, shortMapHeight, type Rect } from './placement'
 import '../../shell/windows/windows.css'
 
 export const ReplayOverlayWorkspace = createContext<{
@@ -25,6 +25,7 @@ const compactLegend = { width: 400, height: 240 }
 const fightsWidth = 336
 const fightsHeight = 164
 const compactFightsWidth = 1200
+const minPhoneFightsWidth = 188
 
 function paddedRect({ left, top, right, bottom }: DOMRect, gap: number): Rect {
   return { x: Math.floor(left) - gap, y: Math.floor(top) - gap,
@@ -36,6 +37,16 @@ function sameRects(previous: readonly Rect[], next: readonly Rect[]) {
     const rect = previous[index]!
     return rect.x === x && rect.y === y && rect.width === width && rect.height === height
   })
+}
+
+function phoneFightsRegion(stage: Rect, controls: readonly Rect[], barHeight: number, touch: number) {
+  const viewport = { x: stage.x + overlayGap, y: stage.y + overlayGap,
+    width: stage.width - 2 * overlayGap, height: stage.height - 2 * overlayGap }
+  const minExpandedHeight = barHeight + touch + 2
+  const expanded = replayWindowRegions(viewport, controls, minPhoneFightsWidth, minExpandedHeight)
+  const regions = expanded.length ? expanded : replayWindowRegions(viewport, controls, minPhoneFightsWidth, barHeight)
+  const area = (region: Rect) => Math.min(region.width, fightsWidth) * Math.min(region.height, fightsHeight)
+  return regions.sort((a, b) => area(b) - area(a) || b.x + b.width - a.x - a.width || a.y - b.y).slice(0, 1)
 }
 
 export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, placementTime, onLayoutChange }: {
@@ -60,7 +71,7 @@ export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, p
   const { open: fightsOpen, collapsed: fightsPreference, rect: savedFights } = layout.overlays.fights
   const [geometry, setGeometry] = useState(() => ({
     width: window.innerWidth, height: window.innerHeight, stageWidth: window.innerWidth, left: 24, legendTop: 120, mapFloor: 0,
-    stageBottom: 0, safeBottom: overlayGap, top: 0, barHeight: windowHeight, protectedControls: [] as Rect[],
+    top: 0, barHeight: windowHeight, protectedControls: [] as Rect[], phoneFightsRegions: [] as Rect[],
     fights: { x: window.innerWidth - fightsWidth - 12, y: 92, width: fightsWidth, height: fightsHeight },
   }))
 
@@ -107,22 +118,23 @@ export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, p
         ? { x: Math.max(0, bounds.right - fightsWidth - 12), y: belowTimeline, width: fightsWidth, height: fightsHeight }
         : placeFightsWindow(stageBox, topRight, legendTop,
           { width: fightsWidth, height: minimized ? barHeight : fightsHeight }, pilots, zoom ? [zoom] : [])
-      const safeBottom = phone ? Math.max(overlayGap, parseFloat(style.getPropertyValue('--replay-safe-bottom')) || 0) : overlayGap
       const timelineControls = [...(timelineBar?.children ?? [])]
       const hint = timeline?.querySelector('.eca-timeline-hint')
       if (hint && !timelineControls.includes(hint)) timelineControls.push(hint)
       const protectedControls = [...actions, ...(zoomRow ? [zoomRow] : []), ...(stageGrip ? [stageGrip] : []), ...timelineControls]
         .map((element) => paddedRect(element.getBoundingClientRect(), 2))
-      const stageBottom = Math.ceil(bounds.bottom)
+      const phoneFightsRegions = phone ? phoneFightsRegion(stageBox, [
+        ...protectedControls, ...Array.from(sides?.children ?? [], (element) => paddedRect(element.getBoundingClientRect(), 2)),
+      ], barHeight, touch) : []
       const top = Math.max(0, Math.ceil(bounds.top), Math.ceil(battleLayout?.getBoundingClientRect().top ?? 0), mapFloor)
       const next = { width: window.innerWidth, height: window.innerHeight,
-        left: legendLeft, stageWidth: stageBox.width, legendTop, mapFloor, stageBottom, safeBottom,
+        left: legendLeft, stageWidth: stageBox.width, legendTop, mapFloor, phoneFightsRegions,
         top, barHeight, protectedControls,
         fights: { ...fights, height: fightsHeight } }
       setGeometry((previous) => previous.width === next.width && previous.height === next.height
         && previous.left === next.left && previous.stageWidth === next.stageWidth
         && previous.legendTop === next.legendTop && previous.mapFloor === mapFloor
-        && previous.stageBottom === stageBottom && previous.safeBottom === safeBottom
+        && sameRects(previous.phoneFightsRegions, phoneFightsRegions)
         && previous.top === top && previous.barHeight === barHeight && sameRects(previous.protectedControls, protectedControls)
         && previous.fights.x === fights.x && previous.fights.y === fights.y && previous.fights.width === fights.width ? previous : next)
     }
@@ -166,24 +178,21 @@ export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, p
     const domId = `${baseId}-${id}`
     if (phone && id === 'fights') {
       const title = titles[id]
-      const origin = { x: overlayGap, y: geometry.stageBottom + overlayGap }
-      const viewport = { width: geometry.width - overlayGap * 2,
-        height: Math.max(0, geometry.height - geometry.safeBottom - origin.y) }
-      const height = phoneFightsCollapsed ? geometry.barHeight : fightsHeight
-      const rect = { x: Math.max(0, viewport.width - fightsWidth), y: Math.max(0, viewport.height - height), width: fightsWidth, height: fightsHeight }
-      const controls = geometry.protectedControls.map((control) => ({ ...control, x: control.x - origin.x, y: control.y - origin.y }))
+      const viewport = geometry.phoneFightsRegions[0]
+      const open = phoneFightsOpen && Boolean(viewport)
+      const rect = { x: Math.max(0, (viewport?.width ?? 0) - fightsWidth), y: 0, width: fightsWidth, height: fightsHeight }
       return <div className="replay-overlay-trigger" key={id}>
         <button ref={trigger} type="button" className="replay-control-trigger" data-replay-trigger={id}
-          aria-expanded={phoneFightsOpen} aria-controls={phoneFightsOpen ? domId : undefined} onClick={(event) => {
-            if (event.detail === 0 && !phoneFightsOpen) keyboardOpen.current = id
-            setPhoneFightsOpen(!phoneFightsOpen)
+          aria-expanded={open} aria-controls={open ? domId : undefined} onClick={(event) => {
+            if (event.detail === 0 && !open) keyboardOpen.current = id
+            if (!open && layout.overlays.legend.open) dispatch({ type: 'toggle', id: 'legend' })
+            setPhoneFightsOpen(!open)
           }}>{title}</button>
-        {phoneFightsOpen && createPortal(
+        {open && viewport && createPortal(
           <WindowFrame<ReplayOverlayId> id={id} title={title} region={title} kind="section" desk={stage} subtitle={fightTime}
             viewport={viewport} zIndex={2}
             state={{ floating: true, hidden: false, minimized: phoneFightsCollapsed, rect: phoneFightsRect ?? rect }}
-            overlay={{ domId, fixedOrigin: origin, touch: true, barHeight: geometry.barHeight,
-              constrain: (rect, minimized) => placeReplayWindow(rect, { x: 0, y: 0, ...viewport }, controls, geometry.barHeight, minimized),
+            overlay={{ domId, fixedOrigin: viewport, touch: true, barHeight: geometry.barHeight, minWidth: minPhoneFightsWidth,
               setCancel: (cancel) => { if (workspace) workspace.cancelDrag.current = cancel } }}
             dispatch={(action) => {
               if (action.type === 'position') setPhoneFightsRect(action.rect)
@@ -220,6 +229,7 @@ export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, p
       <button ref={trigger} type="button" className="replay-control-trigger" data-replay-trigger={id}
         aria-expanded={state.open} aria-controls={state.open ? domId : undefined} onClick={(event) => {
           if (event.detail === 0 && !state.open) keyboardOpen.current = id
+          if (phone && id === 'legend' && !state.open) setPhoneFightsOpen(false)
           dispatch({ type: 'toggle', id })
         }}>{titles[id]}</button>
       {state.open && createPortal(

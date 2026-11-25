@@ -20,6 +20,7 @@ const samples = [
   ...[844, 1000].flatMap((height) => ['half', 'peek'].map((sheet) => ({ width: 390, height, sheet }))),
 ]
 const anchorNames = ['Beatris Dallocort', 'Blanchard2213']
+const auditedTimes = [1750608294000, 1750608498000] // 16:04:54 and 16:08:18 UTC
 const failures = []
 let zoomCount = 0
 
@@ -27,6 +28,20 @@ async function stabilize(page) {
   await page.evaluate(async () => {
     for (let frame = 0; frame < 5; frame++) await new Promise(requestAnimationFrame)
   })
+}
+
+async function zoomAt(page, stage, pilot, scale) {
+  await stage.getByRole('button', { name: '适应全部' }).click()
+  await page.mouse.move(0, 0)
+  await stabilize(page)
+  const anchor = await pilot.boundingBox()
+  await pilot.dispatchEvent('wheel', {
+    clientX: anchor.x + anchor.width / 2, clientY: anchor.y + anchor.height / 2,
+    deltaY: -Math.log(scale + 0.00001) / 0.002,
+  })
+  await page.waitForFunction(() => document.querySelector('.replay-stage').hasAttribute('data-all-names'))
+  await stabilize(page)
+  return anchor
 }
 
 async function measure(stage, requiredKeys = []) {
@@ -89,7 +104,7 @@ async function measure(stage, requiredKeys = []) {
       const y = rect.top + (rect.height - 44) / 2
       return offsets.every((dx) => offsets.every((dy) => control.contains(document.elementFromPoint(x + dx, y + dy))))
     }).length
-    const chromeBoxes = [...controls, ...node.querySelectorAll('.replay-legend > span'),
+    const chromeBoxes = [...controls, ...node.querySelectorAll('.replay-legend > span, .replay-tooltip[data-positioned], .replay-miss-tooltip[data-positioned]'),
       ...controls.map((control) => document.getElementById(control.getAttribute('aria-controls'))).filter(Boolean)]
       .map((element) => element.getBoundingClientRect()).filter((rect) => rect.width && rect.height)
     const chrome = chromeBoxes.map((rect) => ({ x: rect.x - left, y: rect.y - top, width: rect.width, height: rect.height }))
@@ -109,7 +124,11 @@ async function measure(stage, requiredKeys = []) {
       neutrals: neutral.length, zoomInsets: [zoom.left - left, bottom - zoom.bottom],
       fleetEdges: [Math.max(0, ...own.map(({ x }) => x)), Math.min(width, ...opposing.map(({ x }) => x))],
       fleetCenters: [meanX(own), meanX(opposing)],
-      controlHits, containedControls, controlsUnderHint, controls: actionable.length, ships, chrome }
+      controlHits, containedControls, controlsUnderHint, controls: actionable.length,
+      ships: ships.map((ship) => {
+        const label = labels.get(ship.key)
+        return { ...ship, labelVisible: Boolean(label && includes(label) && !chromeBoxes.some((box) => intersects(label, box, 0.02))) }
+      }), chrome }
   }, requiredKeys)
 }
 
@@ -226,6 +245,8 @@ try {
     }
     check(overview.controlHits === overview.controls && overview.containedControls === overview.controls,
       `${name} replay controls are contained and clickable`)
+    if (sheet) check(Math.abs(overview.zoomInsets[0] - 8) < 0.02 && Math.abs(overview.zoomInsets[1] - 8) < 0.02,
+      `${name} zoom stays at the lower left of the phone map`)
     if (overview.controlHits !== overview.controls) {
       await context.close()
       continue
@@ -301,9 +322,10 @@ try {
       await stabilize(page)
       check(await stage.locator(`[data-pilot-label="${key}"][data-${click ? 'selected' : 'inspected'}="true"]`).count() === 1,
         `${name} ${click ? 'selection' : 'hover'} activates the pilot label`)
-      const { reach, truncated } = (await measure(stage, [key])).ships.find((ship) => ship.key === key)
+      const { reach, truncated, labelVisible } = (await measure(stage, [key])).ships.find((ship) => ship.key === key)
       check(reach !== null && reach <= 40, `${name} ${click ? 'selected' : 'hovered'} name within 40 px`)
       check(!truncated, `${name} ${click ? 'selected' : 'hovered'} name shows full text`)
+      check(labelVisible, `${name} ${click ? 'selected' : 'hovered'} name clears replay chrome`)
       return reach === null ? null : Number(reach.toFixed(2))
     }
     if (!sheet) {
@@ -316,14 +338,7 @@ try {
       const pilot = anchor === 'center' ? stage : stage.getByRole('button', { name: new RegExp(`^${anchor}(?: ·|$)`) })
       for (const scale of anchor === 'center' && !coarseStage ? [1.5] : [1.5, 2, 3]) {
         zoomCount++
-        await stage.getByRole('button', { name: '适应全部' }).click()
-        await stabilize(page)
-        const { x, y, width, height } = await pilot.boundingBox()
-        await pilot.dispatchEvent('wheel', {
-          clientX: x + width / 2, clientY: y + height / 2, deltaY: -Math.log(scale + 0.00001) / 0.002,
-        })
-        await page.waitForFunction(() => document.querySelector('.replay-stage').hasAttribute('data-all-names'))
-        await stabilize(page)
+        const { x, y } = await zoomAt(page, stage, pilot, scale)
         const zoom = await measure(stage)
         const after = await pilot.boundingBox()
         const anchorShift = Number(Math.hypot(x - after.x, y - after.y).toFixed(2))
@@ -366,23 +381,24 @@ try {
         const open = await measure(stage)
         const map = await stage.boundingBox()
         const popup = await panel.boundingBox()
-        const clearOfMap = popup.y >= map.y + map.height
-        const timelineControls = page.locator('.eca-timeline :is(.eca-timeline-bar, .eca-timeline-hint) button')
+        const insideMap = popup.y >= map.y && popup.y + popup.height <= map.y + map.height
+        const timelineControls = page.locator('.eca-timeline :is(.eca-timeline-bar, .eca-timeline-hint) button, [data-timeline-chart]')
         const clearOfTimeline = await timelineControls.evaluateAll((buttons, popup) => buttons.every((button) => {
           const { left, right, top, bottom } = button.getBoundingClientRect()
           return !button.checkVisibility() || popup.x >= right || popup.x + popup.width <= left
             || popup.y >= bottom || popup.y + popup.height <= top
         }), popup)
-        check(clearOfMap, `${name} fights stays below the map`)
-        check(clearOfTimeline, `${name} fights clears the timeline controls and first-visit hint`)
+        check(insideMap, `${name} fights stays inside the map`)
+        check(clearOfTimeline, `${name} fights clears the timeline chart, controls and first-visit hint`)
         check((await panel.locator('.battle-window-body').boundingBox()).height >= 44,
           `${name} fights body fits a complete touch row`)
-        check(open.gridHits === open.hulls && open.controlHits === open.controls, `${name} fights leaves hulls and controls reachable`)
+        check(open.controlHits === open.controls && open.labelsUnderChrome === 0,
+          `${name} fights leaves replay controls reachable and labels clear of the panel`)
         check(await touchSize(close) >= 44, `${name} fights close target is 44 px`)
         check((await panel.textContent()).includes('前 10 秒') && await panel.locator('tbody tr').count() > 0,
           `${name} shows the last 10 seconds of combat`)
         console.log(name, 'phone fights', JSON.stringify({ gridHits: open.gridHits, hulls: open.hulls, controls: open.controls,
-          controlHits: open.controlHits, clearOfMap, triggerTouch: await touchSize(trigger), closeTouch: await touchSize(close) }))
+          controlHits: open.controlHits, popup, insideMap, triggerTouch: await touchSize(trigger), closeTouch: await touchSize(close) }))
         await page.screenshot({ path: join(output, `${name}-open-fights.png`) })
         if (sheet === 'first') {
           const collapse = panel.getByRole('button', { name: '收起 此刻交火' })
@@ -398,12 +414,13 @@ try {
             const dragStart = { x: gripRect.x + gripRect.width / 2, y: gripRect.y + gripRect.height / 2 }
             await page.mouse.move(dragStart.x, dragStart.y)
             await page.mouse.down()
-            await page.mouse.move(dragStart.x - 24, dragStart.y - 24, { steps: 4 })
+            await page.mouse.move(dragStart.x - 24, dragStart.y + 24, { steps: 4 })
             await page.mouse.up()
             const afterDrag = await panel.boundingBox()
             const dragDistance = Math.hypot(afterDrag.x - beforeDrag.x, afterDrag.y - beforeDrag.y)
             check(dragDistance >= 8, `${name} collapsed fights moves on title grip drag`)
-            check(afterDrag.y >= map.y + map.height, `${name} dragged fights stays clear of the map`)
+            check(afterDrag.y >= map.y && afterDrag.y + afterDrag.height <= map.y + map.height,
+              `${name} dragged fights stays inside the map`)
             await panel.getByRole('button', { name: '还原 此刻交火' }).tap()
             check(await panel.locator('tbody').isVisible(), `${name} restore shows the fight table`)
             console.log(name, 'phone fights collapse and drag', JSON.stringify({ dragDistance, collapsedHeight: afterDrag.height }))
@@ -414,7 +431,8 @@ try {
         await trigger.press('Enter')
         await panel.waitFor()
         await page.keyboard.press('Escape')
-        check(!await panel.isVisible() && await trigger.evaluate((button) => document.activeElement === button),
+        await panel.waitFor({ state: 'hidden' })
+        check(await trigger.evaluate((button) => document.activeElement === button),
           `${name} Escape closes Current Fights and restores focus`)
       }
       if (sheet === 'first') {
@@ -459,6 +477,68 @@ try {
       check(zoom.names === zoom.inView && zoom.truncated === 0 && zoom.labelsUnderChrome === 0 && zoom.overlaps === 0,
         `${name} touch zoom contains every in-view name with both windows open`)
       zoomCount++
+    }
+    await context.close()
+  }
+
+  const analysis = await (await fetch(origin + analysisPath)).json()
+  const eventsBySecond = new Map()
+  for (const { t } of analysis.interactions) {
+    const second = Math.floor(t / 1000) * 1000
+    eventsBySecond.set(second, (eventsBySecond.get(second) ?? 0) + 1)
+  }
+  const denseTimes = [...auditedTimes]
+  for (const [time] of [...eventsBySecond].sort((a, b) => b[1] - a[1])) {
+    if (denseTimes.length >= 6) break
+    if (denseTimes.every((other) => Math.abs(time - other) >= 60_000)) denseTimes.push(time)
+  }
+  for (const coarse of [true, false]) {
+    const context = await browser.newContext({ viewport: { width: 900, height: coarse ? 800 : 680 }, hasTouch: coarse,
+      colorScheme: 'dark', reducedMotion: normalMotion ? 'no-preference' : 'reduce' })
+    await context.route('**/*', (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
+    const page = await context.newPage()
+    for (const time of coarse ? auditedTimes : denseTimes) {
+      await page.goto(`${origin}/b/${brId}?t=${time}`)
+      const stage = page.locator('.replay-stage')
+      const blan = stage.getByRole('button', { name: /^Blanchard2213(?: ·|$)/ })
+      await blan.waitFor()
+      await page.evaluate(() => document.fonts.ready)
+      const fights = page.getByRole('button', { name: '关闭 此刻交火' })
+      if (await fights.isVisible()) await fights.click()
+      const grip = page.getByRole('separator', { name: '调整舞台高度' })
+      const { x, y, width, height } = await grip.boundingBox()
+      await page.mouse.move(x + width / 2, y + height / 2)
+      await page.mouse.down()
+      await page.mouse.move(x + width / 2, 1)
+      await page.mouse.up()
+      await page.mouse.move(0, 0)
+      if (normalMotion) await page.waitForTimeout(400)
+      await stabilize(page)
+      check(await grip.getAttribute('aria-valuenow') === await grip.getAttribute('aria-valuemin'), `audit ${time} reaches minimum stage`)
+      if (coarse) {
+        const state = await measure(stage)
+        const numala = state.ships.find(({ name }) => name.startsWith('Numala Airuta'))
+        console.log('audit coarse minimum', time, JSON.stringify({ numala, chrome: state.chrome }))
+        check(numala?.gridHit && numala.labelVisible && !numala.truncated, `audit ${time} Numala Airuta hull and entire name are visible`)
+        await page.screenshot({ path: join(output, `audit-coarse-min-${time}.png`) })
+      } else {
+        for (const scale of [1.5, 2, 3]) {
+          await zoomAt(page, stage, blan, scale)
+          const state = await measure(stage)
+          const unnamed = state.ships.filter((ship) => ship.inView && (!ship.labelVisible || ship.truncated))
+          console.log('audit fine minimum', time, scale, JSON.stringify({ names: state.names, inView: state.inView,
+            overlaps: state.overlaps, unnamed: unnamed.map(({ name }) => name) }))
+          check(unnamed.length === 0 && state.overlaps === 0, `audit ${time} at ${scale}× names every in-view hull without overlap`)
+          if (time === auditedTimes[0] && scale === 1.5) {
+            const clareence = state.ships.find(({ name }) => name.startsWith('Clareence · Eris'))
+            check(clareence?.hullFits && clareence.gridHit && clareence.labelVisible,
+              'audit 16:04:54 at 150% shows Clareence’s Eris and its name')
+            await page.screenshot({ path: join(output, 'audit-fine-min-150-clareence.png') })
+          }
+          if (unnamed.length > 0) await writeFile(join(output, `audit-fine-min-${time}-${scale}.json`), JSON.stringify(state, null, 2))
+          zoomCount++
+        }
+      }
     }
     await context.close()
   }

@@ -26,18 +26,7 @@ export function placeReplayWindow(rect: Rect, viewport: Rect, controls: readonly
 
   // Each control splits a free rectangle into strips. The strips can overlap,
   // so a window can still fit in the widest or tallest gap around a control.
-  const regions = controls.reduce<Rect[]>((free, control) => free.flatMap((region) => {
-    if (!overlaps(region, control, 0)) return [region]
-    const right = control.x + control.width
-    const bottom = control.y + control.height
-    return [
-      { ...region, width: control.x - region.x },
-      { ...region, x: right, width: region.x + region.width - right },
-      { ...region, height: control.y - region.y },
-      { ...region, y: bottom, height: region.y + region.height - bottom },
-    ].filter((strip) => strip.width >= rect.width && strip.height >= barHeight)
-  }), [viewport])
-
+  const regions = replayWindowRegions(viewport, controls, rect.width, barHeight)
   let best = rect
   let bestHeight = 0
   let distance = Infinity
@@ -55,6 +44,21 @@ export function placeReplayWindow(rect: Rect, viewport: Rect, controls: readonly
     }
   }
   return best
+}
+
+export function replayWindowRegions(viewport: Rect, controls: readonly Rect[], minWidth: number, minHeight: number) {
+  if (viewport.width < minWidth || viewport.height < minHeight) return []
+  return controls.reduce<Rect[]>((free, control) => free.flatMap((region) => {
+    if (!overlaps(region, control, 0)) return [region]
+    const right = control.x + control.width
+    const bottom = control.y + control.height
+    return [
+      { ...region, width: control.x - region.x },
+      { ...region, x: right, width: region.x + region.width - right },
+      { ...region, height: control.y - region.y },
+      { ...region, y: bottom, height: region.y + region.height - bottom },
+    ].filter((strip) => strip.width >= minWidth && strip.height >= minHeight)
+  }), [viewport])
 }
 
 interface HullCenter extends Point { radius: number }
@@ -198,7 +202,8 @@ export function labelObstacle(label: Rect): Rect {
   return { ...label, x: label.x - 4, width: label.width + 8 }
 }
 
-const maxLabelDistance = 40
+// Keep the visible box inside the reach after fractional CSS pixel rounding.
+const maxLabelDistance = 40 - 1 / 32
 type LanePacking = 'nearest' | 'tight' | 'left' | 'right' | 'row-left' | 'row-right'
 
 function findPilotLabelSpace(center: Point, size: Size, bounds: Rect, occupied: readonly Rect[], reach: number,
@@ -364,7 +369,7 @@ export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], ob
     const laneCount = Math.floor((full.height - lineHeight) / step) + 1
     const slack = full.height - lineHeight - (laneCount - 1) * step
     const offsets = new Set([0, slack, Math.floor(slack / 2)])
-    if (wrap || first) for (let offset = 1; offset < step; offset++) offsets.add(offset)
+    if (wrap || first || lanePad === 0) for (let offset = 1; offset < step; offset++) offsets.add(offset)
     for (const offset of offsets) {
       if (positions.size === mandatory.length) break
       const lanes = Array.from({ length: laneCount }, (_, index) => full.y + offset + index * step)
@@ -379,7 +384,7 @@ export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], ob
         const firstThenOrder = first ? (a: T, b: T) => Number(b === first) - Number(a === first) || order(a, b) : order
         tryPack(pack(blocked, true, false, lanes, firstThenOrder, packing, wrap, scaleX, lanePad))
       }
-      if (wrap && positions.size < mandatory.length) {
+      if ((wrap || lanePad === 0) && positions.size < mandatory.length) {
         // A label can lose most of its nearby area to chrome even when its center is in view.
         const room = new Map(mandatory.map((label) => {
           const size = sizeAt(label, true, wrap, scaleX)
@@ -387,8 +392,8 @@ export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], ob
           return [label, count]
         }))
         const leastRoom = (a: T, b: T) => room.get(a)! - room.get(b)! || widerFirst(a, b)
-        tryPack(pack(blocked, true, false, lanes, leastRoom, 'nearest', wrap, scaleX))
-        if (positions.size < mandatory.length) tryPack(pack(blocked, true, false, lanes, leastRoom, 'tight', wrap, scaleX))
+        tryPack(pack(blocked, true, false, lanes, leastRoom, 'nearest', wrap, scaleX, lanePad))
+        if (positions.size < mandatory.length) tryPack(pack(blocked, true, false, lanes, leastRoom, 'tight', wrap, scaleX, lanePad))
       }
     }
   }
@@ -409,6 +414,9 @@ export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], ob
     const missing = mandatory.find((label) => !positions.has(label))
     if (missing) packLanes(fallback.obstacles, lineHeight, false, 0.8, missing)
     packLanes(fallback.obstacles, lineHeight, false, 0.75)
+    packLanes(fallback.obstacles, lineHeight, false, 0.75, undefined, 0)
+    const constrained = mandatory.find((label) => !positions.has(label))
+    if (constrained) packLanes(fallback.obstacles, lineHeight, true, 0.75, constrained, 0)
     // A nearly complete packing can miss a wide name by one or two occupied
     // slots. Move those neighbours locally instead of sending the name away.
     for (const label of mandatory.filter((candidate) => !positions.has(candidate))) {
@@ -449,11 +457,12 @@ export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], ob
     if (positions.has(label)) continue
     const size = sizeAt(label, true)
     const clear = [...fallback.obstacles, ...Array.from(positions.values(), labelObstacle)]
-    const below = { ...size, x: label.center.x - size.width / 2, y: label.center.y + label.radius + 5 }
     // Preserve the full name and its association with the hull even when the map is saturated.
     const slot = findPilotLabelSpace(label.center, size, full, clear, edgeReach(label), 0)
+      ?? findPilotLabelSpace(label.center, size, full, clear, Infinity, 0)
       ?? findPilotLabelSpace(label.center, size, full, fallback.obstacles, edgeReach(label), 0)
-      ?? placeAnnotation([below], full, [], true)!
+      ?? findPilotLabelSpace(label.center, size, full, fallback.obstacles, Infinity, 0)
+    if (!slot) continue
     positions.set(label, size.compact ? { ...slot, compact: true } : slot)
     occupied.push(labelObstacle(slot))
   }

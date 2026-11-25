@@ -907,6 +907,43 @@ try {
     console.log('X12 tablet top bar: full system, date and affiliation at 760–1100 px with both pointer types.')
   }
 
+  async function checkPhoneFightsScrub() {
+    const { page, context, errors } = await open(320, 568, 'light', 'reduce', '?t=1750606982420', true)
+    try {
+      const trigger = page.getByRole('button', { name: '此刻交火', exact: true })
+      const fights = page.getByRole('region', { name: '此刻交火', exact: true })
+      assert.equal(await trigger.getAttribute('aria-expanded'), 'false')
+      await trigger.tap()
+      await fights.waitFor()
+      const scrub = page.getByRole('slider', { name: '回放时间' })
+      const reachable = await scrub.evaluate((target) => {
+        const { left, top, right, bottom } = target.getBoundingClientRect()
+        for (let x = Math.ceil(left); x + 44 <= right; x++) {
+          for (let y = Math.ceil(top); y + 44 <= bottom; y++) {
+            let clear = true
+            for (let dy = 0; dy < 44 && clear; dy++) {
+              for (let dx = 0; dx < 44 && clear; dx++) {
+                clear = target.contains(document.elementFromPoint(x + dx + .5, y + dy + .5))
+              }
+            }
+            if (clear) return { x: x + 22, y: y + 22 }
+          }
+        }
+        return null
+      })
+      await page.screenshot({ path: join(output, 'touch-320-fights-open-scrub.png') })
+      assert.ok(reachable, '320×568 coarse timeline has a reachable 44×44 px scrub area with 此刻交火 open')
+      const previous = await scrub.getAttribute('aria-valuenow')
+      await page.touchscreen.tap(reachable.x, reachable.y)
+      await page.waitForFunction((time) => document.querySelector('[data-timeline-chart]').getAttribute('aria-valuenow') !== time, previous)
+      assert.ok(await fights.isVisible(), 'the fights panel stays open after seeking')
+      assert.deepEqual(errors, [])
+      console.log('Touch timeline: 320×568 coarse has a reachable 44×44 px scrub area and seeks with 此刻交火 open')
+    } finally {
+      await context.close()
+    }
+  }
+
   async function checkTouchSurfaces() {
     for (const [width, height, hasTouch] of touchViewports) {
       const prefix = `${width}×${height} ${hasTouch ? 'coarse' : 'fine'}`
@@ -1346,6 +1383,7 @@ try {
   assert.equal(fullBattle.coverage.find(({ side }) => side === 1)?.known, 41, 'J125990 has 41 known pilots on the uploaders’ side')
   console.log('J125990 battle-time affiliations: 我方 41 with all 17 uploads')
   await checkH2StageLimitsAndTabletHeader()
+  await checkPhoneFightsScrub()
   await checkTouchSurfaces()
   const density = []
   const failures = []

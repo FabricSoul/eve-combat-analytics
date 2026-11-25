@@ -163,6 +163,15 @@ describe('pilot label placement', () => {
     expect(placeReplayLabels([required], [], stage).get(required)?.width).toBe(110)
   })
 
+  it('keeps the last required name out of chrome when it must go beyond the usual reach', () => {
+    const stage = { x: 0, y: 0, width: 220, height: 40 }
+    const overlay = { ...stage, width: 130 }
+    const label = { center: { x: 20, y: 20 }, radius: 10, size, bounds: stage, priority: 2, uploader: true, required: true }
+    const placement = placeReplayLabels([label], [overlay], stage, false, { bounds: stage, obstacles: [overlay] })
+    expect(placement.get(label)).toMatchObject({ x: 130, width: size.width })
+    expect(placeReplayLabels([label], [stage], stage, false, { bounds: stage, obstacles: [stage] }).has(label)).toBe(false)
+  })
+
   it('uses the full compact name when the standard name alone is wider than the map', () => {
     const stage = { x: 0, y: 0, width: 100, height: 90 }
     const required = { center: { x: 50, y: 40 }, radius: 10, size: { width: 103, height: 16 },

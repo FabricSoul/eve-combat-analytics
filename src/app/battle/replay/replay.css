@@ -301,8 +301,12 @@
 }
 .replay-control-trigger:hover, .replay-control-trigger[aria-expanded="true"] { background: var(--color-raised); }
 
-.replay-stage[data-phone] {
-  --replay-safe-bottom: env(safe-area-inset-bottom, 0px);
+@media (pointer: coarse) {
+  @container (width >= 850px) {
+    /* Leave a full compact label row between the two touch control strips. */
+    .replay-stage[data-short-map]:not([data-all-names]) .replay-header { inset-block-start: var(--space-2); }
+    .replay-stage[data-short-map]:not([data-all-names]) .replay-header-actions { margin-block-start: var(--space-1); }
+  }
 }
 .replay-stage[data-packed-controls] .replay-stage-zoom {
   inset-block-end: var(--space-4);
@@ -312,8 +316,9 @@
   inset-block-end: var(--space-6);
 }
 @container (width <= 340px) {
-  .replay-stage[data-phone] .replay-stage-zoom {
-    inset-inline: auto var(--space-2);
+  .replay-stage[data-phone][data-all-names] .replay-stage-zoom {
+    /* Keep a third line available for the fleet below the scale bar. */
+    inset-block-end: calc(var(--space-8) + var(--space-2));
   }
 }
 .battle-window[data-touch-window] {

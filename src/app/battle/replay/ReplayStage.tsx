@@ -14,7 +14,7 @@ import { useReplayKeyboard, type ReplayFocusTarget } from './keyboard'
 import { makePainter, missedTracerAt, type MissTracer, type PaintedModule, type ReplayFrame } from './paint'
 import type { Point } from './layout-effects'
 import { createProjectilePlayback } from './projectile'
-import { closestPoint, packedControlsHeight, placeReplayLabels, placeReplayPopover } from './placement'
+import { closestPoint, packedControlsHeight, placeReplayLabels, placeReplayPopover, shortMapHeight } from './placement'
 import { watchLabelObstacles } from './label-obstacles'
 import { deathAt, recentEngagement } from './presence'
 import type { Rect } from './placement'
@@ -178,6 +178,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
   const bracket = useRef<HTMLDivElement>(null)
   const tooltip = useRef<HTMLDivElement>(null)
   const effectTooltip = useRef<HTMLDivElement>(null)
+  const effectTooltipTransform = useRef('')
   const missTracers = useRef<readonly MissTracer[]>([])
   const paintedModules = useRef<readonly PaintedModule[]>([])
   const pointer = useRef<(Point & { overPilot: boolean }) | null>(null)
@@ -213,20 +214,25 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     const point = pointer.current
     if (!tip) return
     const missed = point && !point.overPilot && missedTracerAt(missTracers.current, point)
-    const moduleName = point && moduleAt(paintedModules.current, point)
+    const moduleName = point && !point.overPilot && moduleAt(paintedModules.current, point)
     const label = moduleName ?? (missed ? '未命中' : null)
     tip.toggleAttribute('data-positioned', Boolean(label))
     if (!label || !point) return
     if (tip.textContent !== label) tip.textContent = label
+    let transform: string
     if (missed && !moduleName) {
       const x = Math.max(4, Math.min(stageWidth - 52, point.x + 10))
       const y = point.y >= 28 ? point.y - 26 : point.y + 10
-      tip.style.transform = `translate3d(${x}px, ${y}px, 0)`
-      return
+      transform = `translate(${x}px, ${y}px)`
+    } else {
+      const dx = point.x > stageWidth / 2 ? -10 : 10
+      const dy = point.y >= 75 ? -8 : 10
+      transform = `translate(${point.x + dx}px, ${point.y + dy}px) translate(${dx < 0 ? '-100%' : '0px'}, ${dy < 0 ? '-100%' : '0px'})`
     }
-    const left = point.x > stageWidth / 2
-    const above = point.y >= 75
-    tip.style.transform = `translate3d(${point.x + (left ? -10 : 10)}px, ${point.y + (above ? -8 : 10)}px, 0) translate(${left ? '-100%' : '0'}, ${above ? '-100%' : '0'})`
+    if (effectTooltipTransform.current !== transform) {
+      effectTooltipTransform.current = transform
+      tip.style.transform = transform
+    }
   }, [])
 
   function closePilotPicker() {
@@ -349,7 +355,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     }
 
     let overlayRects: Rect[] | null = null
-    let placementChrome: Rect[] | null = null
+    let placementChrome: Rect[] = []
     const obstacles = watchLabelObstacles(element, () => {
       overlayRects = null
       labelKey = ''
@@ -381,9 +387,12 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       if ((paintedCamera.scale >= allNamesZoom) !== (camera.scale >= allNamesZoom)) overlayRects = null
       paintedCamera = camera
       bracket.current?.toggleAttribute('data-camera-change', cameraChanged)
-      overlayRects ??= obstacles.measure()
-      // The camera projects settled world positions. Chrome that moves during zoom only affects screen-space labels.
-      if (!placementChrome || camera.scale === 1 && camera.x === 0 && camera.y === 0) placementChrome = overlayRects
+      if (!overlayRects) {
+        overlayRects = obstacles.measure()
+        // The camera projects settled world positions. Transient tooltips and
+        // chrome that moves during zoom only affect screen-space labels.
+        if (firstFrame || camera.scale === 1 && camera.x === 0 && camera.y === 0) placementChrome = obstacles.measure(false)
+      }
       const now = performance.now()
       let pause = pauseClock.current
       if (!pause || pause.t !== t || pause.playing !== playing) {
@@ -398,8 +407,9 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       const opponents = scene.recentOpponents(recent)
       if (detailKey !== tooltipKey) {
         tooltipKey = detailKey
-        tooltipWidth = tooltip.current?.offsetWidth ?? 0
-        tooltipHeight = tooltip.current?.offsetHeight ?? 0
+        const rect = tooltip.current?.getBoundingClientRect()
+        tooltipWidth = rect?.width ?? 0
+        tooltipHeight = rect?.height ?? 0
       }
 
       const live = painter.liveEdges(scene.edges, t)
@@ -480,7 +490,10 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       let tooltipRect: Rect | null = null
       if (tooltip.current && detailPosition) {
         const { x, y } = detailPosition
-        const tooltipX = Math.max(4, Math.min(width - tooltipWidth - 4, x - tooltipWidth / 2))
+        // On a short map, leave the inspected hull's nearby name lanes clear.
+        const preferredX = height > shortMapHeight ? x - tooltipWidth / 2
+          : x < visibleWidth / 2 ? x + 42 : x - tooltipWidth - 42
+        const tooltipX = Math.max(4, Math.min(visibleWidth - tooltipWidth - 4, preferredX))
         const preferredY = y > 118 ? y - detailNode.radius - 12 - tooltipHeight : y + detailNode.radius + 25
         const tooltipY = Math.max(4, Math.min(height - tooltipHeight - 4, preferredY))
         tooltip.current.style.transform = `translate3d(${tooltipX}px, ${tooltipY}px, 0)`
@@ -532,7 +545,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         const naturalSizes = uncached.map(measureLabel)
         for (const element of uncached) element.setAttribute('data-compact-label', '')
         const compactSizes = uncached.map(measureLabel)
-        const wrapWidth = Math.min(120, Math.floor(width * 0.38))
+        const wrapWidth = Math.min(width <= 340 ? 160 : 120, Math.floor(width / 2))
         const wrapped = uncached.filter((element, index) => compactSizes[index]!.width > wrapWidth)
         for (const element of wrapped) {
           element.setAttribute('data-wrap-label', '')
@@ -625,6 +638,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
   return (
     <div ref={host} className="replay-stage" data-phone={stage === false || undefined} data-zoomed={camera.scale > 1 || undefined}
       data-packed-controls={stage && height > 0 && height < packedControlsHeight || undefined}
+      data-short-map={stage && height > 0 && height <= 150 || undefined}
       data-all-names={camera.scale >= allNamesZoom || undefined} {...handlers}
       onPointerDownCapture={recordTouchStart} onPointerUpCapture={recordTouchEnd}
       onClickCapture={pickOnTap} onPointerMove={movePointer} onPointerLeave={() => { pointer.current = null; updateEffectTooltip(width) }}>
