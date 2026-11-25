@@ -468,14 +468,21 @@ export class BattleStorage {
     })
   }
 
-  setFit({ charId, eft, setAt, mutated }: FitEntry): void {
+  /** Legacy fits have a null validator. An absent fit returns undefined. */
+  fitEtag(charId: number): string | null | undefined {
+    const etag = this.hasColumn('fits', 'etag') ? 'etag' : 'NULL AS etag'
+    return this.sql.exec<{ etag: string | null }>(`SELECT ${etag} FROM fits WHERE charId = ?`, charId).toArray()[0]?.etag
+  }
+
+  setFit({ charId, eft, setAt, mutated }: FitEntry, etag: string): void {
     this.storage.transactionSync(() => {
       this.ensureFitMutationColumns()
+      if (!this.hasColumn('fits', 'etag')) this.sql.exec('ALTER TABLE fits ADD COLUMN etag TEXT')
       this.sql.exec(
-        `INSERT INTO fits (charId, eft, setAt, mutated, mutationsChecked) VALUES (?, ?, ?, ?, 1)
+        `INSERT INTO fits (charId, eft, setAt, mutated, mutationsChecked, etag) VALUES (?, ?, ?, ?, 1, ?)
           ON CONFLICT(charId) DO UPDATE SET eft = excluded.eft, setAt = excluded.setAt,
-            mutated = excluded.mutated, mutationsChecked = excluded.mutationsChecked`,
-        charId, eft, setAt, JSON.stringify(mutated ?? []),
+            mutated = excluded.mutated, mutationsChecked = excluded.mutationsChecked, etag = excluded.etag`,
+        charId, eft, setAt, JSON.stringify(mutated ?? []), etag,
       )
       this.markAnalysisDirty()
     })

@@ -7,7 +7,9 @@ import { BattleProvider } from '../../state/battle-store'
 import { useView, ViewProvider } from '../../state/view-store'
 import { loadUiFixture } from '../../test/ui-fixture'
 import { FitTab } from '../FitTab'
+import { BattleUndo, useBattleUndo } from '../undo'
 import { computeFitStats } from '@/fit/client'
+import type { BattleSummary, FitEntry } from '@/core/contract'
 
 vi.mock('@/fit/client', () => ({ computeFitStats: vi.fn().mockResolvedValue({
   shipTypeName: 'Leshak', dps: { total: 834, turret: 834, missile: 0, drone: 0 },
@@ -21,23 +23,29 @@ const loss = fixture.summary.meta.killmails.filter(({ victim }) => victim.charId
   .sort((a, b) => b.t - a.t || b.id - a.id)[0]!
 let host: HTMLDivElement
 let root: ReturnType<typeof createRoot>
+let beginOtherEdit: ReturnType<typeof useBattleUndo>
 
 beforeEach(() => {
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
 })
-afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks() })
+afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.useRealTimers() })
 
 function Harness() {
   const { select } = useView()
+  beginOtherEdit = useBattleUndo()
   useEffect(() => { select(pilot.key) }, [])
   return <FitTab />
 }
 
-async function renderFit(data = fixture) {
+async function renderFit(data = fixture, analyzedSummary = data.summary, showFit = true) {
   await act(async () => root.render(
-    <BattleProvider static={data}><ViewProvider syncUrl={false}><Harness /></ViewProvider></BattleProvider>,
+    <BattleProvider static={data}><ViewProvider syncUrl={false}>
+      <BattleUndo analyzedSummary={analyzedSummary} publishedVersion={data.summary.analysisVersion}>
+        {showFit && <Harness />}
+      </BattleUndo>
+    </ViewProvider></BattleProvider>,
   ))
 }
 
@@ -47,6 +55,117 @@ const result = { charId: pilot.charId, killmailId: loss.id, shipTypeId: loss.vic
 const warning = '按基础属性计算，理论值会偏离实际'
 const mutatedModules = ['Entropic Radiation Sink II']
 const importedFit = { charId: pilot.charId!, eft, setAt: 1, mutated: mutatedModules }
+const firstFit = { charId: pilot.charId!, eft: '[Leshak, First save]', setAt: 10_000 }
+const firstTag = '"first-save"'
+const firstReceipt = { ...firstFit, etag: firstTag }
+const newerFit = { charId: pilot.charId!, eft: '[Leshak, Other viewer]', setAt: 10_300 }
+const overwritten = '已被他人的新配装覆盖，无法撤销'
+const toast = () => host.querySelector('[data-battle-toast]')
+
+function withFits(...fits: FitEntry[]): BattleSummary {
+  return { ...fixture.summary, fits }
+}
+
+async function submitFit(fit: FitEntry) {
+  if (!host.querySelector('textarea')) await act(() => button('粘贴 EFT').click())
+  const editor = host.querySelector('textarea')!
+  const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+  act(() => {
+    setValue.call(editor, fit.eft)
+    editor.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => button('保存配装').click())
+}
+
+it('settles an overtaken PUT even when analysis only publishes the other viewer’s fit', async () => {
+  vi.useFakeTimers()
+  let settle!: (fit: typeof firstReceipt) => void
+  const pending = new Promise<typeof firstReceipt>((resolve) => { settle = resolve })
+  const put = vi.spyOn(api, 'putFit').mockReturnValue(pending)
+  const before = withFits()
+  await renderFit({ ...fixture, summary: before })
+  await submitFit(firstFit)
+  expect(toast()?.textContent).toBe('正在应用…')
+
+  await act(async () => vi.advanceTimersByTimeAsync(300))
+  const coalesced = { ...withFits(newerFit), analysisVersion: before.analysisVersion + 1 }
+  await renderFit({ ...fixture, summary: coalesced }, before)
+  await act(async () => settle(firstReceipt))
+  await renderFit({ ...fixture, summary: coalesced })
+  await act(async () => vi.advanceTimersByTimeAsync(1000))
+  expect(toast()?.textContent).toBe(overwritten)
+  expect(toast()?.querySelector('button')).toBeNull()
+  expect(put).toHaveBeenCalledTimes(1)
+})
+
+it('offers undo on the PUT response alone and can remove a first fit', async () => {
+  vi.spyOn(api, 'putFit').mockResolvedValue(firstReceipt)
+  const remove = vi.spyOn(api, 'deleteFit').mockResolvedValue({ removed: firstFit.charId })
+  await renderFit({ ...fixture, summary: withFits() })
+  await submitFit(firstFit)
+  expect(toast()?.textContent).toBe('已保存配装撤销')
+  expect(toast()?.querySelector('[role=timer]')?.getAttribute('aria-label')).toBe('撤销剩余时间 10 秒')
+  await act(async () => button('撤销').click())
+  expect(remove).toHaveBeenCalledWith(fixture.summary.meta.brId, firstFit.charId, firstTag)
+  expect(toast()?.textContent).toBe('已撤销')
+})
+
+it('undo restores the prior EFT and mutation metadata', async () => {
+  const put = vi.spyOn(api, 'putFit').mockResolvedValueOnce(firstReceipt)
+    .mockResolvedValueOnce({ ...importedFit, setAt: 10_400 })
+  await renderFit({ ...fixture, summary: withFits(importedFit) })
+  await submitFit(firstFit)
+  await act(async () => button('撤销').click())
+  expect(put).toHaveBeenNthCalledWith(2, fixture.summary.meta.brId, firstFit.charId, eft, mutatedModules, firstTag)
+  expect(toast()?.textContent).toBe('已撤销')
+  expect(host.textContent).toContain(`${warning}。 Entropic Radiation Sink II`)
+})
+
+it('withdraws undo for a newer save with identical EFT even after the drawer closes', async () => {
+  vi.spyOn(api, 'putFit').mockResolvedValue(firstReceipt)
+  const initial = withFits()
+  await renderFit({ ...fixture, summary: initial })
+  await submitFit(firstFit)
+  expect(toast()?.textContent).toBe('已保存配装撤销')
+
+  await renderFit({ ...fixture, summary: withFits(firstFit) }, initial, false)
+  await renderFit({ ...fixture, summary: withFits({ ...firstFit, setAt: newerFit.setAt }) }, initial, false)
+  expect(toast()?.textContent).toBe(overwritten)
+})
+
+it('shows the overwrite reason even when the fit notice was in the undo overflow', async () => {
+  vi.spyOn(api, 'putFit').mockResolvedValue(firstReceipt)
+  const initial = withFits()
+  await renderFit({ ...fixture, summary: initial })
+  await submitFit(firstFit)
+  await act(() => {
+    for (const label of ['已合并身份', '已恢复报告阵营', '已改为所选阵营']) {
+      beginOtherEdit({ label, revert: async () => {} })
+    }
+  })
+  expect((toast() as HTMLElement).hidden).toBe(true)
+
+  await renderFit({ ...fixture, summary: withFits(newerFit) }, initial)
+  const visibleToasts = [...host.querySelectorAll('[data-battle-toast]:not([hidden])')]
+  expect(visibleToasts.map(({ textContent }) => textContent)).toContain(overwritten)
+})
+
+it('leaves a newer fit intact when the live frame has not reached the viewer at undo time', async () => {
+  const fetchFit = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(Response.json(firstFit, { headers: { ETag: firstTag } }))
+    .mockResolvedValueOnce(Response.json({ error: 'bad_request', message: 'The fit changed' }, { status: 412 }))
+  await renderFit({ ...fixture, summary: withFits(importedFit) })
+  await submitFit(firstFit)
+  await act(async () => button('撤销').click())
+  expect(toast()?.textContent).toBe(overwritten)
+  expect(fetchFit).toHaveBeenCalledTimes(2)
+  expect(fetchFit.mock.calls.map(([, init]) => ({
+    method: init?.method, match: new Headers(init?.headers).get('If-Match'), body: init?.body,
+  }))).toEqual([
+    { method: 'PUT', match: null, body: firstFit.eft },
+    { method: 'PUT', match: firstTag, body: JSON.stringify({ eft, mutated: mutatedModules }) },
+  ])
+})
 
 it('shows the named abyssal warning from a saved fit on a fresh mount', async () => {
   await renderFit({ ...fixture, summary: { ...fixture.summary, fits: [importedFit] } })

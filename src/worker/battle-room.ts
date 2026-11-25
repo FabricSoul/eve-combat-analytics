@@ -216,9 +216,12 @@ export class BattleRoom extends DurableObject<Env> {
         if (!/^\d+$/.test(charIdText) || !Number.isSafeInteger(charId) || charId <= 0) {
           throw new ApiFailure('bad_request', 'Invalid character ID')
         }
-        if (request.method === 'DELETE') return await this.inOrder(() => this.deleteFit(charId))
-        const fit = await readFit(request)
-        return await this.inOrder(() => this.setFit(charId, fit))
+        const ifMatch = request.headers.get('If-Match')
+        const fit = request.method === 'PUT' ? await readFit(request) : undefined
+        return await this.inOrder(() => {
+          if (ifMatch !== null) this.requireFitMatch(charId, ifMatch)
+          return fit ? this.setFit(charId, fit) : this.deleteFit(charId)
+        })
       }
       if (request.method === 'PUT' && route === 'sides') {
         const data = await readEdit(request, 'side')
@@ -520,6 +523,14 @@ export class BattleRoom extends DurableObject<Env> {
     }
   }
 
+  private requireFitMatch(charId: number, ifMatch: string): void {
+    const currentTag = this.store.fitEtag(charId)
+    const matches = ifMatch.trim() === '*'
+      ? currentTag !== undefined
+      : typeof currentTag === 'string' && ifMatch.split(',').some((tag) => tag.trim() === currentTag)
+    if (!matches) throw new ApiFailure('bad_request', 'The fit has changed', 412)
+  }
+
   private async setFit(charId: number, text: Pick<FitEntry, 'eft' | 'mutated'>): Promise<Response> {
     const header = text.eft.split(/\r\n|\n|\r/, 1)[0]?.trim() ?? ''
     const fields = /^\[([^,\[\]]+),(.+)\]$/.exec(header)
@@ -528,10 +539,11 @@ export class BattleRoom extends DurableObject<Env> {
     }
     await this.store.migrateIfNeeded((await this.battle()).meta)
     const fit: FitEntry = { charId, ...text, setAt: this.services.now() }
+    const etag = `"${crypto.randomUUID()}"`
     await this.scheduleAnalysis()
-    this.store.setFit(fit)
+    this.store.setFit(fit, etag)
     this.broadcast({ type: 'fit_set', fit })
-    return Response.json(fit)
+    return Response.json(fit, { headers: { ETag: etag } })
   }
 
   private async deleteFit(charId: number): Promise<Response> {

@@ -4,12 +4,12 @@ import type { BattleSummary, Entity, FitEntry, FitStats, Interaction, KillmailFi
 import { parseEft, type EftModule, type ParsedEft } from '@/fit/eft'
 import { fmtHms, fmtNum } from '../lib/format'
 import { useBattleContext } from '../state/battle-store'
-import { api } from '../api/client'
-import { useBattleUndo, visibleAfter } from './undo'
+import { api, ApiFailure } from '../api/client'
+import { useBattleUndo } from './undo'
 import { useView } from '../state/view-store'
 import { Button } from '../ui/Button'
 import { TypeIcon } from '../ui/TypeIcon'
-import { FitServices, firingSummary, loadFitCatalog, type FitCatalog } from './person/fit-data'
+import { FitServices, firingSummary, isSameFit, loadFitCatalog, pilotFit, type FitCatalog } from './person/fit-data'
 import './person/person.css'
 
 export interface FitTabProps {}
@@ -21,6 +21,7 @@ const repairNames: Record<RepairType, string> = {
 const num = (value: number | null) => fmtNum(value === null ? null : Math.round(value))
 const emptyInteractions: Interaction[] = []
 const warning = '深渊模块缺少变异数据时按基础属性计算，理论值会偏离实际。'
+const overwritten = '已被他人的新配装覆盖，无法撤销'
 type FitText = Pick<FitEntry, 'eft' | 'mutated'>
 
 export function FitTab(_props: FitTabProps) {
@@ -61,7 +62,7 @@ function PilotFit({ pilot, charId, summary, interactions }: {
 }) {
   const services = useContext(FitServices)
   const beginUndo = useBattleUndo()
-  const remote = summary.fits.find((entry) => entry.charId === charId)
+  const remote = pilotFit(summary, charId)
   const [saved, setSaved] = useState<FitEntry>()
   const [lastRemote, setLastRemote] = useState(remote)
   if (remote !== lastRemote) {
@@ -144,20 +145,37 @@ function PilotFit({ pilot, charId, summary, interactions }: {
         ? services.save(brId, charId, eft, mutated)
         : services.save(brId, charId, eft)
       const entry = await putFit({ eft: text, mutated: draft?.mutated })
-      finish({
+      const { etag } = entry
+      let echoed = false
+      finish(etag === undefined ? { label: '已保存配装' } : {
         label: '已保存配装',
-        visible: visibleAfter(summary.analysisVersion, (state) =>
-          state.fits.some((item) => item.charId === charId && item.eft === entry.eft && item.setAt === entry.setAt)),
-        revert: async (undoVersion) => {
-          if (fit) {
-            const restored = await putFit(fit)
-            setSaved(restored)
-            return visibleAfter(undoVersion, (state) =>
-              state.fits.some((item) => item.charId === charId && item.eft === restored.eft && item.setAt === restored.setAt))
+        conflict: {
+          label: overwritten,
+          when: (state) => {
+            if (state.meta.brId !== brId) return true
+            const current = pilotFit(state, charId)
+            if (isSameFit(current, entry)) {
+              echoed = true
+              return false
+            }
+            // Before the echo, the live summary may still hold the fit seen when the PUT began.
+            if (echoed) return true
+            if (!current) return remote !== undefined
+            return current.setAt >= entry.setAt && !isSameFit(current, remote)
+          },
+        },
+        revert: async () => {
+          try {
+            if (fit) {
+              setSaved(await services.save(brId, charId, fit.eft, fit.mutated, etag))
+            } else {
+              await api.deleteFit(brId, charId, etag)
+              setSaved(undefined)
+            }
+          } catch (error) {
+            if (error instanceof ApiFailure && error.status === 412) return { unavailable: overwritten }
+            throw error
           }
-          await api.deleteFit(brId, charId)
-          setSaved(undefined)
-          return visibleAfter(undoVersion, (state) => !state.fits.some((item) => item.charId === charId))
         },
       })
       setSaved(entry)

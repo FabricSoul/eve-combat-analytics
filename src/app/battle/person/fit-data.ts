@@ -1,5 +1,5 @@
 import { createContext } from 'react'
-import type { EntityKey, Interaction } from '@/core/contract'
+import type { BattleSummary, EntityKey, FitEntry, Interaction } from '@/core/contract'
 import { computeFitStats } from '@/fit/client'
 import { api } from '../../api/client'
 
@@ -44,6 +44,17 @@ export const FitServices = createContext({
   save: (...args: Parameters<typeof api.putFit>) => api.putFit(...args),
   compute: computeFitStats,
 })
+
+export function pilotFit(summary: BattleSummary, charId: number): FitEntry | undefined {
+  return summary.fits.find((fit) => fit.charId === charId)
+}
+
+export function isSameFit(left: FitEntry | undefined, right: FitEntry | undefined): boolean {
+  if (!left || !right || left.charId !== right.charId || left.setAt !== right.setAt || left.eft !== right.eft) return false
+  const leftMutated = left.mutated ?? []
+  const rightMutated = right.mutated ?? []
+  return leftMutated.length === rightMutated.length && leftMutated.every((name, index) => name === rightMutated[index])
+}
 
 export function firingSummary(interactions: readonly Interaction[], key: EntityKey) {
   const buckets = new Map<number, number>()

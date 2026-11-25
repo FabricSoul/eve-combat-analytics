@@ -300,6 +300,41 @@ it('persists killmail substitutions for reload and a second live viewer, then cl
   }
 })
 
+it.each([
+  { method: 'PUT', room: 9109, body: '[Leshak, Prior]' },
+  { method: 'DELETE', room: 9110, body: undefined },
+])('rejects a stale conditional $method when another viewer saves after the undo check', async ({ method, room, body }) => {
+  const id = await prepare(room)
+  const url = `${battle(id)}/fits/100`
+  if (body) expect(await (await setFit(id, body)).json()).toMatchObject({ eft: body })
+  const ownEft = '[Leshak, Own save]'
+  const saved = await setFit(id, ownEft)
+  expect(saved.status).toBe(200)
+  const ownTag = saved.headers.get('ETag')!
+  const ownFit: FitEntry = await saved.json()
+  expect((await state(id)).fits).toEqual([ownFit])
+
+  const newerEft = method === 'PUT' ? '[Leshak, Other viewer]' : ownEft
+  const newer = await setFit(id, newerEft)
+  expect(newer.status).toBe(200)
+  const newerTag = newer.headers.get('ETag')!
+  const newerFit: FitEntry = await newer.json()
+  expect(newerFit.setAt).toBe(ownFit.setAt) // The frozen fixture clock forces both writes into the same millisecond.
+  await evictDurableObject(env.BATTLE.getByName(id))
+
+  const undo = (tag: string) => worker.default.fetch(url, { method, headers: { 'If-Match': tag }, body })
+  const rejected = await undo(ownTag)
+  expect(rejected.status).toBe(412)
+  expect(await rejected.json()).toMatchObject({ error: 'bad_request' })
+  expect((await state(id)).fits).toEqual([newerFit])
+  expect(ownTag).toMatch(/^"[^"]+"$/)
+  expect(newerTag).not.toBe(ownTag)
+
+  const accepted = await undo(newerTag)
+  expect(accepted.status).toBe(200)
+  expect((await state(id)).fits.map(({ eft }) => eft)).toEqual(body ? [body] : [])
+})
+
 const editLegacyModule = (eft: string) => eft.replace('Entropic Radiation Sink II', 'Damage Control II')
 
 async function prepareLegacyLeshakFit(room: number, variant: (eft: string) => string, oldEmpty = false) {

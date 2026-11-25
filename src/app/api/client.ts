@@ -118,14 +118,22 @@ export const api = {
     return request(path, { method: 'POST', headers: textHeaders, body: text })
   },
 
-  putFit(brId: string, charId: number, eft: string, mutated?: FitEntry['mutated']): Promise<FitEntry> {
-    return request(`${battleApiPath(brId)}/fits/${charId}`, mutated?.length
+  async putFit(brId: string, charId: number, eft: string, mutated?: FitEntry['mutated'], ifMatch?: string): Promise<FitEntry & { etag?: string }> {
+    const init = mutated?.length
       ? json('PUT', { eft, mutated })
-      : { method: 'PUT', headers: textHeaders, body: eft })
+      : { method: 'PUT', headers: textHeaders, body: eft }
+    const headers = new Headers(init.headers)
+    if (ifMatch !== undefined) headers.set('If-Match', ifMatch)
+    const response = await send(`${battleApiPath(brId)}/fits/${charId}`, { ...init, headers })
+    const fit = await read<FitEntry>(response)
+    const etag = response.headers.get('ETag')
+    return etag === null ? fit : { ...fit, etag }
   },
 
-  deleteFit(brId: string, charId: number): Promise<{ removed: number }> {
-    return request(`${battleApiPath(brId)}/fits/${charId}`, { method: 'DELETE' })
+  deleteFit(brId: string, charId: number, ifMatch?: string): Promise<{ removed: number }> {
+    return request(`${battleApiPath(brId)}/fits/${charId}`, {
+      method: 'DELETE', headers: ifMatch === undefined ? undefined : { 'If-Match': ifMatch },
+    })
   },
 
   putSide(brId: string, subject: SideSubject, side: SideEdit['side']): Promise<SideOverride> {

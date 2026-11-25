@@ -1,10 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { BattleSummary } from '@/core/contract'
+import { useBattleContext } from '../state/battle-store'
 
 type Visible = (summary: BattleSummary) => boolean
-type Revert = (publishedVersion: number) => Promise<Visible | void>
-type Toast = { label: string; revert?: Revert; visible?: Visible }
+type Revert = (publishedVersion: number) => Promise<Visible | { unavailable: string } | void>
+type Conflict = { label: string; when: Visible }
+type Toast = { label: string; revert?: Revert; visible?: Visible; conflict?: Conflict }
 type Begin = (optimistic?: Toast) => (result?: Toast) => void
 type Notice = {
   id: number
@@ -13,7 +15,7 @@ type Notice = {
   remaining: number
   undoStarted?: boolean
 }
-type Update = (id: number, change: (notice: Notice) => Notice | undefined) => void
+type Update = (id: number, change: (notice: Notice) => Notice | undefined, promote?: boolean) => void
 
 const UndoContext = createContext<Begin>(() => () => {})
 const applying: Toast = { label: '正在应用…' }
@@ -33,6 +35,10 @@ function expire(notice: Notice) {
 
 function canUndo({ toast, remaining }: Notice) {
   return Boolean(toast.revert && remaining > 0 && !waiting(toast))
+}
+
+function feedback(notice: Notice, toast: Toast): Notice {
+  return { ...notice, deadline: undefined, remaining: 0, toast }
 }
 
 export function useBattleUndo() { return useContext(UndoContext) }
@@ -58,14 +64,17 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
     setNotices(next)
   }, [])
 
-  const update = useCallback<Update>((id, change) => {
+  const update = useCallback<Update>((id, change, promote) => {
     const notice = current.current.find((entry) => entry.id === id)
     if (!notice) return
     const next = change(notice)
     if (next === notice) return
-    show(next
-      ? current.current.map((entry) => entry === notice ? next : entry)
-      : current.current.filter((entry) => entry !== notice))
+    if (next && !promote) {
+      show(current.current.map((entry) => entry === notice ? next : entry))
+    } else {
+      const rest = current.current.filter((entry) => entry !== notice)
+      show(next ? [...rest, next] : rest)
+    }
   }, [show])
 
   const begin = useCallback<Begin>((optimistic) => {
@@ -97,14 +106,16 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
     if (edit.deadline !== undefined && Date.now() >= edit.deadline) return
     update(id, (notice) => ({ ...notice, toast: applying, undoStarted: true }))
     try {
-      const visible = await revert(publishedVersion)
-      update(id, (notice) => ({
-        ...notice, deadline: undefined, remaining: 0, toast: { label: '已撤销', visible: visible || undefined },
-      }))
+      const result = await revert(publishedVersion)
+      if (typeof result === 'object') {
+        update(id, (notice) => feedback(notice, { label: result.unavailable }), true)
+      } else {
+        update(id, (notice) => feedback(notice, { label: '已撤销', visible: result || undefined }))
+      }
     } catch {
       update(id, (notice) => ({
         ...notice,
-        toast: notice.remaining > 0 ? { label: '撤销失败，请重试', revert } : { label: '撤销失败' },
+        toast: notice.remaining > 0 ? { ...edit.toast, label: '撤销失败，请重试' } : { label: '撤销失败' },
       }))
     }
   }
@@ -148,6 +159,16 @@ export function BattleUndo({ children, analyzedSummary, publishedVersion = -1, h
       {host ? createPortal(element, host) : element}
     </div>
   </UndoContext>
+}
+
+function WatchUndoConflict({ id, conflict, update }: { id: number; conflict: Conflict; update: Update }) {
+  const { summary } = useBattleContext()
+  useLayoutEffect(() => {
+    if (summary && conflict.when(summary)) {
+      update(id, (notice) => notice.toast.conflict === conflict ? feedback(notice, { label: conflict.label }) : notice, true)
+    }
+  }, [id, conflict, summary, update])
+  return null
 }
 
 function UndoNotice({ notice, update, domId, shown, onUndo }: {
@@ -212,6 +233,7 @@ function UndoNotice({ notice, update, domId, shown, onUndo }: {
     onFocusCapture={() => setFocused(true)} onBlurCapture={(event) => {
       if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false)
     }}>
+    {toast.conflict && <WatchUndoConflict id={id} conflict={toast.conflict} update={update} />}
     <div className="min-w-0 [overflow-wrap:anywhere]">
       <span role="status">{pending ? applying.label : toast.label}</span>
     </div>
