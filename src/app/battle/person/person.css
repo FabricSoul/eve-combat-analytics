@@ -1,9 +1,12 @@
-.battle-drawer:has(.u7-person) { background: var(--color-bg); }
-.battle-layout:has(.u7-compare[data-expanded="true"], .hit-analysis[data-expanded="true"]) .battle-drawer {
-  position: fixed; inset: 48px 0 0 auto; z-index: 3;
+.battle-layout > .battle-drawer {
+  position: fixed;
+  inset: var(--battle-header-bottom, 48px) 0 0;
+  inset-inline-start: auto;
+  background: var(--color-bg);
 }
-.battle-layout .battle-drawer:has(.u7-person[data-expanded="true"]) {
-  position: fixed; inset: 48px 0 0; width: auto; z-index: 3;
+.battle-layout > .battle-drawer:has(.u7-person[data-expanded="true"]) {
+  inset-inline-start: 0;
+  width: auto;
 }
 .u7-person { min-width: 0; background: var(--color-bg); color: var(--color-text); }
 .u7-person-header, .u7-person-body { max-width: 880px; margin-inline: auto; }
@@ -90,11 +93,5 @@
 }
 
 @media (max-width: 759px) {
-  .battle-layout .battle-drawer, .battle-layout .battle-layout:has(.u7-compare[data-expanded="true"], .hit-analysis[data-expanded="true"]) .battle-drawer {
-  position: fixed; inset: 48px 0 0 auto; z-index: 3;
-}
-.battle-layout .battle-drawer:has(.u7-person[data-expanded="true"]) {
-    position: fixed; inset: 44px 0 0; width: auto; z-index: 3;
-  }
   .u7-drawer-expand { display: none; }
 }

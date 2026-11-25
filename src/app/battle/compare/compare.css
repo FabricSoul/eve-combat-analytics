@@ -9,7 +9,7 @@
 .u7-compare[data-expanded="true"] {
   position: fixed;
   z-index: 2;
-  inset: 48px 0 0;
+  inset: var(--battle-header-bottom, 48px) 0 0;
   overflow: auto;
 }
 .battle-layout:has(.u7-compare[data-expanded="true"]) .battle-upload { z-index: 1; }
@@ -232,5 +232,5 @@
 }
 
 @media (width < 760px) {
-  .u7-compare[data-expanded="true"] { top: 44px; }
+  .u7-compare[data-expanded="true"] { top: var(--battle-header-bottom, 44px); }
 }

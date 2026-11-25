@@ -1138,6 +1138,127 @@ try {
     console.log('X12 tablet top bar: full system, date and affiliation at 760–1100 px with both pointer types.')
   }
 
+  async function checkScrolledWorkspaceAndFullPages() {
+    const issues = []
+    for (const [width, height, hasTouch, allLayers] of [
+      [820, 500, true, false], [820, 500, true, true], [900, 800, true, false],
+      [1100, 800, false, false], [1280, 800, false, false],
+    ]) {
+      const name = `${width}x${height}-${hasTouch ? 'coarse' : 'fine'}${allLayers ? '-all-layers' : ''}`
+      const { page, context, errors } = await open(width, height, 'dark', 'reduce', '?t=1750606982420', hasTouch)
+      const activate = (control) => hasTouch ? control.tap() : control.click()
+      const capture = (state) => page.screenshot({ path: join(output, `l1-${name}-${state}.png`) })
+      const check = (condition, message) => { if (!condition) issues.push(`${name}: ${message}`) }
+      const unreachable = (controls) => controls.evaluateAll((nodes, coarse) =>
+        nodes.filter((node) => {
+          const { left, right, top, bottom, width, height } = node.getBoundingClientRect()
+          const x = (left + right) / 2
+          const y = (top + bottom) / 2
+          const points = [[x, y], [x, top + 1], [x, bottom - 1], [left + 1, y], [right - 1, y]]
+          return (coarse && (width < 44 || height < 44)) ||
+            !points.every(([px, py]) => node.contains(document.elementFromPoint(px, py)))
+        }).map((node) => node.getAttribute('aria-label') || node.textContent.trim()), hasTouch)
+      try {
+        const header = page.locator('.app-topbar')
+        const workspace = page.locator('.battle-layout')
+        const workspaceScroll = () => workspace.evaluate((node) => node.scrollTop)
+        const headerBottom = async () => {
+          const box = await header.boundingBox()
+          return box.y + box.height
+        }
+        const belowHeader = async (surface, label) => {
+          const box = await surface.boundingBox()
+          const bottom = await headerBottom()
+          check(box && Math.abs(box.y - bottom) < 1 && Math.abs(box.y + box.height - height) < 1,
+            `${label} should fill the viewport below header bottom ${bottom}, got ${JSON.stringify(box)}`)
+        }
+        const checkHeaderActions = async (label) => {
+          const clipped = await unreachable(header.locator(':is(button, summary, a[href]):visible'))
+          check(clipped.length === 0, `${label} obscures header actions: ${clipped.join(', ')}`)
+        }
+        if (allLayers) {
+          for (const layer of ['我方维修', '点人', '击毁用舰船图标']) {
+            await activate(page.getByRole('button', { name: layer, exact: true }))
+          }
+        }
+        const roster = page.locator('[data-module="roster"] .roster-main').filter({ hasText: pilot }).first()
+        await roster.scrollIntoViewIfNeeded()
+        const scrolled = await workspaceScroll()
+        if (height === 500) check(scrolled > 0, 'roster must be tapped after the outer workspace scrolls')
+        if (hasTouch) check(await headerBottom() > 48, 'the coarse tablet header must exercise the wrapped layout')
+        await activate(roster)
+
+        const drawer = page.getByRole('complementary', { name: '个人详情' })
+        await drawer.getByRole('heading', { name: pilot, exact: true }).waitFor()
+        await belowHeader(drawer, 'pilot drawer')
+        check(await workspaceScroll() === scrolled, 'opening the drawer changed the outer workspace scroll')
+        const close = drawer.getByRole('button', { name: '关闭个人详情' })
+        check(await close.evaluate((node) => document.activeElement === node), 'the drawer Close button should receive focus')
+        const controls = await unreachable(drawer.locator('button[aria-label="关闭个人详情"], [role="tab"]'))
+        check(controls.length === 0, `the drawer controls are unreachable: ${controls.join(', ')}`)
+        await capture('drawer')
+        if (!controls.length) {
+          for (const label of ['配装', '事件', '数据']) {
+            const tab = drawer.getByRole('tab', { name: label, exact: true })
+            await activate(tab)
+            assert.equal(await tab.getAttribute('aria-selected'), 'true', `${name}: ${label} tab selects`)
+            await drawer.getByRole('tabpanel', { name: label }).waitFor()
+          }
+          await activate(drawer.getByRole('button', { name: '展开整页' }))
+          await drawer.locator('[data-expanded="true"]').waitFor()
+          await belowHeader(drawer, 'person full page')
+          await checkHeaderActions('person full page')
+          await capture('person')
+          await activate(drawer.getByRole('button', { name: '还原抽屉' }))
+          await activate(close)
+        } else {
+          await page.keyboard.press('Escape')
+        }
+        await drawer.waitFor({ state: 'detached' })
+
+        for (const [id, label, selector] of [
+          ['compare', '对比', '.u7-compare'], ['hits', '命中', '.hit-analysis'], ['kills', '击毁', '.kills'],
+        ]) {
+          await activate(page.getByRole('button', { name: `整页查看${label}`, exact: true }))
+          const surface = page.locator(`${selector}[data-expanded="true"]`)
+          await surface.waitFor()
+          await belowHeader(surface, `${id} full page`)
+          await checkHeaderActions(`${id} full page`)
+          check(await page.locator('.battle-stage').evaluate((node) => node.inert), `${id} should leave the stage inert`)
+          await capture(id)
+          if (width === 900 && id === 'compare') {
+            await activate(header.getByRole('button', { name: '排边', exact: true }))
+            const sides = page.getByRole('dialog', { name: '排边' })
+            await sides.waitFor()
+            check((await sides.boundingBox()).y >= await headerBottom(), 'the side panel should also sit below the wrapped header')
+            await activate(sides.getByRole('button', { name: '完成' }))
+            await sides.waitFor({ state: 'detached' })
+          }
+          if (width === 1100 && id === 'compare') {
+            const resizeAndCheck = async (nextWidth, previousBottom) => {
+              await page.setViewportSize({ width: nextWidth, height })
+              await page.waitForFunction((previous) => {
+                const header = document.querySelector('.app-topbar')
+                const compare = document.querySelector('.u7-compare[data-expanded="true"]')
+                const bottom = header?.getBoundingClientRect().bottom
+                return bottom !== previous && Math.abs(compare?.getBoundingClientRect().top - bottom) < 1
+              }, previousBottom)
+            }
+            await resizeAndCheck(1101, await headerBottom())
+            await resizeAndCheck(width, await headerBottom())
+          }
+          await activate(surface.locator('[data-full-page-close]'))
+          await surface.waitFor({ state: 'detached' })
+        }
+        assert.deepEqual(errors, [])
+      } finally {
+        await context.close()
+      }
+    }
+    assert.deepEqual(issues, [], `Scrolled workspace and full-page header alignment:\n${issues.join('\n')}`)
+    console.log('L1 scrolled workspace: five viewport/layer cases, reachable drawer tabs and header actions, four full pages aligned')
+  }
+
   async function checkPhoneFightsScrub() {
     const { page, context, errors } = await open(320, 568, 'light', 'reduce', '?t=1750606982420', true)
     try {
@@ -1639,6 +1760,7 @@ try {
   console.log('J125990 battle-time affiliations: 我方 41 with all 17 uploads')
   await checkReplayStageEdges()
   await checkH2StageLimitsAndTabletHeader()
+  await checkScrolledWorkspaceAndFullPages()
   await checkPhoneFightsScrub()
   await checkTouchSurfaces()
   const density = []

@@ -3,6 +3,8 @@
 .app-topbar .app-topbar-menu-toggle,
 .app-topbar-menu-meta { display: none; }
 
+.app-shell--battle .upload-overlay { inset-block-start: var(--battle-header-bottom, 48px); }
+
 .app-topbar-github {
   display: inline-flex;
   align-items: center;
@@ -302,9 +304,9 @@
   }
   .battle-person-page {
     position: fixed;
-    inset: 44px 0 0;
+    inset: var(--battle-header-bottom, 44px) 0 0;
     width: 100%;
-    height: calc(100% - 44px);
+    height: calc(100% - var(--battle-header-bottom, 44px));
     max-width: none;
     max-height: none;
     margin: 0;
@@ -321,7 +323,6 @@
   [data-layout="phone"] .battle-upload { grid-area: replay; inset: auto var(--space-2) var(--space-2) auto; }
   [data-layout="phone"]:has(.battle-sheet[data-height="2"]) .battle-upload { grid-area: sheet; }
   [data-layout="phone"] .upload-rows { max-height: min(28dvh, 220px); }
-  [data-layout="phone"] .upload-overlay { inset-block-start: 44px; }
 }
 
 @media (width < 760px), (pointer: coarse) {

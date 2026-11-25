@@ -54,7 +54,7 @@ export function AppShell({ children, battle = false, home = false, topBar }: App
     measure()
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(measure)
-    observer.observe(header)
+    observer.observe(header, { box: 'border-box' })
     return () => observer.disconnect()
   }, [battle])
 

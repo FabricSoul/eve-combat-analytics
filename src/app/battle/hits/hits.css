@@ -4,7 +4,7 @@
   color: var(--color-text);
   background: var(--color-bg);
 }
-.hit-analysis[data-expanded="true"] { position: fixed; z-index: 2; inset: 48px 0 0; overflow: auto; }
+.hit-analysis[data-expanded="true"] { position: fixed; z-index: 2; inset: var(--battle-header-bottom, 48px) 0 0; overflow: auto; }
 .battle-layout:has(.hit-analysis[data-expanded="true"]) .battle-upload { z-index: 1; }
 .hit-analysis-header, .hit-team-summary {
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
@@ -74,5 +74,5 @@
 }
 
 @media (max-width: 759px) {
-  .hit-analysis[data-expanded="true"] { top: 44px; }
+  .hit-analysis[data-expanded="true"] { top: var(--battle-header-bottom, 44px); }
 }
