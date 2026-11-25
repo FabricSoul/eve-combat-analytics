@@ -188,7 +188,7 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
         <TimelineHelp touchRange={touchRange} />
       </div>
     </div>
-    {!compact && !separateLanes && hint}
+    {!separateLanes && hint}
     <div className="eca-timeline-plot">
       <svg ref={chart} data-timeline-chart="" data-domain-start={start} data-domain-end={end} data-range-draft={draft ? '' : undefined}
         width="100%" height={layout.height} viewBox={`0 0 ${width} ${layout.height}`}
@@ -219,7 +219,6 @@ function TimelineRoom({ compact, separateLanes, summary, analysis }: {
         </div> : <div>这一秒没有主目标</div>}
       </div>}
     </div>
-    {compact && hint}
     {!compact && !separateLanes && <PilotLanes analysis={analysis} logs={summary.logs} oursSide={oursSide} sideOrder={order}
       pinned={view.pinned} onRemove={view.togglePin} width={width} left={left} right={right} start={start} end={end}
       cursorX={cursorX} brush={brush} />}

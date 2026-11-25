@@ -14,10 +14,14 @@ const samples = [
   ...[[320, 568], [390, 844], [740, 420]].map(([width, height]) => ({ width, height, sheet: 'first' })),
   ...[760, 900].flatMap((width) => [79, 120, 183].map((mapHeight) => ({ width, height: 680, mapHeight }))),
   { width: 1630, height: 940 },
+  { width: 820, height: 500, coarseStage: 'default' },
+  ...['default', 'min', 'max'].map((coarseStage) => ({ width: 900, height: 800, coarseStage })),
+  { width: 1280, height: 800, coarseStage: 'default' },
   ...[844, 1000].flatMap((height) => ['half', 'peek'].map((sheet) => ({ width: 390, height, sheet }))),
 ]
 const anchorNames = ['Beatris Dallocort', 'Blanchard2213']
 const failures = []
+let zoomCount = 0
 
 async function stabilize(page) {
   await page.evaluate(async () => {
@@ -75,9 +79,15 @@ async function measure(stage, requiredKeys = []) {
     const hint = node.closest('.battle-layout').querySelector('.eca-timeline-hint')?.getBoundingClientRect()
     const controlsUnderHint = hint ? actionable.filter((control) => intersects(hint, control.getBoundingClientRect())).length : 0
     const containedControls = actionable.filter((control) => includes(control.getBoundingClientRect())).length
+    const touch = matchMedia('(pointer: coarse)').matches
     const controlHits = actionable.filter((control) => {
       const rect = control.getBoundingClientRect()
-      return control.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+      if (!touch) return control.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+      if (rect.width < 44 || rect.height < 44) return false
+      const offsets = [1, 11, 22, 33, 43]
+      const x = rect.left + (rect.width - 44) / 2
+      const y = rect.top + (rect.height - 44) / 2
+      return offsets.every((dx) => offsets.every((dy) => control.contains(document.elementFromPoint(x + dx, y + dy))))
     }).length
     const chromeBoxes = [...controls, ...node.querySelectorAll('.replay-legend > span'),
       ...controls.map((control) => document.getElementById(control.getAttribute('aria-controls'))).filter(Boolean)]
@@ -91,8 +101,8 @@ async function measure(stage, requiredKeys = []) {
     return { width, height, topInset, hulls: ships.length, contained: ships.filter((ship) => ship.hullFits).length,
       centers: ships.filter((ship) => ship.centerHit).length, gridHits: ships.filter((ship) => ship.gridHit).length,
       portraits: ships.filter((ship) => ship.badgeFits).length,
-      names: inView.filter(({ reach }) => reach !== null).length, inView: inView.length, overlaps, labelsUnderChrome,
-      required: required.length, requiredNames: required.filter(({ reach }) => reach !== null).length,
+      names: inView.filter(({ key }) => labels.has(key) && includes(labels.get(key))).length, inView: inView.length, overlaps, labelsUnderChrome,
+      required: required.length, requiredNames: required.filter(({ key }) => labels.has(key) && includes(labels.get(key))).length,
       requiredTruncated: required.filter((ship) => ship.truncated).length, truncated: inView.filter((ship) => ship.truncated).length,
       maxRequiredReach: Number(max.toFixed(2)),
       maxReach: Number(Math.max(0, ...inView.map(({ reach }) => reach ?? 0)).toFixed(2)), neutralsBelow: neutral.filter(({ y }) => y > height / 2).length,
@@ -133,8 +143,8 @@ try {
     await reference.close()
   }
   const analysisPath = `/api/battles/${brId}/analysis`
-  for (const { width, height, mapHeight, sheet } of samples) {
-    const context = await browser.newContext({ viewport: { width, height }, colorScheme: 'dark', hasTouch: Boolean(sheet),
+  for (const { width, height, mapHeight, sheet, coarseStage } of samples) {
+    const context = await browser.newContext({ viewport: { width, height }, colorScheme: 'dark', hasTouch: Boolean(sheet || coarseStage),
       reducedMotion: normalMotion ? 'no-preference' : 'reduce' })
     await context.route('**/*', (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
     const page = await context.newPage()
@@ -151,11 +161,12 @@ try {
       await sheetGrip.press('ArrowUp')
     }
     const initialHeight = (await stage.boundingBox()).height
-    if (mapHeight && mapHeight !== initialHeight) {
-      const { x, y, width, height } = await grip.boundingBox()
-      await page.mouse.move(x + width / 2, y + height / 2)
+    if (coarseStage === 'min' || coarseStage === 'max' || (mapHeight && mapHeight !== initialHeight)) {
+      const { x, y, width: gripWidth, height: gripHeight } = await grip.boundingBox()
+      await page.mouse.move(x + gripWidth / 2, y + gripHeight / 2)
       await page.mouse.down()
-      await page.mouse.move(x + width / 2, y + height / 2 + mapHeight - initialHeight)
+      const destination = coarseStage === 'min' ? 1 : coarseStage === 'max' ? height - 1 : y + gripHeight / 2 + mapHeight - initialHeight
+      await page.mouse.move(x + gripWidth / 2, destination)
       await page.mouse.up()
     }
     await page.mouse.move(0, 0)
@@ -164,9 +175,29 @@ try {
     await stabilize(page)
     const overview = await measure(stage)
     if (mapHeight) assert.equal(overview.height, mapHeight)
-    const name = `${width}x${height}-map${overview.height}${sheet ? `-${sheet}` : ''}`
+    const name = `${width}x${height}-map${overview.height}${sheet ? `-${sheet}` : ''}${coarseStage ? `-coarse-${coarseStage}` : ''}`
     console.log(name, 'overview', JSON.stringify(metrics(overview)))
     await stage.screenshot({ path: join(output, `${name}.png`) })
+    if (coarseStage) {
+      const geometry = await grip.evaluate((element) => {
+        const stage = element.closest('.battle-stage')
+        const height = stage.getBoundingClientRect().height
+        const modules = stage.nextElementSibling.getBoundingClientRect()
+        const lower = Math.max(0, Math.min(innerHeight, modules.bottom) - modules.top)
+        return { height, now: Number(element.getAttribute('aria-valuenow')),
+          min: Number(element.getAttribute('aria-valuemin')), max: Number(element.getAttribute('aria-valuemax')),
+          lower }
+      })
+      console.log(name, 'stage bounds', JSON.stringify(geometry))
+      check(overview.height >= 140, `${name} map floor`)
+      check(geometry.height === geometry.now, `${name} measured stage agrees with ARIA`)
+      if (coarseStage !== 'default') check(geometry.height === geometry[coarseStage], `${name} reaches its stage limit`)
+      if (coarseStage === 'default' && height === 800) {
+        check(geometry.height === 496 && geometry.lower >= 220, `${name} stage default leaves 220 px below`)
+      }
+      if (coarseStage === 'max') check(geometry.height === 600, `${name} stage max is 75%`)
+      await page.screenshot({ path: join(output, `${name}-workspace.png`) })
+    }
     if (sheet === 'first') {
       const hint = page.getByRole('button', { name: '关闭时间轴提示' })
       check(await hint.isVisible(), `${name} first-visit hint is shown`)
@@ -280,10 +311,11 @@ try {
       await page.keyboard.press('Escape')
     }
     await page.mouse.move(0, 0)
-    const anchors = width === 900 && mapHeight === 79 ? [...anchorNames, 'center'] : anchorNames
+    const anchors = coarseStage || (width === 900 && mapHeight === 79) ? [...anchorNames, 'center'] : anchorNames
     for (const anchor of anchors) {
       const pilot = anchor === 'center' ? stage : stage.getByRole('button', { name: new RegExp(`^${anchor}(?: ·|$)`) })
-      for (const scale of anchor === 'center' ? [1.5] : [1.5, 2, 3]) {
+      for (const scale of anchor === 'center' && !coarseStage ? [1.5] : [1.5, 2, 3]) {
+        zoomCount++
         await stage.getByRole('button', { name: '适应全部' }).click()
         await stabilize(page)
         const { x, y, width, height } = await pilot.boundingBox()
@@ -309,7 +341,7 @@ try {
         check(near === zoom.inView, `${name} ${scale}× ${anchor} all names within zoom reach`)
         if (mapHeight === 79) check(zoom.maxRequiredReach <= 40.03, `${name} ${scale}× ${anchor} required names within 40 px`)
         // Chromium rounds WheelEvent coordinates to whole CSS pixels.
-        check(anchorShift <= Math.SQRT2 * (scale - 1) + 0.05, `${name} ${scale}× ${anchor} stays under the cursor`)
+        if (anchor !== 'center') check(anchorShift <= Math.SQRT2 * (scale - 1) + 0.05, `${name} ${scale}× ${anchor} stays under the cursor`)
         if (scale === 1.5) await stage.screenshot({ path: join(output, `${name}-150-${anchor.split(' ')[0]}.png`) })
       }
     }
@@ -335,7 +367,16 @@ try {
         const map = await stage.boundingBox()
         const popup = await panel.boundingBox()
         const clearOfMap = popup.y >= map.y + map.height
+        const timelineControls = page.locator('.eca-timeline :is(.eca-timeline-bar, .eca-timeline-hint) button')
+        const clearOfTimeline = await timelineControls.evaluateAll((buttons, popup) => buttons.every((button) => {
+          const { left, right, top, bottom } = button.getBoundingClientRect()
+          return !button.checkVisibility() || popup.x >= right || popup.x + popup.width <= left
+            || popup.y >= bottom || popup.y + popup.height <= top
+        }), popup)
         check(clearOfMap, `${name} fights stays below the map`)
+        check(clearOfTimeline, `${name} fights clears the timeline controls and first-visit hint`)
+        check((await panel.locator('.battle-window-body').boundingBox()).height >= 44,
+          `${name} fights body fits a complete touch row`)
         check(open.gridHits === open.hulls && open.controlHits === open.controls, `${name} fights leaves hulls and controls reachable`)
         check(await touchSize(close) >= 44, `${name} fights close target is 44 px`)
         check((await panel.textContent()).includes('前 10 秒') && await panel.locator('tbody tr').count() > 0,
@@ -408,10 +449,21 @@ try {
     check(open.centers === open.hulls && open.gridHits === open.hulls, `${name} open windows clear marker centers`)
     check(open.controlHits === open.controls, `${name} both windows leave replay controls reachable`)
     await page.screenshot({ path: join(output, `${name}-open-windows.png`) })
+    if (coarseStage) {
+      const zoomIn = stage.getByRole('button', { name: '放大', exact: true })
+      await zoomIn.tap()
+      await zoomIn.tap()
+      await stabilize(page)
+      const zoom = await measure(stage)
+      check(await stage.getAttribute('data-all-names') !== null, `${name} two touch zooms reveal all names`)
+      check(zoom.names === zoom.inView && zoom.truncated === 0 && zoom.labelsUnderChrome === 0 && zoom.overlaps === 0,
+        `${name} touch zoom contains every in-view name with both windows open`)
+      zoomCount++
+    }
     await context.close()
   }
   assert.deepEqual(failures, [], 'replay geometry acceptance')
-  console.log(`Replay geometry passed in all ${samples.length} map cases and all ${samples.length * anchorNames.length * 3} pilot-anchored zooms plus the centered minimum-map case.`)
+  console.log(`Replay geometry passed in all ${samples.length} map cases and ${zoomCount} zooms.`)
 } finally {
   await browser?.close()
   await server.close()

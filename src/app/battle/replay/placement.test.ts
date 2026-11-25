@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EntityKey } from '@/core/contract'
-import { closestPoint, placeFightsWindow, placePilotLabel, placeReplayLabels, placeReplayPopover, placeShortMapWindow } from './placement'
+import { closestPoint, placeFightsWindow, placePilotLabel, placeReplayLabels, placeReplayPopover, placeReplayWindow } from './placement'
 import { makeLayout, type ReplayPilot } from './scene'
 
 function pilot(key: EntityKey, side: number): ReplayPilot {
@@ -40,10 +40,20 @@ it('keeps the zoom bar clickable even when a fight window corner would cover few
 
 it('clamps a saved overlay below the short map without changing its stored rectangle', () => {
   const saved = { x: 133, y: 90, width: 336, height: 540 }
-  expect(placeShortMapWindow(saved, 156, 680)).toEqual({ ...saved, y: 156, height: 524 })
+  const viewport = { x: 0, y: 156, width: 820, height: 524 }
+  expect(placeReplayWindow(saved, viewport, [], 34, false)).toEqual({ ...saved, y: 156, height: 524 })
   expect(saved).toEqual({ x: 133, y: 90, width: 336, height: 540 })
   const below = { ...saved, y: 249, height: 164 }
-  expect(placeShortMapWindow(below, 156, 680)).toEqual(below)
+  expect(placeReplayWindow(below, viewport, [], 34, false)).toEqual(below)
+})
+
+it('places a floating replay window clear of playback and zoom controls', () => {
+  const viewport = { x: 0, y: 56, width: 820, height: 444 }
+  const saved = { x: 14, y: 140, width: 236, height: 164 }
+  const zoom = { x: 16, y: 140, width: 180, height: 46 }
+  const playback = { x: 0, y: 200, width: 820, height: 98 }
+  expect(placeReplayWindow(saved, viewport, [zoom, playback], 47, false)).toEqual({ ...saved, y: 298 })
+  expect(placeReplayWindow(saved, viewport, [zoom, playback], 47, true)).toEqual({ ...saved, y: 93 })
 })
 
 it.each([79, 120, 183, 397])('fits hulls and badges around controls at a map height of %s px', (height) => {

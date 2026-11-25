@@ -23,6 +23,8 @@ interface WindowFrameProps<Id extends string> {
     minWidth?: number
     fixedOrigin?: { x: number; y: number }
     touch?: boolean
+    barHeight?: number
+    constrain?: (rect: WindowRect, minimized: boolean) => WindowRect
     setCancel: (cancel: (() => boolean) | null) => void
   }
   module?: {
@@ -57,8 +59,11 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
   const titleBar = useRef<HTMLDivElement>(null)
   const gesture = useRef<Gesture | null>(null)
   const [preview, setPreview] = useState<{ rect: WindowRect; target: DockEdge | null } | null>(null)
-  const barHeight = overlay?.touch ? 46 : windowHeight
-  const clamp = (rect: WindowRect, minimized: boolean) => clampWindow(rect, viewport, minimized, overlay?.minWidth, barHeight)
+  const barHeight = overlay?.barHeight ?? (overlay?.touch ? 46 : windowHeight)
+  const clamp = (rect: WindowRect, minimized: boolean) => {
+    const bounded = clampWindow(rect, viewport, minimized, overlay?.minWidth, barHeight)
+    return overlay?.constrain?.(bounded, minimized) ?? bounded
+  }
   const stored = state.rect && clamp(state.rect, state.minimized)
   const rect = preview?.rect ?? stored
   const { floating, minimized } = state

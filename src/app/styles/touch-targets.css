@@ -11,5 +11,13 @@
 
   a[href] { align-content: center; }
 
+  /* Keep the full border box clickable even where the timeline pills round off the paint. */
+  .eca-timeline[data-workspace] :is(.app-button, .eca-timeline-chip) { position: relative; }
+  .eca-timeline[data-workspace] :is(.app-button, .eca-timeline-chip)::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+  }
+
   .app-gallery-nav a { display: inline-grid; }
 }

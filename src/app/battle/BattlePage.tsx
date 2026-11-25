@@ -67,6 +67,8 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   const openPicker = () => picker.current?.click()
   const desk = useRef<HTMLDivElement>(null)
   useFullPageWorkspace(desk, Boolean(summary))
+  const stage = useRef<HTMLElement>(null)
+  const replayRegion = useRef<HTMLElement>(null)
   const timeline = useRef<HTMLElement>(null)
   const workspace = layout !== 'phone'
   const moduleColumns = layout === 'desktop' ? 3 : 2
@@ -75,9 +77,13 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   const [replayPopoverLayer, setReplayPopoverLayer] = useState<HTMLDivElement | null>(null)
   const hasWorkspace = workspace && Boolean(summary)
   const viewport = useWindowViewport(desk, hasWorkspace)
-  const [timelineHeight, setTimelineHeight] = useState(timelineMinHeight)
-  const stageLimits = replayHeightBounds(window.innerHeight, viewport.height, timelineHeight)
+  const [stageChrome, setStageChrome] = useState({ timeline: timelineMinHeight, frame: 2, gutter: 8, mapMin: 0, touchTarget: 0 })
+  const availableStageHeight = viewport.height - stageChrome.gutter
+  const stageLimits = replayHeightBounds(window.innerHeight, availableStageHeight,
+    stageChrome.timeline, stageChrome.frame, stageChrome.mapMin)
   const stageHeight = clampStage(moduleLayout.stageHeight ?? stageLimits.initial, stageLimits)
+  const stageOverflow = stageChrome.touchTarget > 0
+    && availableStageHeight - stageHeight - stageLimits.fixedHeight < stageChrome.touchTarget
   const [search, setSearch] = useState<'feed' | 'roster' | null>(null)
   const [eventFilters, setEventFilters] = useState(true)
   const [rosterAlphabetical, setRosterAlphabetical] = useState(false)
@@ -93,13 +99,30 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
   const dispatchReplay = useCallback((action: ReplayOverlayAction) => dispatchModule({ type: 'replay', action }), [])
 
   useLayoutEffect(() => {
-    const element = timeline.current
-    if (!hasWorkspace || !element) return
-    const measure = () => setTimelineHeight(Math.ceil(element.getBoundingClientRect().height))
+    const frame = stage.current
+    const plot = timeline.current
+    const replay = replayRegion.current
+    if (!hasWorkspace || !frame || !plot || !replay) return
+    const measure = () => {
+      const style = getComputedStyle(frame)
+      const timeline = plot.getBoundingClientRect().height
+      const chrome = frame.getBoundingClientRect().height - replay.getBoundingClientRect().height - timeline
+      const gutter = parseFloat(style.marginBlockStart) || 0
+      const mapMin = parseFloat(style.getPropertyValue('--replay-map-min')) || 0
+      const touchTarget = parseFloat(style.getPropertyValue('--touch-target')) || 0
+      setStageChrome((previous) => previous.timeline === timeline && previous.frame === chrome
+        && previous.gutter === gutter && previous.mapMin === mapMin && previous.touchTarget === touchTarget
+        ? previous : { timeline, frame: chrome, gutter, mapMin, touchTarget })
+    }
     measure()
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
-    observer?.observe(element)
-    return () => observer?.disconnect()
+    observer?.observe(frame, { box: 'border-box' })
+    observer?.observe(plot)
+    window.addEventListener('resize', measure)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', measure)
+    }
   }, [hasWorkspace])
 
   useEffect(() => {
@@ -285,10 +308,11 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
       shareUrl: summary ? shareUrl : undefined,
     }}>
       {summary ? (
-        <div ref={desk} className="battle-layout" data-layout={layout} data-density={workspace ? 'compact' : undefined}>
+        <div ref={desk} className="battle-layout" data-layout={layout} data-density={workspace ? 'compact' : undefined}
+          data-stage-overflow={workspace && stageOverflow || undefined}>
           {workspace ? <>
-            <section className="battle-stage" aria-label="回放舞台" onPointerDownCapture={clearTextSelection}>
-              <section className="battle-replay" aria-label="回放" style={{ height: stageHeight }}>
+            <section ref={stage} className="battle-stage" aria-label="回放舞台" onPointerDownCapture={clearTextSelection}>
+              <section ref={replayRegion} className="battle-replay" aria-label="回放" style={{ height: stageHeight }}>
                 {replay}
               </section>
               <section ref={timeline} className="battle-timeline" aria-label="时间轴" style={{ minHeight: timelineMinHeight }}><Timeline separateLanes /></section>

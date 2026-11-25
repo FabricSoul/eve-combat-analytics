@@ -123,6 +123,9 @@ body.battle-window-dragging * {
   font-size: var(--fs-compact-body);
 }
 .battle-module-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+/* A workspace too short for one complete touch row scrolls as a whole. */
+.battle-layout[data-stage-overflow] { overflow-y: auto; overscroll-behavior: contain; }
+.battle-layout[data-stage-overflow] > .battle-module-scroll { flex: none; overflow: visible; }
 .battle-layout :is(.battle-window-body, .u7-compare-scroll, .u7-compare-cards, .hit-table-scroll,
   .eca-pilot-lanes-scroll, .battle-drawer, .sides-cols, .sides-col-body, .battle-sheet-content) {
   overscroll-behavior: contain;
@@ -323,7 +326,11 @@ body.battle-window-dragging * {
     flex: none;
     padding: 0;
   }
-  .battle-stage { padding-block-end: var(--touch-target); }
+  .battle-stage {
+    /* Enough room for the two 44 px controls, plus the map's label lanes. */
+    --replay-map-min: 140px;
+    padding-block-end: var(--touch-target);
+  }
   .battle-stage-grip { inset-block-end: 0; }
   .battle-module,
   .battle-replay-overlay { --row: var(--touch-target); }

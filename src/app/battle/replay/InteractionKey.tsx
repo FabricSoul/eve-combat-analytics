@@ -68,7 +68,7 @@ export function InteractionKey({ active }: { active: boolean }) {
       <canvas ref={(canvas) => {
         if (canvas) canvases.current.set(label, canvas)
         else canvases.current.delete(label)
-      }} style={{ width, height }} aria-hidden="true" />
+      }} aria-hidden="true" />
       <span>{label}</span>
     </div>
   }

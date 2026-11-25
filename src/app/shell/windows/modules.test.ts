@@ -57,17 +57,26 @@ describe('battle modules', () => {
   })
 
   it('budgets the timeline inside the default stage height and leaves at least 220px for modules where possible', () => {
-    expect(replayHeightBounds(800, 752, 176)).toMatchObject({ initial: 318 })
-    expect(replayHeightBounds(940, 892, 176)).toMatchObject({ initial: 405 })
-    expect(replayHeightBounds(1500, 1452, 150)).toMatchObject({ initial: 778 })
-    expect(replayHeightBounds(680, 632, 150)).toMatchObject({ initial: 252 })
+    expect(replayHeightBounds(800, 744, 176)).toMatchObject({ initial: 318 })
+    expect(replayHeightBounds(940, 884, 176)).toMatchObject({ initial: 405 })
+    expect(replayHeightBounds(1500, 1444, 150)).toMatchObject({ initial: 778 })
+    expect(replayHeightBounds(680, 624, 150)).toMatchObject({ initial: 252 })
   })
 
   it('clamps the combined stage to 300px and 75% while keeping the timeline intact', () => {
-    expect(replayHeightBounds(800, 752, 176)).toEqual({ min: 122, max: 422, initial: 318, fixedHeight: 178 })
-    expect(replayHeightBounds(940, 892, 200)).toEqual({ min: 98, max: 503, initial: 381, fixedHeight: 202 })
-    expect(replayHeightBounds(400, 352, 150)).toEqual({ min: 148, max: 148, initial: 148, fixedHeight: 152 })
-    expect(replayHeightBounds(320, 272, 150)).toEqual({ min: 88, max: 88, initial: 88, fixedHeight: 152 })
+    expect(replayHeightBounds(800, 744, 176)).toEqual({ min: 122, max: 422, initial: 318, fixedHeight: 178 })
+    expect(replayHeightBounds(940, 884, 200)).toEqual({ min: 98, max: 503, initial: 381, fixedHeight: 202 })
+    expect(replayHeightBounds(400, 344, 150)).toEqual({ min: 148, max: 148, initial: 148, fixedHeight: 152 })
+    expect(replayHeightBounds(320, 264, 150)).toEqual({ min: 88, max: 88, initial: 88, fixedHeight: 152 })
+  })
+
+  it('includes rendered touch chrome and gives the map floor priority on a short workspace', () => {
+    expect(replayHeightBounds(800, 744, 253, 46, 140)).toEqual({
+      min: 140, max: 301, initial: 197, fixedHeight: 299,
+    })
+    expect(replayHeightBounds(500, 444, 253, 46, 140)).toEqual({
+      min: 140, max: 140, initial: 140, fixedHeight: 299,
+    })
   })
 
   it('remembers an explicit fights collapse override in the current layout', () => {

@@ -188,8 +188,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
   const invalidate = useRef<() => void>(() => {})
   const overlayLayoutChanged = useRef<(() => void) | null>(null)
   const [playback] = useState(createProjectilePlayback)
-  const [size, setSize] = useState({ width: 0, height: 0, dpr: 1, topInset: 0 })
-  const { width, height, dpr, topInset } = size
+  const [size, setSize] = useState({ width: 0, height: 0, visibleWidth: 0, visibleHeight: 0, dpr: 1, topInset: 0 })
+  const { width, height, visibleWidth, visibleHeight, dpr, topInset } = size
   const [inspected, inspect] = useState<EntityKey | null>(null)
   const { toolbar, focused, updateTargets, onFocus, onBlur, onKeyDown } = useReplayKeyboard()
   const scene = useMemo(() => buildScene(analysis, killmails, order), [analysis, killmails, order])
@@ -297,9 +297,13 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     if (!element) return
     const controls = element.querySelector('.replay-header-actions')
     const resize = () => {
-      const topInset = controls ? Math.max(0, Math.ceil(controls.getBoundingClientRect().bottom - element.getBoundingClientRect().top)) : 0
-      const next = { width: element.clientWidth, height: element.clientHeight, dpr: window.devicePixelRatio || 1, topInset }
+      const bounds = element.getBoundingClientRect()
+      const topInset = controls ? Math.max(0, Math.ceil(controls.getBoundingClientRect().bottom - bounds.top)) : 0
+      const { clientWidth: width, clientHeight: height } = element
+      const next = { width, height, visibleWidth: bounds.width || width, visibleHeight: bounds.height || height,
+        dpr: window.devicePixelRatio || 1, topInset }
       setSize((previous) => previous.width === next.width && previous.height === next.height
+        && previous.visibleWidth === next.visibleWidth && previous.visibleHeight === next.visibleHeight
         && previous.dpr === next.dpr && previous.topInset === next.topInset ? previous : next)
     }
     resize()
@@ -457,7 +461,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         if (label) {
           label.toggleAttribute('data-dim', !keep)
           const inset = node.radius + 2
-          const inView = x + inset > 0 && x - inset < width && y + inset > 0 && y - inset < height
+          const inView = x + inset > 0 && x - inset < visibleWidth && y + inset > 0 && y - inset < visibleHeight
           if (inView) {
             const priority = key === selected || key === detailKey ? 3 : node.entity.hasLog ? 2 : opponents.has(key) ? 1 : 0
             const center = projectPoint(camera, node)
@@ -494,7 +498,9 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         // Keep compact overview labels out of the other fleet. The empty space
         // between fleets can hold labels from either side.
         const showAll = camera.scale >= allNamesZoom
-        const labelFrame = showAll ? { ...bounds, y: 0, height: bounds.y + bounds.height } : bounds
+        const labelTop = showAll ? 0 : bounds.y
+        const labelFrame = { ...bounds, y: labelTop, width: Math.min(bounds.width, visibleWidth - bounds.x),
+          height: Math.min(bounds.y + bounds.height, visibleHeight) - labelTop }
         const split = camera.scale === 1 && layout.split
         let ourEdge = bounds.x
         let enemyEdge = bounds.x + bounds.width
@@ -542,7 +548,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
           return { ...label, ...labelSizes.get(element)!, bounds: labelBounds, radius: node.radius, uploader: node.entity.hasLog }
         })
         const placed = placeReplayLabels(names, occupied, labelFrame, showAll, {
-          bounds: { x: 0, y: 0, width, height }, obstacles: overlays,
+          bounds: { x: 0, y: 0, width: visibleWidth, height: visibleHeight }, obstacles: overlays,
         })
         pilotLabelRects = [...placed.values()]
         const leaders = []
@@ -586,7 +592,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       obstacles.disconnect()
       reduced.removeEventListener('change', schedule)
     }
-  }, [layout, scene, width, height, dpr, getTime, playback, updateTargets, updateEffectTooltip])
+  }, [layout, scene, width, height, visibleWidth, visibleHeight, dpr, getTime, playback, updateTargets, updateEffectTooltip])
 
   useLayoutEffect(() => {
     frame.current = { t, playing, selected, focusOnly, detailKey, lockedKey, camera }

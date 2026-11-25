@@ -650,8 +650,8 @@ try {
 
   const phone = await open(390, 844, 'light', 'reduce')
   const phonePage = phone.page
-  async function measureTouchTargets(scope, view) {
-    const result = await scope.evaluate(async (root) => {
+  async function measureTouchTargets(scope, view, strict = false) {
+    const result = await scope.evaluate(async (root, strict) => {
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
       const selector = [
         'button', 'summary', 'a[href]', 'input', 'select', 'textarea',
@@ -674,6 +674,13 @@ try {
         const x = (box.left + box.right) / 2
         const y = (box.top + box.bottom) / 2
         return [[x, y], [box.left + 1, y], [box.right - 1, y], [x, box.top + 1], [x, box.bottom - 1]]
+      }
+      const touchPoints = (box) => {
+        if (!strict) return points(box)
+        const x = (box.left + box.right - 44) / 2
+        const y = (box.top + box.bottom - 44) / 2
+        const offsets = [1, 11, 22, 33, 43]
+        return offsets.flatMap((dx) => offsets.map((dy) => [x + dx, y + dy]))
       }
       const owns = (target, x, y) => owner(document.elementFromPoint(x, y)) === target
       const viewport = rect(0, 0, innerWidth, innerHeight)
@@ -714,8 +721,8 @@ try {
             scroll.push([parent, parent.scrollLeft, parent.scrollTop])
           }
         }
-        if (visible.width <= 0 || visible.height <= 0) continue
-        if (!points(visible).some(([x, y]) => owns(target, x, y))) {
+        if (!strict && (visible.width <= 0 || visible.height <= 0)) continue
+        if (!strict && !points(visible).some(([x, y]) => owns(target, x, y))) {
           // A different surface can fully cover a control. Distinguish this
           // from an overlapping control on the same surface before skipping it.
           const [x, y] = points(visible)[0]
@@ -734,8 +741,8 @@ try {
           box = rect(next.left, next.top, next.left + box.width, next.top + box.height)
         }
         count++
-        const missed = points(box).flatMap(([x, y], index) => owns(target, x, y) ? [] :
-          [['centre', 'left', 'right', 'top', 'bottom'][index]])
+        const missed = touchPoints(box).flatMap(([x, y], index) => owns(target, x, y) ? [] :
+          [strict ? `${Math.round(x)},${Math.round(y)}` : ['centre', 'left', 'right', 'top', 'bottom'][index]])
         for (const [parent, left, top] of scroll) parent.scrollTo({ left, top, behavior: 'instant' })
         if (box.width >= 44 && box.height >= 44 && !missed.length) continue
         const kind = target.localName + [...target.classList].map((name) => '.' + name).join('')
@@ -745,7 +752,7 @@ try {
         offenders.push(`${kind} “${name}” ${size} px${missed.length ? ` (missed: ${missed.join(', ')})` : ''}`)
       }
       return { count, offenders }
-    })
+    }, strict)
     assert.ok(result.count > 0, `${view} exposes enabled, reachable touch controls`)
     touchStates.set(view, (touchStates.get(view) ?? 0) + result.count)
     for (const offender of result.offenders) touchFailures.add(`${view} · ${offender}`)
@@ -1098,8 +1105,74 @@ try {
         await context.close()
       }
     }
+    const desktopStages = [[820, 500, 'default'], [900, 800, 'default'], [900, 800, 'min'], [900, 800, 'max'], [1280, 800, 'default']]
+    for (const [width, height, placement] of desktopStages) {
+      const prefix = `${width}×${height} coarse ${placement} stage`
+      const { page, context, errors } = await open(width, height, 'light', 'reduce', '?t=1750606982420', true)
+      try {
+        const stage = page.getByRole('region', { name: '回放舞台' })
+        const grip = stage.getByRole('separator', { name: '调整舞台高度' })
+        const legend = page.getByRole('region', { name: '交互图例', exact: true })
+        const fights = page.getByRole('region', { name: '此刻交火', exact: true })
+        const range = page.getByRole('dialog', { name: '编辑选段' })
+        const hint = page.getByRole('button', { name: '关闭时间轴提示' })
+        await stage.locator('.replay-marker[data-present] .replay-pilot').first().waitFor()
+        const initialHeight = (await stage.boundingBox()).height
+        if (placement !== 'default') {
+          const { x, y, width, height: gripHeight } = await grip.boundingBox()
+          await page.mouse.move(x + width / 2, y + gripHeight / 2)
+          await page.mouse.down()
+          await page.mouse.move(x + width / 2, placement === 'min' ? 1 : height - 1)
+          await page.mouse.up()
+          const reached = (await stage.boundingBox()).height
+          if (reached !== Number(await grip.getAttribute(`aria-value${placement}`))) {
+            touchFailures.add(`${prefix} · measured stage limit ${reached} disagrees with ARIA`)
+          }
+        }
+        assert.ok(await hint.isVisible(), `${prefix} shows the first-visit hint`)
+        if (!await fights.isVisible()) await page.getByRole('button', { name: '此刻交火', exact: true }).press('Enter')
+        await page.getByRole('button', { name: '交互图例', exact: true }).press('Enter')
+        await legend.waitFor()
+        await fights.waitFor()
+        const audit = (name, target = stage) => measureTouchTargets(target, `${prefix} · ${name}`, true)
+        await audit('first visit with both windows open')
+        await page.screenshot({ path: join(output, `touch-${width}x${height}-${placement}-first-visit.png`) })
+        const rangeTrigger = stage.locator('.eca-timeline-range button[aria-haspopup="dialog"]')
+        await rangeTrigger.press('Enter')
+        await range.waitFor()
+        await audit('range editor with both windows open', range)
+        await page.screenshot({ path: join(output, `touch-${width}x${height}-${placement}-range-editor.png`) })
+        await range.getByRole('button', { name: '应用' }).press('Enter')
+        await range.waitFor({ state: 'hidden' })
+        await audit('active range with both windows open')
+        await page.screenshot({ path: join(output, `touch-${width}x${height}-${placement}-range.png`) })
+        for (const [window, name] of [[fights, '此刻交火'], [legend, '交互图例']]) {
+          const bar = window.getByRole('group', { name: `${name} 标题栏` })
+          await bar.focus()
+          for (let y = 0; y < height; y += 32) await bar.press('Shift+ArrowUp')
+          await audit(`active range after moving ${name} up`)
+          for (let y = 0; y < height; y += 32) await bar.press('Shift+ArrowDown')
+          await audit(`active range after moving ${name} down`)
+        }
+        if (placement !== 'default') {
+          await grip.dblclick()
+          assert.equal((await stage.boundingBox()).height, initialHeight, `${prefix} double-click resets the stage`)
+        }
+        if (height === 500) {
+          const module = page.locator('[data-module="feed"] .battle-window-titlebar')
+          await module.scrollIntoViewIfNeeded()
+          assert.ok(await page.locator('.battle-layout').evaluate((desk) => desk.scrollTop > 0),
+            `${prefix} scrolls to the modules when a touch row does not fit below the stage`)
+          const box = await module.boundingBox()
+          assert.ok(box.y >= 48 && box.y + box.height <= height, `${prefix} can reach a complete module title bar`)
+        }
+        assert.deepEqual(errors, [])
+      } finally {
+        await context.close()
+      }
+    }
     const targets = [...touchStates.values()].reduce((total, count) => total + count, 0)
-    console.log(`Touch targets: ${touchViewports.length} viewports, ${touchStates.size} states, ${targets} visible enabled targets, ${touchFailures.size} offenders, exemption .replay-pilot (verified equivalent roster actions), 0 inline-link exemptions`)
+    console.log(`Touch targets: ${touchViewports.length + desktopStages.length} viewport/stage cases, ${touchStates.size} states, ${targets} visible enabled targets, ${touchFailures.size} offenders, exemption .replay-pilot (verified equivalent roster actions), 0 inline-link exemptions`)
     assert.equal(touchFailures.size, 0, `Touch targets must offer 44×44 px without overlap:\n${[...touchFailures].join('\n')}`)
   }
 
@@ -1352,6 +1425,8 @@ try {
     await touchHint.getByRole('button', { name: '关闭时间轴提示' }).tap()
     assert.equal(await touchHint.count(), 0)
     await page.reload({ waitUntil: 'domcontentloaded' })
+    // The first killmail is later than 15:42. Wait for log-derived bounds after reload.
+    await page.locator('.replay-marker[data-present] .replay-pilot[data-log="true"]').first().waitFor()
     await startRange.waitFor()
     assert.equal(await touchHint.count(), 0)
     const helpButton = await page.getByRole('button', { name: '时间轴用法' }).boundingBox()

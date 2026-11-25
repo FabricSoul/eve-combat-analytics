@@ -18,9 +18,43 @@ function fits(rect: Rect, bounds: Rect) {
     && rect.y + rect.height <= bounds.y + bounds.height
 }
 
-export function placeShortMapWindow(rect: Rect, mapBottom: number, viewportHeight: number, collapsedHeight = 0): Rect {
-  const height = Math.min(rect.height, viewportHeight - mapBottom)
-  return { ...rect, height, y: Math.max(mapBottom, Math.min(rect.y, viewportHeight - (collapsedHeight || height))) }
+export function placeReplayWindow(rect: Rect, viewport: Rect, controls: readonly Rect[], barHeight: number, collapsed: boolean,
+  alignWithHeader = false): Rect {
+  const height = collapsed ? barHeight : rect.height
+  const visible = { ...rect, height }
+  if (fits(visible, viewport) && controls.every((control) => !overlaps(visible, control, 0))) return rect
+
+  // Each control splits a free rectangle into strips. The strips can overlap,
+  // so a window can still fit in the widest or tallest gap around a control.
+  const regions = controls.reduce<Rect[]>((free, control) => free.flatMap((region) => {
+    if (!overlaps(region, control, 0)) return [region]
+    const right = control.x + control.width
+    const bottom = control.y + control.height
+    return [
+      { ...region, width: control.x - region.x },
+      { ...region, x: right, width: region.x + region.width - right },
+      { ...region, height: control.y - region.y },
+      { ...region, y: bottom, height: region.y + region.height - bottom },
+    ].filter((strip) => strip.width >= rect.width && strip.height >= barHeight)
+  }), [viewport])
+
+  let best = rect
+  let bestHeight = 0
+  let distance = Infinity
+  for (const region of regions) {
+    const visibleHeight = Math.min(height, region.height)
+    const x = Math.max(region.x, Math.min(rect.x, region.x + region.width - rect.width))
+    const y = Math.max(region.y, Math.min(rect.y, region.y + region.height - visibleHeight))
+    const dx = x - rect.x
+    const dy = y - rect.y
+    const movement = alignWithHeader ? Math.abs(dy) * viewport.width + Math.abs(dx) : Math.hypot(dx, dy)
+    if (visibleHeight > bestHeight || (visibleHeight === bestHeight && movement < distance)) {
+      best = { ...rect, x, y, height: collapsed ? rect.height : visibleHeight }
+      bestHeight = visibleHeight
+      distance = movement
+    }
+  }
+  return best
 }
 
 interface HullCenter extends Point { radius: number }
