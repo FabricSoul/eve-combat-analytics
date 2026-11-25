@@ -231,15 +231,24 @@
   [data-layout="phone"] .eca-timeline[data-compact="true"] .eca-timeline-controls .app-button { min-width: 44px; min-height: 44px; }
   [data-layout="phone"] .eca-timeline-tip { top: auto; bottom: 100%; }
   .battle-sheet {
+    --battle-sheet-half-height: min(42dvh, max(100px, 100dvh - 240px));
     grid-area: sheet;
     display: flex;
     flex-direction: column;
-    height: min(42dvh, max(100px, 100dvh - 240px));
+    height: var(--battle-sheet-half-height);
     min-height: 0;
     padding: 0 var(--space-2) env(safe-area-inset-bottom);
     border: 1px solid var(--color-hair);
     border-radius: var(--radius-card) var(--radius-card) 0 0;
     background: var(--color-surface);
+  }
+  .battle-sheet-half-sizer {
+    position: absolute;
+    visibility: hidden;
+    pointer-events: none;
+    inset: 0 auto auto 0;
+    inline-size: 0;
+    block-size: var(--battle-sheet-half-height);
   }
   .battle-sheet[data-height="0"] { height: auto; }
   .battle-sheet[data-height="2"] { height: 100%; }
@@ -305,4 +314,21 @@
   [data-layout="phone"]:has(.battle-sheet[data-height="2"]) .battle-upload { grid-area: sheet; }
   [data-layout="phone"] .upload-rows { max-height: min(28dvh, 220px); }
   [data-layout="phone"] .upload-overlay { inset-block-start: 44px; }
+}
+
+@media (620px <= width < 760px) {
+  [data-layout="phone"] .eca-timeline[data-compact="true"]:has(.eca-timeline-hint) {
+    display: grid;
+    grid-template: "bar hint" auto "plot plot" auto / minmax(0, 1fr) auto;
+    column-gap: var(--space-3);
+  }
+  [data-layout="phone"] .eca-timeline-bar { grid-area: bar; }
+  [data-layout="phone"] .eca-timeline-hint { grid-area: hint; align-self: start; }
+  [data-layout="phone"] .eca-timeline-plot { grid-area: plot; }
+}
+
+@media (width < 760px) and (height <= 600px) {
+  .battle-sheet[data-height="0"] { flex-direction: row; }
+  .battle-sheet[data-height="0"] .battle-sheet-grip { width: 44px; }
+  .battle-sheet[data-height="0"] > .app-tabs { flex: 1; }
 }

@@ -1,13 +1,12 @@
 import { createContext, useContext, useId, useLayoutEffect, useReducer, useRef, useState,
-  type CSSProperties, type Dispatch, type ReactNode, type RefObject } from 'react'
+  type Dispatch, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { WindowFrame } from '../../shell/windows/WindowFrame'
-import { WorkspaceAction } from '../../ui/icons/WorkspaceIcon'
 import { windowHeight } from '../../shell/windows/layout'
 import { defaultReplayOverlays, replayOverlayIds, replayOverlayReducer,
   type ReplayOverlayAction, type ReplayOverlayId, type ReplayOverlayLayout } from '../../shell/windows/replay-layout'
 import { InteractionKey } from './InteractionKey'
-import { placeFightsWindow, placeShortMapWindow, shortMapHeight } from './placement'
+import { placeFightsWindow, placeShortMapWindow, shortMapHeight, type Rect } from './placement'
 import '../../shell/windows/windows.css'
 
 export const ReplayOverlayWorkspace = createContext<{
@@ -44,9 +43,12 @@ export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, p
   const anchoredToPage = workspace !== null
   const hasFights = Boolean(closeFights)
   const [phoneFightsOpen, setPhoneFightsOpen] = useState(false)
+  const [phoneFightsCollapsed, setPhoneFightsCollapsed] = useState(false)
+  const [phoneFightsRect, setPhoneFightsRect] = useState<Rect | null>(null)
   const { open: fightsOpen, collapsed: fightsPreference, rect: savedFights } = layout.overlays.fights
   const [geometry, setGeometry] = useState(() => ({
     width: window.innerWidth, height: window.innerHeight, stageWidth: window.innerWidth, stageBottom: 0, left: 24, legendTop: 120, mapFloor: 0,
+    safeBottom: overlayGap,
     fights: { x: window.innerWidth - fightsWidth - 12, y: 92, width: fightsWidth, height: fightsHeight },
   }))
 
@@ -76,12 +78,14 @@ export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, p
       const legendLeft = legendSharesZoomColumn ? Math.min(window.innerWidth - legendWidth, Math.ceil(zoom.right) + overlayGap) : triggerLeft
       const fights = placeFightsWindow(stageBox, topRight, legendTop,
         { width: fightsWidth, height: minimized ? windowHeight : fightsHeight }, pilots, zoom ? [zoom] : [])
+      const safeBottom = phone ? Math.max(overlayGap, parseFloat(getComputedStyle(host)
+        .getPropertyValue('--replay-safe-bottom')) || 0) : overlayGap
       const next = { width: window.innerWidth, height: window.innerHeight,
-        left: legendLeft, stageWidth: stageBox.width, stageBottom: Math.ceil(stageBox.y + stageBox.height), legendTop, mapFloor,
+        left: legendLeft, stageWidth: stageBox.width, stageBottom: Math.ceil(stageBox.y + stageBox.height), legendTop, mapFloor, safeBottom,
         fights: { ...fights, height: fightsHeight } }
       setGeometry((previous) => previous.width === next.width && previous.height === next.height
         && previous.left === next.left && previous.stageWidth === next.stageWidth && previous.stageBottom === next.stageBottom
-        && previous.legendTop === next.legendTop && previous.mapFloor === mapFloor
+        && previous.legendTop === next.legendTop && previous.mapFloor === mapFloor && previous.safeBottom === safeBottom
         && previous.fights.x === fights.x && previous.fights.y === fights.y && previous.fights.width === fights.width ? previous : next)
     }
     const schedule = () => { frame ??= requestAnimationFrame(measure) }
@@ -120,6 +124,11 @@ export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, p
     const domId = `${baseId}-${id}`
     if (phone && id === 'fights') {
       const title = titles[id]
+      const origin = { x: overlayGap, y: geometry.stageBottom + overlayGap }
+      const viewport = { width: geometry.width - overlayGap * 2,
+        height: Math.max(0, geometry.height - geometry.safeBottom - origin.y) }
+      const rect = { x: Math.max(0, viewport.width - fightsWidth), y: Math.max(0, viewport.height - fightsHeight),
+        width: fightsWidth, height: fightsHeight }
       return <div className="replay-overlay-trigger" key={id}>
         <button ref={trigger} type="button" className="replay-control-trigger" data-replay-trigger={id}
           aria-expanded={phoneFightsOpen} aria-controls={phoneFightsOpen ? domId : undefined} onClick={(event) => {
@@ -127,17 +136,21 @@ export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, p
             setPhoneFightsOpen(!phoneFightsOpen)
           }}>{title}</button>
         {phoneFightsOpen && createPortal(
-          <section id={domId} className="battle-window battle-replay-overlay replay-phone-fights" aria-label={title}
-            style={{ '--replay-map-bottom': `${geometry.stageBottom}px`, zIndex: 2 } as CSSProperties}>
-            <div className="battle-window-titlebar" tabIndex={-1}>
-              <span className="battle-window-heading"><span>{title}</span><span className="battle-window-subtitle">{fightTime}</span></span>
-              <button type="button" aria-label={`关闭 ${title}`} data-window-close onClick={() => {
+          <WindowFrame<ReplayOverlayId> id={id} title={title} region={title} kind="section" desk={stage} subtitle={fightTime}
+            viewport={viewport} zIndex={2}
+            state={{ floating: true, hidden: false, minimized: phoneFightsCollapsed, rect: phoneFightsRect ?? rect }}
+            overlay={{ domId, fixedOrigin: origin, touch: true,
+              setCancel: (cancel) => { if (workspace) workspace.cancelDrag.current = cancel } }}
+            dispatch={(action) => {
+              if (action.type === 'position') setPhoneFightsRect(action.rect)
+              if (action.type === 'minimize') setPhoneFightsCollapsed((previous) => !previous)
+              if (action.type === 'dock') {
                 setPhoneFightsOpen(false)
                 trigger.current?.focus({ preventScroll: true })
-              }}><WorkspaceAction icon="close">关闭</WorkspaceAction></button>
-            </div>
-            <div className="battle-window-body">{closeFights}</div>
-          </section>, workspace?.layer ?? document.body)}
+              }
+            }}>
+            {closeFights}
+          </WindowFrame>, workspace?.layer ?? document.body)}
       </div>
     }
     const preferred = state.rect ?? (id === 'legend'

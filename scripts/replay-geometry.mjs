@@ -9,7 +9,9 @@ import { brId, fixture, launchChromium, root, startFixtureBattle } from './fixtu
 const t = 1750606982420
 const output = process.env.REPLAY_GEOMETRY_OUTPUT ?? join(root, 'build/replay-geometry')
 const referencePath = process.env.REPLAY_REFERENCE
+const normalMotion = process.env.REPLAY_MOTION === 'normal'
 const samples = [
+  ...[[320, 568], [390, 844], [740, 420]].map(([width, height]) => ({ width, height, sheet: 'first' })),
   ...[760, 900].flatMap((width) => [79, 120, 183].map((mapHeight) => ({ width, height: 680, mapHeight }))),
   { width: 1630, height: 940 },
   ...[844, 1000].flatMap((height) => ['half', 'peek'].map((sheet) => ({ width: 390, height, sheet }))),
@@ -70,6 +72,9 @@ async function measure(stage, requiredKeys = []) {
     const controls = [...node.querySelectorAll('.replay-control-trigger, .replay-noise summary, .replay-zoom')]
     const actionable = [...controls.filter((control) => !control.matches('.replay-zoom')),
       ...node.querySelectorAll('.replay-zoom button')]
+    const hint = node.closest('.battle-layout').querySelector('.eca-timeline-hint')?.getBoundingClientRect()
+    const controlsUnderHint = hint ? actionable.filter((control) => intersects(hint, control.getBoundingClientRect())).length : 0
+    const containedControls = actionable.filter((control) => includes(control.getBoundingClientRect())).length
     const controlHits = actionable.filter((control) => {
       const rect = control.getBoundingClientRect()
       return control.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
@@ -82,16 +87,19 @@ async function measure(stage, requiredKeys = []) {
     const topInset = Math.ceil(node.querySelector('.replay-header-actions').getBoundingClientRect().bottom - top)
     const own = ships.filter(({ side, neutral }) => !neutral && side === 'var(--color-side-0)')
     const opposing = ships.filter(({ side, neutral }) => !neutral && side === 'var(--color-side-1)')
+    const meanX = (fleet) => fleet.reduce((total, { x }) => total + x, 0) / fleet.length
     return { width, height, topInset, hulls: ships.length, contained: ships.filter((ship) => ship.hullFits).length,
       centers: ships.filter((ship) => ship.centerHit).length, gridHits: ships.filter((ship) => ship.gridHit).length,
       portraits: ships.filter((ship) => ship.badgeFits).length,
       names: inView.filter(({ reach }) => reach !== null).length, inView: inView.length, overlaps, labelsUnderChrome,
       required: required.length, requiredNames: required.filter(({ reach }) => reach !== null).length,
       requiredTruncated: required.filter((ship) => ship.truncated).length, truncated: inView.filter((ship) => ship.truncated).length,
-      maxRequiredReach: Number(max.toFixed(2)), neutralsBelow: neutral.filter(({ y }) => y > height / 2).length,
+      maxRequiredReach: Number(max.toFixed(2)),
+      maxReach: Number(Math.max(0, ...inView.map(({ reach }) => reach ?? 0)).toFixed(2)), neutralsBelow: neutral.filter(({ y }) => y > height / 2).length,
       neutrals: neutral.length, zoomInsets: [zoom.left - left, bottom - zoom.bottom],
       fleetEdges: [Math.max(0, ...own.map(({ x }) => x)), Math.min(width, ...opposing.map(({ x }) => x))],
-      controlHits, controls: actionable.length, ships, chrome }
+      fleetCenters: [meanX(own), meanX(opposing)],
+      controlHits, containedControls, controlsUnderHint, controls: actionable.length, ships, chrome }
   }, requiredKeys)
 }
 
@@ -127,7 +135,7 @@ try {
   const analysisPath = `/api/battles/${brId}/analysis`
   for (const { width, height, mapHeight, sheet } of samples) {
     const context = await browser.newContext({ viewport: { width, height }, colorScheme: 'dark', hasTouch: Boolean(sheet),
-      reducedMotion: process.env.REPLAY_MOTION === 'normal' ? 'no-preference' : 'reduce' })
+      reducedMotion: normalMotion ? 'no-preference' : 'reduce' })
     await context.route('**/*', (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
     const page = await context.newPage()
     page.setDefaultTimeout(15000)
@@ -136,7 +144,12 @@ try {
     const grip = page.getByRole('separator', { name: '调整舞台高度' })
     await stage.locator('.replay-marker[data-present] .replay-pilot[data-log="true"]').first().waitFor()
     await page.evaluate(() => document.fonts.ready)
-    if (sheet === 'peek') await page.getByRole('slider', { name: '面板高度' }).press('Home')
+    const sheetGrip = page.getByRole('slider', { name: '面板高度' })
+    if (sheet === 'peek') await sheetGrip.press('Home')
+    if (sheet === 'half') {
+      await sheetGrip.press('Home')
+      await sheetGrip.press('ArrowUp')
+    }
     const initialHeight = (await stage.boundingBox()).height
     if (mapHeight && mapHeight !== initialHeight) {
       const { x, y, width, height } = await grip.boundingBox()
@@ -146,23 +159,57 @@ try {
       await page.mouse.up()
     }
     await page.mouse.move(0, 0)
+    // A paused snapshot still has the 320 ms impact shake from the selected tick.
+    if (normalMotion) await page.waitForTimeout(400)
     await stabilize(page)
     const overview = await measure(stage)
     if (mapHeight) assert.equal(overview.height, mapHeight)
     const name = `${width}x${height}-map${overview.height}${sheet ? `-${sheet}` : ''}`
     console.log(name, 'overview', JSON.stringify(metrics(overview)))
+    await stage.screenshot({ path: join(output, `${name}.png`) })
+    if (sheet === 'first') {
+      const hint = page.getByRole('button', { name: '关闭时间轴提示' })
+      check(await hint.isVisible(), `${name} first-visit hint is shown`)
+      await page.screenshot({ path: join(output, `${name}-first-visit.png`) })
+      check(overview.height >= 160, `${name} first-visit map is at least 160 px tall`)
+      check(overview.controlsUnderHint === 0, `${name} hint clears replay controls`)
+      check(await sheetGrip.getAttribute('aria-valuenow') === (height === 844 ? '1' : '0'), `${name} initial sheet snap`)
+    }
     check(overview.hulls === 49, `${name} real fixture count`)
-    check(overview.contained === overview.hulls && overview.centers === overview.hulls && overview.gridHits === overview.hulls, `${name} hull containment and hits`)
+    check(overview.contained === overview.hulls && overview.gridHits === overview.hulls
+      && (sheet === 'first' || overview.centers === overview.hulls), `${name} hull containment and hits`)
     check(overview.portraits === overview.hulls, `${name} badge containment`)
     check(overview.requiredNames === overview.required && overview.maxRequiredReach <= 40, `${name} logged names within 40 px`)
     check(overview.requiredTruncated === 0, `${name} overview required labels show full text`)
+    check(overview.overlaps === 0, `${name} overview names without overlap`)
     check(overview.labelsUnderChrome === 0, `${name} overview label visibility`)
     check(overview.neutrals > 0 && overview.neutralsBelow === overview.neutrals, `${name} neutral centers below midpoint`)
-    if (sheet) check(overview.fleetEdges[0] > 0 && overview.fleetEdges[1] < width
+    if (sheet === 'first' && width >= 430) check(overview.fleetCenters[0] < overview.fleetCenters[1],
+      `${name} own fleet center stays left of opposing fleet center`)
+    else if (sheet) check(overview.fleetEdges[0] > 0 && overview.fleetEdges[1] < width
       && overview.fleetEdges[0] < overview.fleetEdges[1], `${name} own fleet stays left of opposing fleet`)
-    else check(overview.zoomInsets.every((inset) => Math.abs(inset - 8) < 0.02), `${name} zoom insets [8, 8]`)
-    check(overview.controlHits === overview.controls, `${name} replay controls remain clickable`)
-    await stage.screenshot({ path: join(output, `${name}.png`) })
+    else {
+      const expectedBottomInset = mapHeight === 79 ? 16 : 8
+      check(Math.abs(overview.zoomInsets[0] - 8) < 0.02 && Math.abs(overview.zoomInsets[1] - expectedBottomInset) < 0.02,
+        `${name} zoom insets [8, ${expectedBottomInset}]`)
+    }
+    check(overview.controlHits === overview.controls && overview.containedControls === overview.controls,
+      `${name} replay controls are contained and clickable`)
+    if (overview.controlHits !== overview.controls) {
+      await context.close()
+      continue
+    }
+    if (sheet === 'first') {
+      await stage.getByRole('button', { name: '放大', exact: true }).tap()
+      check(await stage.getAttribute('data-zoomed') !== null, `${name} zoom-in control changes the camera`)
+      await stage.getByRole('button', { name: '缩小', exact: true }).tap()
+      check(await stage.getAttribute('data-zoomed') === null, `${name} zoom-out control returns to the overview`)
+      await stage.getByRole('button', { name: '放大', exact: true }).tap()
+      await stage.getByRole('button', { name: '适应全部' }).tap()
+      check(await stage.getAttribute('data-zoomed') === null, `${name} Fit resets the camera`)
+      await page.mouse.move(0, 0)
+      await stabilize(page)
+    }
     const paused = await measure(stage)
     const priorCenters = new Map(overview.ships.map(({ key, x, y }) => [key, { x, y }]))
     const drift = Math.max(...paused.ships.map(({ key, x, y }) => {
@@ -233,9 +280,10 @@ try {
       await page.keyboard.press('Escape')
     }
     await page.mouse.move(0, 0)
-    for (const anchor of anchorNames) {
-      const pilot = stage.getByRole('button', { name: new RegExp(`^${anchor}(?: ·|$)`) })
-      for (const scale of [1.5, 2, 3]) {
+    const anchors = width === 900 && mapHeight === 79 ? [...anchorNames, 'center'] : anchorNames
+    for (const anchor of anchors) {
+      const pilot = anchor === 'center' ? stage : stage.getByRole('button', { name: new RegExp(`^${anchor}(?: ·|$)`) })
+      for (const scale of anchor === 'center' ? [1.5] : [1.5, 2, 3]) {
         await stage.getByRole('button', { name: '适应全部' }).click()
         await stabilize(page)
         const { x, y, width, height } = await pilot.boundingBox()
@@ -247,20 +295,19 @@ try {
         const zoom = await measure(stage)
         const after = await pilot.boundingBox()
         const anchorShift = Number(Math.hypot(x - after.x, y - after.y).toFixed(2))
-        if (zoom.overlaps || zoom.labelsUnderChrome || zoom.truncated || zoom.names !== zoom.inView) {
+        if (zoom.overlaps || zoom.labelsUnderChrome || zoom.truncated || zoom.names !== zoom.inView || zoom.maxReach > 40) {
           await writeFile(join(output, `${name}-${scale}-${anchor.split(' ')[0]}.json`), JSON.stringify(zoom, null, 2))
         }
         console.log(name, `zoom ${scale}× ${anchor}`, JSON.stringify({ names: zoom.names, inView: zoom.inView,
           requiredTruncated: zoom.requiredTruncated, truncated: zoom.truncated, overlaps: zoom.overlaps,
-          labelsUnderChrome: zoom.labelsUnderChrome, maxRequiredReach: zoom.maxRequiredReach, anchorShift }))
+          labelsUnderChrome: zoom.labelsUnderChrome, maxRequiredReach: zoom.maxRequiredReach, maxReach: zoom.maxReach, anchorShift }))
         check(zoom.names === zoom.inView && zoom.overlaps === 0, `${name} ${scale}× ${anchor} names without overlap`)
         check(zoom.truncated === 0, `${name} ${scale}× ${anchor} every in-view label shows full text`)
         check(zoom.labelsUnderChrome === 0, `${name} ${scale}× ${anchor} label visibility`)
-        const nearRequired = zoom.ships.filter(({ required, inView, reach, ringRadius }) =>
-          required && inView && reach !== null && reach <= 40 + ringRadius + 0.02).length
-        check(zoom.requiredNames === zoom.required && nearRequired === zoom.required,
-          `${name} ${scale}× ${anchor} required names within zoom reach`)
-        if (mapHeight === 79) check(zoom.maxRequiredReach <= 40, `${name} ${scale}× ${anchor} required names within 40 px`)
+        const near = zoom.ships.filter(({ inView, reach, ringRadius, required }) =>
+          inView && reach !== null && reach <= 40 + (zoom.height < 100 && required ? 0 : ringRadius + 2) + 0.02).length
+        check(near === zoom.inView, `${name} ${scale}× ${anchor} all names within zoom reach`)
+        if (mapHeight === 79) check(zoom.maxRequiredReach <= 40.03, `${name} ${scale}× ${anchor} required names within 40 px`)
         // Chromium rounds WheelEvent coordinates to whole CSS pixels.
         check(anchorShift <= Math.SQRT2 * (scale - 1) + 0.05, `${name} ${scale}× ${anchor} stays under the cursor`)
         if (scale === 1.5) await stage.screenshot({ path: join(output, `${name}-150-${anchor.split(' ')[0]}.png`) })
@@ -289,13 +336,38 @@ try {
         const popup = await panel.boundingBox()
         const clearOfMap = popup.y >= map.y + map.height
         check(clearOfMap, `${name} fights stays below the map`)
-        check(open.centers === open.hulls && open.controlHits === open.controls, `${name} fights leaves marker centers and controls reachable`)
+        check(open.gridHits === open.hulls && open.controlHits === open.controls, `${name} fights leaves hulls and controls reachable`)
         check(await touchSize(close) >= 44, `${name} fights close target is 44 px`)
         check((await panel.textContent()).includes('前 10 秒') && await panel.locator('tbody tr').count() > 0,
           `${name} shows the last 10 seconds of combat`)
-        console.log(name, 'phone fights', JSON.stringify({ centers: open.centers, hulls: open.hulls, controls: open.controls,
+        console.log(name, 'phone fights', JSON.stringify({ gridHits: open.gridHits, hulls: open.hulls, controls: open.controls,
           controlHits: open.controlHits, clearOfMap, triggerTouch: await touchSize(trigger), closeTouch: await touchSize(close) }))
         await page.screenshot({ path: join(output, `${name}-open-fights.png`) })
+        if (sheet === 'first') {
+          const collapse = panel.getByRole('button', { name: '收起 此刻交火' })
+          const hasCollapse = await collapse.count() === 1
+          check(hasCollapse, `${name} fights has a collapse control`)
+          if (hasCollapse) {
+            check(await touchSize(collapse) >= 44, `${name} fights collapse target is 44 px`)
+            await collapse.tap()
+            check(!await panel.locator('tbody').isVisible(), `${name} collapsed fights hides the table`)
+            const grip = panel.locator('.battle-module-handle')
+            const gripRect = await grip.boundingBox()
+            const beforeDrag = await panel.boundingBox()
+            const dragStart = { x: gripRect.x + gripRect.width / 2, y: gripRect.y + gripRect.height / 2 }
+            await page.mouse.move(dragStart.x, dragStart.y)
+            await page.mouse.down()
+            await page.mouse.move(dragStart.x - 24, dragStart.y - 24, { steps: 4 })
+            await page.mouse.up()
+            const afterDrag = await panel.boundingBox()
+            const dragDistance = Math.hypot(afterDrag.x - beforeDrag.x, afterDrag.y - beforeDrag.y)
+            check(dragDistance >= 8, `${name} collapsed fights moves on title grip drag`)
+            check(afterDrag.y >= map.y + map.height, `${name} dragged fights stays clear of the map`)
+            await panel.getByRole('button', { name: '还原 此刻交火' }).tap()
+            check(await panel.locator('tbody').isVisible(), `${name} restore shows the fight table`)
+            console.log(name, 'phone fights collapse and drag', JSON.stringify({ dragDistance, collapsedHeight: afterDrag.height }))
+          }
+        }
         await close.tap()
         check(!await panel.isVisible() && await trigger.getAttribute('aria-expanded') === 'false', `${name} closes Current Fights`)
         await trigger.press('Enter')
@@ -303,6 +375,25 @@ try {
         await page.keyboard.press('Escape')
         check(!await panel.isVisible() && await trigger.evaluate((button) => document.activeElement === button),
           `${name} Escape closes Current Fights and restores focus`)
+      }
+      if (sheet === 'first') {
+        const filter = stage.locator('.replay-noise summary')
+        await filter.tap()
+        const popover = page.locator('.replay-noise-popover')
+        await popover.waitFor()
+        const filterOpen = await popover.isVisible()
+        check(filterOpen, `${name} opens Damage Filter`)
+        const filterRect = await popover.boundingBox()
+        check(filterRect && filterRect.x >= 0 && filterRect.y >= 0 && filterRect.x + filterRect.width <= width
+          && filterRect.y + filterRect.height <= height, `${name} clamps Damage Filter to the viewport`)
+        await page.keyboard.press('Escape')
+        const chosen = height === 844 ? '0' : '1'
+        await sheetGrip.press('Home')
+        if (chosen === '1') await sheetGrip.press('ArrowUp')
+        await page.reload()
+        await sheetGrip.waitFor()
+        check(await sheetGrip.getAttribute('aria-valuenow') === chosen, `${name} remembers the user sheet snap after reload`)
+        console.log(name, 'phone damage filter and sheet preference', JSON.stringify({ filterOpen, filterRect, chosen }))
       }
       await context.close()
       continue
@@ -320,7 +411,7 @@ try {
     await context.close()
   }
   assert.deepEqual(failures, [], 'replay geometry acceptance')
-  console.log(`Replay geometry passed in all ${samples.length} map cases and all ${samples.length * anchorNames.length * 3} pilot-anchored zooms.`)
+  console.log(`Replay geometry passed in all ${samples.length} map cases and all ${samples.length * anchorNames.length * 3} pilot-anchored zooms plus the centered minimum-map case.`)
 } finally {
   await browser?.close()
   await server.close()

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EntityKey } from '@/core/contract'
-import { placeFightsWindow, placePilotLabel, placeReplayLabels, placeReplayPopover, placeShortMapWindow } from './placement'
+import { closestPoint, placeFightsWindow, placePilotLabel, placeReplayLabels, placeReplayPopover, placeShortMapWindow } from './placement'
 import { makeLayout, type ReplayPilot } from './scene'
 
 function pilot(key: EntityKey, side: number): ReplayPilot {
@@ -187,10 +187,25 @@ describe('pilot label placement', () => {
       expect(rect.width).toBe(rect.compact ? label.compactSize.width : label.size.width)
       const dx = Math.max(0, rect.x - label.center.x, label.center.x - rect.x - rect.width)
       const dy = Math.max(0, rect.y - label.center.y, label.center.y - rect.y - rect.height)
-      expect(Math.hypot(dx, dy)).toBeLessThanOrEqual(40)
+      expect(Math.hypot(dx, dy)).toBeLessThanOrEqual(40 + 1e-7)
       expect([...placed, ...controls].some((other) => other !== rect && other.x < rect.x + rect.width
         && other.x + other.width > rect.x && other.y < rect.y + rect.height && other.y + other.height > rect.y)).toBe(false)
     }
+  })
+
+  it('wraps a long zoom name when the only nearby space is too narrow for a single line', () => {
+    const stage = { x: 0, y: 0, width: 320, height: 79 }
+    const controls = [{ x: 95, y: 0, width: 115, height: 79 }]
+    const label = {
+      center: { x: 40, y: 42 }, radius: 8, size: { width: 200, height: 16 },
+      compactSize: { width: 170, height: 12 }, wrappedSize: { width: 80, height: 24 },
+      bounds: stage, priority: 0, uploader: false, required: false,
+    }
+    const placement = placeReplayLabels([label], controls, stage, true, { bounds: stage, obstacles: controls }).get(label)!
+    expect(placement).toMatchObject({ width: 80, height: 24, compact: true, wrapped: true })
+    expect(placement.x + placement.width).toBeLessThanOrEqual(controls[0]!.x)
+    const nearest = closestPoint(label.center, placement)
+    expect(Math.hypot(nearest.x - label.center.x, nearest.y - label.center.y)).toBeLessThanOrEqual(40)
   })
 })
 

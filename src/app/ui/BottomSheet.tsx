@@ -1,10 +1,25 @@
-import { useId, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import { Tabs, type TabOption } from './Tabs'
 
 const heights = ['收起', '半屏', '全屏'] as const
 const peek = 0
 const half = 1
 const full = 2
+type SheetHeight = typeof peek | typeof half | typeof full
+const storageKey = 'eve-combat-analytics:phone-sheet-height'
+const minimumMapHeight = 160
+
+function storedHeight(): SheetHeight | null {
+  try {
+    const value = localStorage.getItem(storageKey)
+    if (value === '0') return peek
+    if (value === '1') return half
+    if (value === '2') return full
+  } catch {
+    // Keep the automatic default when storage is unavailable.
+  }
+  return null
+}
 
 interface BottomSheetProps<T extends string> {
   tabs: readonly TabOption<T>[]
@@ -15,20 +30,56 @@ interface BottomSheetProps<T extends string> {
 
 export function BottomSheet<T extends string>({ tabs, value, onChange, children }: BottomSheetProps<T>) {
   const id = useId()
-  const [height, setHeight] = useState(half)
+  const [chosenHeight, setChosenHeight] = useState(storedHeight)
+  const [automaticHeight, setAutomaticHeight] = useState<SheetHeight>(half)
+  const height = chosenHeight ?? automaticHeight
+  const sheet = useRef<HTMLElement>(null)
+  const halfSizer = useRef<HTMLDivElement>(null)
   const drag = useRef<{ pointerId: number; y: number } | null>(null)
 
+  useLayoutEffect(() => {
+    if (chosenHeight !== null) return
+    const layout = sheet.current?.parentElement
+    const timeline = layout?.querySelector(':scope > .battle-timeline')
+    const sizer = halfSizer.current
+    if (!layout || !timeline || !sizer) return
+
+    const measure = () => {
+      const available = layout.getBoundingClientRect().height - timeline.getBoundingClientRect().height
+      const halfHeight = sizer.getBoundingClientRect().height
+      if (halfHeight > 0) setAutomaticHeight(available - halfHeight >= minimumMapHeight ? half : peek)
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    for (const element of [layout, timeline, sizer]) observer.observe(element)
+    return () => observer.disconnect()
+  }, [chosenHeight])
+
+  function chooseHeight(next: SheetHeight) {
+    setChosenHeight(next)
+    try {
+      localStorage.setItem(storageKey, String(next))
+    } catch {
+      // The choice still applies in the current view.
+    }
+  }
+
   function step(delta: number) {
-    setHeight((current) => Math.max(peek, Math.min(full, current + delta)))
+    chooseHeight(delta > 0 ? height === peek ? half : full : height === full ? half : peek)
+  }
+
+  function cycle() {
+    chooseHeight(height === peek ? half : height === half ? full : peek)
   }
 
   function handleKeys(event: KeyboardEvent) {
     switch (event.key) {
       case 'ArrowUp': case 'ArrowRight': step(1); break
       case 'ArrowDown': case 'ArrowLeft': step(-1); break
-      case 'Home': setHeight(peek); break
-      case 'End': setHeight(full); break
-      case 'Enter': case ' ': setHeight((current) => (current + 1) % heights.length); break
+      case 'Home': chooseHeight(peek); break
+      case 'End': chooseHeight(full); break
+      case 'Enter': case ' ': cycle(); break
       default: return
     }
     event.preventDefault()
@@ -46,18 +97,19 @@ export function BottomSheet<T extends string>({ tabs, value, onChange, children 
     const distance = drag.current.y - event.clientY
     drag.current = null
     if (Math.abs(distance) >= 24) step(Math.sign(distance))
-    else setHeight((current) => (current + 1) % heights.length)
+    else cycle()
   }
 
   return (
-    <section className="battle-sheet" data-height={height} aria-label="战斗数据">
+    <section ref={sheet} className="battle-sheet" data-height={height} aria-label="战斗数据">
+      <div ref={halfSizer} className="battle-sheet-half-sizer" aria-hidden="true" />
       <div className="battle-sheet-grip" tabIndex={0} role="slider" aria-label="面板高度"
         aria-orientation="vertical" aria-valuemin={peek} aria-valuemax={full}
         aria-valuenow={height} aria-valuetext={heights[height]} onKeyDown={handleKeys}
         onPointerDown={beginDrag} onPointerUp={endDrag} onLostPointerCapture={() => { drag.current = null }} />
       <Tabs id={id} label="战斗数据" tabs={tabs} value={value} onChange={(tab) => {
         onChange(tab)
-        if (height === peek) setHeight(half)
+        if (height === peek) chooseHeight(half)
       }} />
       {tabs.map((tab) => {
         const active = tab.value === value

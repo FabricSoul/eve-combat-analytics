@@ -144,12 +144,15 @@
   pointer-events: none;
   -webkit-text-stroke: 3px var(--color-bg);
   paint-order: stroke fill;
+  transform-origin: top left;
 }
 
 .replay-pilot-label[data-positioned] { visibility: visible; }
 .replay-pilot-label[data-compact-label] { font: var(--fs-compact-table)/12px var(--font-ui); }
+.replay-pilot-label[data-wrap-label] { white-space: normal; overflow-wrap: anywhere; }
 .replay-pilot-label[data-dim] { opacity: .3; }
 .replay-pilot-label > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.replay-pilot-label[data-wrap-label] > span { overflow: visible; min-inline-size: 0; }
 .replay-pilot-label[data-inspected="true"] { color: var(--color-text); }
 .replay-pilot-label[data-selected="true"] { color: var(--color-text); }
 
@@ -237,6 +240,10 @@
   position: relative;
   inset-block-start: 6px;
 }
+@container (width < 1000px) {
+  .replay-stage[data-all-names]:not([data-phone], [data-packed-controls]) .replay-legend { inset-block-start: var(--space-3); }
+  .replay-stage[data-all-names]:not([data-phone], [data-packed-controls]) .replay-header-actions { margin-block-start: var(--space-3); }
+}
 
 .replay-legend > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .replay-legend i { width: 7px; height: 7px; border-radius: 50%; }
@@ -257,10 +264,16 @@
   .replay-stage[data-packed-controls] .replay-header {
     display: flex;
     gap: var(--space-2);
-    inset-inline-start: 11rem;
+    inset-inline-start: 164px;
+    inset-inline-end: max(var(--space-3), var(--replay-legend-occlusion, 0px));
   }
   .replay-stage[data-packed-controls] .replay-header-actions { order: -1; margin-block-start: 0; }
-  .replay-stage[data-packed-controls] .replay-legend { flex: 1; align-self: center; inset-block-start: 0; }
+  .replay-stage[data-packed-controls] .replay-legend {
+    flex: 1;
+    align-self: center;
+    inset-block-start: 0;
+    font: var(--fs-compact-table)/16px var(--font-ui);
+  }
   .replay-stage[data-packed-controls][data-all-names] .replay-legend { inset-block-start: 2px; }
 }
 
@@ -288,25 +301,31 @@
 }
 .replay-control-trigger:hover, .replay-control-trigger[aria-expanded="true"] { background: var(--color-raised); }
 
-.replay-stage[data-phone] [data-replay-trigger="fights"] {
+.replay-stage[data-phone] {
+  --replay-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+.replay-stage[data-phone] :is(.replay-control-trigger, .replay-noise summary, .replay-zoom button) {
   min-width: 44px;
   min-height: 44px;
 }
-
-.battle-window.replay-phone-fights {
-  position: fixed;
-  --replay-fights-bottom: max(var(--space-2), env(safe-area-inset-bottom));
-  inset: auto var(--space-2) var(--replay-fights-bottom) auto;
-  width: min(336px, calc(100% - 2 * var(--space-2)));
-  max-height: max(0px, calc(100dvh - var(--replay-map-bottom) - var(--replay-fights-bottom) - var(--space-2)));
-  overflow: hidden;
-  border: 1px solid var(--color-hair);
-  border-radius: var(--radius-card);
+.replay-stage[data-packed-controls] .replay-stage-zoom {
+  inset-block-end: var(--space-4);
 }
-
-.replay-phone-fights .battle-window-titlebar { min-height: 44px; }
-.replay-phone-fights .battle-window-titlebar button { width: 44px; height: 44px; }
-.battle-layout:has(.battle-sheet[data-height="2"]) .replay-phone-fights { display: none; }
+.replay-stage[data-all-names] .replay-stage-zoom {
+  /* The scale bar leaves two compact name lines on the lower clip edge. */
+  inset-block-end: var(--space-6);
+}
+@container (width <= 340px) {
+  .replay-stage[data-phone] .replay-stage-zoom {
+    inset-inline: auto var(--space-2);
+  }
+}
+.battle-window[data-touch-window] {
+  --window-bar-height: 44px;
+  overflow: hidden;
+}
+.battle-window[data-touch-window] .battle-window-titlebar button { width: 44px; height: 44px; }
+.battle-layout:has(.battle-sheet[data-height="2"]) .battle-window[data-touch-window] { display: none; }
 
 .replay-popover {
   position: absolute;

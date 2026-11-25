@@ -219,7 +219,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     let tooltipWidth = 0
     let tooltipHeight = 0
     type LabelSize = Pick<Rect, 'width' | 'height'>
-    let labelSizes = new WeakMap<HTMLElement, { size: LabelSize; compactSize: LabelSize }>()
+    let labelSizes = new WeakMap<HTMLElement, { size: LabelSize; compactSize: LabelSize; wrappedSize?: LabelSize }>()
     let labelKey = ''
     let pilotLabelRects: Rect[] = []
     const markerPositions = new WeakMap<HTMLElement, Point>()
@@ -403,13 +403,23 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         }
         for (const element of uncached) {
           element.style.removeProperty('width')
+          element.style.removeProperty('transform')
           element.removeAttribute('data-compact-label')
+          element.removeAttribute('data-wrap-label')
         }
         const naturalSizes = uncached.map(measureLabel)
         for (const element of uncached) element.setAttribute('data-compact-label', '')
-        uncached.forEach((element, index) => {
-          labelSizes.set(element, { size: naturalSizes[index]!, compactSize: measureLabel(element) })
-        })
+        const compactSizes = uncached.map(measureLabel)
+        const wrapWidth = Math.min(120, Math.floor(width * 0.38))
+        const wrapped = uncached.filter((element, index) => compactSizes[index]!.width > wrapWidth)
+        for (const element of wrapped) {
+          element.setAttribute('data-wrap-label', '')
+          element.style.width = `${wrapWidth}px`
+        }
+        const wrappedSizes = new Map(wrapped.map((element) => [element, measureLabel(element)]))
+        uncached.forEach((element, index) => labelSizes.set(element, {
+          size: naturalSizes[index]!, compactSize: compactSizes[index]!, wrappedSize: wrappedSizes.get(element),
+        }))
         const names = labels.map((label) => {
           const { element, node } = label
           const labelBounds = !split || node.entity.side < 0 ? labelFrame : node.entity.side === layout.ours ? ourBounds : enemyBounds
@@ -426,8 +436,10 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
           element.toggleAttribute('data-positioned', rect !== undefined)
           if (!rect) continue
           element.toggleAttribute('data-compact-label', rect.compact === true)
-          element.style.width = `${rect.width}px`
-          element.style.transform = `translate(${rect.x}px, ${rect.y}px)`
+          element.toggleAttribute('data-wrap-label', rect.wrapped === true)
+          const scale = rect.scaleX ?? 1
+          element.style.width = `${rect.width / scale}px`
+          element.style.transform = `translate(${rect.x}px, ${rect.y}px) scaleX(${scale})`
           if (!required && !showAll) continue
           const end = closestPoint(center, rect)
           const dx = end.x - center.x
@@ -515,10 +527,10 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
           <ReplayOverlays stage={host} phone={stage === false} closeFights={closeFights} fightTime={fightTime} placementTime={playing ? null : t}
             onLayoutChange={overlayLayoutChanged} />
           {headerActions}
-          {!stage && zoomControls}
+          {stage === undefined && zoomControls}
         </div>
       </div>
-      {stage && <div className="replay-stage-zoom">{zoomControls}</div>}
+      {stage !== undefined && <div className="replay-stage-zoom">{zoomControls}</div>}
       {detail && (
         <div ref={tooltip} className="replay-tooltip" role="tooltip">
           <Portrait charId={detail.entity.charId} size={32} />

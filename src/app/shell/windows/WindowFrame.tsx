@@ -18,7 +18,13 @@ interface WindowFrameProps<Id extends string> {
   dispatch: Dispatch<WindowAction<Id>>
   state: WindowState
   children: ReactNode
-  overlay?: { domId: string; minWidth?: number; setCancel: (cancel: (() => boolean) | null) => void }
+  overlay?: {
+    domId: string
+    minWidth?: number
+    fixedOrigin?: { x: number; y: number }
+    touch?: boolean
+    setCancel: (cancel: (() => boolean) | null) => void
+  }
   module?: {
     id: string
     tools?: ReactNode
@@ -51,7 +57,9 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
   const titleBar = useRef<HTMLDivElement>(null)
   const gesture = useRef<Gesture | null>(null)
   const [preview, setPreview] = useState<{ rect: WindowRect; target: DockEdge | null } | null>(null)
-  const stored = state.rect && clampWindow(state.rect, viewport, state.minimized, overlay?.minWidth)
+  const barHeight = overlay?.touch ? 46 : windowHeight
+  const clamp = (rect: WindowRect, minimized: boolean) => clampWindow(rect, viewport, minimized, overlay?.minWidth, barHeight)
+  const stored = state.rect && clamp(state.rect, state.minimized)
   const rect = preview?.rect ?? stored
   const { floating, minimized } = state
 
@@ -84,10 +92,10 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
   }
 
   function resize(start: WindowRect, dx: number, dy: number) {
-    return clampWindow({ ...start,
+    return clamp({ ...start,
       width: Math.min(viewport.width - start.x, start.width + dx),
       height: Math.min(viewport.height - start.y, start.height + dy),
-    }, viewport, false, overlay?.minWidth)
+    }, false)
   }
 
   function move(event: PointerEvent<HTMLElement>) {
@@ -100,7 +108,7 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
     if (active.mode === 'resize') {
       active.rect = resize(startRect, dx, dy)
     } else {
-      active.rect = clampWindow({ ...startRect, x: startRect.x + dx, y: startRect.y + dy }, viewport, minimized, overlay?.minWidth)
+      active.rect = clamp({ ...startRect, x: startRect.x + dx, y: startRect.y + dy }, minimized)
       if (module) module.onFloatMove(event)
       else if (!overlay) active.target = dockTarget(id, { x: event.clientX - bounds.left, y: event.clientY - bounds.top }, viewport)
     }
@@ -141,9 +149,9 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
     if (!floating || !stored || !delta || event.currentTarget !== event.target) return
     event.preventDefault()
     const step = event.shiftKey ? 32 : 8
-    dispatch({ type: 'position', id, rect: clampWindow({
+    dispatch({ type: 'position', id, rect: clamp({
       ...stored, x: stored.x + delta[0] * step, y: stored.y + delta[1] * step,
-    }, viewport, minimized, overlay?.minWidth) })
+    }, minimized) })
   }
 
   function resizeByKey(event: KeyboardEvent<HTMLElement>) {
@@ -162,7 +170,8 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
   const handlers = { onPointerMove: move, onPointerUp: end, onPointerCancel: end, onLostPointerCapture: end }
   const action = overlay ? '关闭' : floating ? '停靠' : '弹出'
   const size = minimized ? '还原' : module || overlay ? '收起' : '最小化'
-  const top = module ? desk.current?.getBoundingClientRect().top ?? 48 : 0
+  const left = overlay?.fixedOrigin?.x ?? 0
+  const top = overlay?.fixedOrigin?.y ?? (module ? desk.current?.getBoundingClientRect().top ?? 48 : 0)
   const close = <button type="button" aria-label={`${action} ${title}`} title={action}
     data-window-close={overlay ? '' : undefined}
     onClick={() => floating ? dispatch({ type: 'dock', id }) : dispatch({ type: 'pop', id, viewport })}>
@@ -170,9 +179,10 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
   </button>
   return (
     <>
-      <Surface data-module={module?.id} data-dragging={module?.dragging || undefined} className={`battle-window ${overlay ? 'battle-replay-overlay' : module ? 'battle-module' : id === 'feed' ? 'battle-feed' : id === 'timeline' ? 'battle-timeline' : 'battle-panel'}`}
+      <Surface data-module={module?.id} data-dragging={module?.dragging || undefined} data-touch-window={overlay?.touch}
+        className={`battle-window ${overlay ? 'battle-replay-overlay' : module ? 'battle-module' : id === 'feed' ? 'battle-feed' : id === 'timeline' ? 'battle-timeline' : 'battle-panel'}`}
         id={overlay?.domId} aria-label={region} data-window={module?.id ?? id} data-floating={floating} data-minimized={minimized}
-        style={floating && rect ? { left: rect.x, top: top + rect.y, width: rect.width, height: minimized ? Math.min(windowHeight, viewport.height) : rect.height, zIndex } : undefined}
+        style={floating && rect ? { left: left + rect.x, top: top + rect.y, width: rect.width, height: minimized ? Math.min(barHeight, viewport.height) : rect.height, zIndex } : undefined}
         onPointerDown={raise} onFocusCapture={raise}>
         <div ref={titleBar} className="battle-window-titlebar" tabIndex={floating || module ? 0 : undefined} role="group"
           aria-label={`${title} 标题栏`} aria-keyshortcuts={module ? 'Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown' : floating ? 'ArrowLeft ArrowRight ArrowUp ArrowDown' : undefined}
@@ -192,7 +202,7 @@ export function WindowFrame<Id extends string = WindowId>({ id, title, subtitle,
         <div id={body} className={`battle-window-body${!module && id === 'feed' ? ' battle-feed-content' : ''}`} hidden={minimized}>
           {children}
         </div>
-        {floating && !minimized && <div className="battle-window-grip" role="group" tabIndex={0}
+        {floating && !minimized && !overlay?.touch && <div className="battle-window-grip" role="group" tabIndex={0}
           aria-label={`调整 ${title} 大小`} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Escape"
           title="方向键调整大小，Shift 加大步长" onKeyDown={resizeByKey}
           onPointerDown={(event) => start(event, 'resize')} {...handlers} />}
