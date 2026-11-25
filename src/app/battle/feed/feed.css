@@ -44,3 +44,17 @@
 .feed-text { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
 .feed-muted { color: var(--color-text-3); }
 .feed-empty { padding: var(--space-4) var(--space-3); border-top: 1px solid var(--color-hair); color: var(--color-text-3); }
+
+@media (pointer: coarse), (max-width: 759px) {
+  .feed-row { height: auto; min-height: calc(var(--touch-target) + 1px); }
+  .feed[data-compact] :is(.feed-head, .feed-row) {
+    grid-template-columns: minmax(calc(2 * var(--touch-target)), 1fr) 22px
+      minmax(calc(2 * var(--touch-target)), 1fr) 58px;
+  }
+  .feed:not([data-compact], [data-mode="key"]) :is(.feed-head, .feed-row) {
+    grid-template-columns: 60px minmax(calc(2 * var(--touch-target)), 1fr) 24px
+      minmax(calc(2 * var(--touch-target)), 1fr) 84px;
+  }
+  .feed[data-mode="key"] .feed-text { flex-wrap: wrap; }
+  .feed-text .feed-participant { min-width: calc(2 * var(--touch-target)); }
+}

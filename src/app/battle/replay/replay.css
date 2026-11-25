@@ -304,10 +304,6 @@
 .replay-stage[data-phone] {
   --replay-safe-bottom: env(safe-area-inset-bottom, 0px);
 }
-.replay-stage[data-phone] :is(.replay-control-trigger, .replay-noise summary, .replay-zoom button) {
-  min-width: 44px;
-  min-height: 44px;
-}
 .replay-stage[data-packed-controls] .replay-stage-zoom {
   inset-block-end: var(--space-4);
 }
@@ -321,10 +317,9 @@
   }
 }
 .battle-window[data-touch-window] {
-  --window-bar-height: 44px;
+  --window-bar-height: var(--touch-target);
   overflow: hidden;
 }
-.battle-window[data-touch-window] .battle-window-titlebar button { width: 44px; height: 44px; }
 .battle-layout:has(.battle-sheet[data-height="2"]) .battle-window[data-touch-window] { display: none; }
 
 .replay-popover {
@@ -374,10 +369,6 @@
 }
 .replay-noise-popover label { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }
 
-@media (width < 760px), (pointer: coarse) {
-  .replay-noise-popover label { min-width: 44px; min-height: 44px; }
-}
-
 .replay-status { height: 100%; display: grid; place-items: center; color: var(--color-text-2); }
 
 .replay-gallery-controls {
@@ -406,3 +397,41 @@
 @media (prefers-reduced-motion: reduce) {
   .replay-marker, .replay-lock[data-positioned] { transition: none; }
 }
+
+.replay-pilot-picker-layer {
+  position: fixed;
+  z-index: var(--layer-popover);
+  inset: 0;
+}
+
+.replay-pilot-picker {
+  position: fixed;
+  width: min(260px, calc(100dvw - 2 * var(--space-2)));
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-1);
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.replay-pilot-picker button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-ctl);
+  text-align: start;
+  cursor: pointer;
+}
+
+.replay-pilot-picker button:is(:hover, :focus-visible) { background: var(--color-sel); }
+.replay-pilot-picker button > span:last-child { min-width: 0; }
+.replay-pilot-picker :is(strong, small) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.replay-pilot-picker small { color: var(--color-text-2); }

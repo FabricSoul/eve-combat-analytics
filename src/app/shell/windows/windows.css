@@ -243,24 +243,6 @@ body.battle-window-dragging * {
 .replay-close-fights .feed-who { gap: var(--space-1); }
 .replay-close-fights td:last-child, .replay-close-fights th:last-child { width: 54px; text-align: end; }
 .replay-close-fights p { padding: var(--space-2); color: var(--color-text-3); }
-@media (width < 760px), (pointer: coarse) {
-  .battle-replay-overlay {
-    min-height: 46px;
-    position-try-fallbacks: --replay-overlay-bottom;
-  }
-  @position-try --replay-overlay-bottom { top: auto; bottom: 0; }
-  .battle-replay-overlay .battle-window-titlebar { min-height: 45px; }
-  .battle-replay-overlay :is(.battle-window-titlebar button, .battle-window-grip, .replay-close-fights button) {
-    min-width: 44px;
-    min-height: 44px;
-  }
-  .battle-replay-overlay .battle-window-grip {
-    background-size: var(--space-4) var(--space-4);
-    background-position: right bottom;
-    background-repeat: no-repeat;
-  }
-  .replay-close-fights .pilot-more { opacity: 1; }
-}
 .replay-stage-zoom { position: absolute; z-index: 2; inset: auto auto var(--space-2) var(--space-2); }
 .replay-stage-zoom .replay-zoom { align-items: center; }
 .replay-stage-zoom .replay-number { padding-inline: var(--space-1); }
@@ -327,3 +309,36 @@ body.battle-window-dragging * {
 .battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll th:nth-child(3) { width: 56px; }
 .battle-module .hit-analysis[data-expanded="false"] .hit-table-scroll th:nth-child(4) { width: 25%; }
 .hit-pilot-cell { display: flex; align-items: center; gap: var(--space-1); }
+
+@media (pointer: coarse), (max-width: 759px) {
+  .battle-replay-overlay {
+    min-height: calc(var(--touch-target) + 2px);
+    position-try-fallbacks: --replay-overlay-bottom;
+  }
+  @position-try --replay-overlay-bottom { top: auto; bottom: 0; }
+  .battle-replay-overlay .battle-window-titlebar { min-height: calc(var(--touch-target) + 1px); }
+  .battle-window-titlebar > .battle-module-handle {
+    display: grid;
+    place-items: center;
+    flex: none;
+    padding: 0;
+  }
+  .battle-stage { padding-block-end: var(--touch-target); }
+  .battle-stage-grip { inset-block-end: 0; }
+  .battle-module,
+  .battle-replay-overlay { --row: var(--touch-target); }
+  .battle-window:not([data-touch-window]) { --window-bar-height: calc(var(--touch-target) + 1px); }
+  .battle-window-grip {
+    background-size: var(--space-4) var(--space-4);
+    background-position: right bottom;
+    background-repeat: no-repeat;
+  }
+  .battle-window[data-floating="true"]:has(> .battle-window-grip) > .battle-window-body {
+    margin-block-end: var(--touch-target);
+  }
+  .pilot-more { min-width: var(--touch-target); opacity: 1; }
+  .feed-participant .feed-who { min-width: var(--touch-target); }
+  .replay-close-fights table { min-width: calc(4 * var(--touch-target) + 78px); }
+  .replay-close-fights td:nth-child(1),
+  .replay-close-fights td:nth-child(3) { overflow: visible; }
+}

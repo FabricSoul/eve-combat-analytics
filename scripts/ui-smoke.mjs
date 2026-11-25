@@ -9,6 +9,14 @@ const output = join(root, 'build/ui-smoke')
 const route = `/b/${brId}`
 const pilot = 'Blanchard2213'
 const logFile = '20250622_134516_2121605780.txt'
+const touchViewports = [
+  [320, 568, false],
+  [390, 844, true],
+  [740, 420, false],
+  [900, 1180, true],
+]
+const touchFailures = new Set()
+const touchStates = new Map()
 
 await mkdir(output, { recursive: true })
 const server = await startFixtureBattle()
@@ -36,6 +44,12 @@ try {
     await page.getByRole('link', { name: /J125990/ }).waitFor()
     assert.equal(await page.title(), 'EVE 舰队战复盘', 'browser tab title matches the product name in the top bar')
     return { context, page, frames, errors }
+  }
+
+  async function denyClipboardWrite(page) {
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => Promise.reject(new Error('Clipboard unavailable in fixture')) },
+    }))
   }
 
   async function auditTagAndKillStyles() {
@@ -478,6 +492,21 @@ try {
     }
   }
 
+  for (const [width, height, hasTouch] of touchViewports) {
+    const { page, context } = await open(width, height, 'light', 'reduce', '', hasTouch)
+    try {
+      await page.locator('.empty-battle').waitFor()
+      const prefix = `${width}×${height} ${hasTouch ? 'coarse' : 'fine'}`
+      await measureTouchTargets(page.locator('body'), `${prefix} · empty battle`)
+      await denyClipboardWrite(page)
+      await page.getByRole('button', { name: '复制邀请链接' }).click()
+      await page.getByRole('textbox', { name: '邀请链接' }).waitFor()
+      await measureTouchTargets(page.locator('.empty-battle'), `${prefix} · empty battle invite`)
+    } finally {
+      await context.close()
+    }
+  }
+
   const a = await open(1280, 800, 'dark')
   const b = await open(1280, 800, 'light')
   const bRow = b.page.locator('.roster-row').filter({ has: b.page.getByRole('button', { name: new RegExp(pilot) }).and(b.page.locator('.roster-main')) })
@@ -619,90 +648,459 @@ try {
   await tablet.page.getByRole('button', { name: '关闭个人详情' }).waitFor()
   await tablet.context.close()
 
-  const touchTime = fourSides.interactions.find(({ kind }) => kind === 'damage').t
   const phone = await open(390, 844, 'light', 'reduce')
   const phonePage = phone.page
-  const touchFailures = []
-  async function measureTouchTargets(scope, view, rows = '') {
-    await scope.waitFor()
-    const result = await scope.evaluate((root, rows) => {
-      const controls = 'button, [role="menuitem"], summary'
-      const targets = [...root.querySelectorAll(rows ? `${controls}, ${rows}` : controls)]
-        .filter((node) => node.checkVisibility({ visibilityProperty: true }))
-      const offenders = new Map()
-      for (const node of targets) {
-        const { width, height } = node.getBoundingClientRect()
-        if (width >= 44 && height >= 44) continue
-        const kind = node.getAttribute('class') || node.localName
-        const size = `${Number(width.toFixed(2))}×${Number(height.toFixed(2))}`
-        const key = `${kind} ${size}`
-        const group = offenders.get(key)
-        if (group) group.count++
-        else offenders.set(key, { kind, size, count: 1, example: node.getAttribute('aria-label') || node.textContent.trim().slice(0, 70) })
+  async function measureTouchTargets(scope, view) {
+    const result = await scope.evaluate(async (root) => {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      const selector = [
+        'button', 'summary', 'a[href]', 'input', 'select', 'textarea',
+        '[role="button"]', '[role="menuitem"]', '[role="option"]', '[role="tab"]',
+        '[role="checkbox"]', '[role="switch"]', '[role="slider"]',
+        '.battle-stage-grip', '.battle-window-grip', '.battle-window-titlebar[tabindex] > .battle-module-handle',
+      ].join(', ')
+      const owner = (node) => {
+        const control = node?.closest(selector)
+        if (control) return control
+        const label = node?.closest('label')
+        return label?.control?.matches(selector) ? label.control : null
       }
-      return { count: targets.length, offenders: [...offenders.values()] }
-    }, rows)
-    assert.ok(result.count, `${view} renders touch targets`)
-    touchFailures.push(...result.offenders.map(({ kind, size, count, example }) =>
-      `${view} · ${kind} ${size} px (${count}, e.g. ${example})`))
+      const rect = (left, top, right, bottom) => ({
+        left, top, right, bottom, width: right - left, height: bottom - top,
+      })
+      const intersect = (a, b) => rect(Math.max(a.left, b.left), Math.max(a.top, b.top),
+        Math.min(a.right, b.right), Math.min(a.bottom, b.bottom))
+      const points = (box) => {
+        const x = (box.left + box.right) / 2
+        const y = (box.top + box.bottom) / 2
+        return [[x, y], [box.left + 1, y], [box.right - 1, y], [x, box.top + 1], [x, box.bottom - 1]]
+      }
+      const owns = (target, x, y) => owner(document.elementFromPoint(x, y)) === target
+      const viewport = rect(0, 0, innerWidth, innerHeight)
+      const offenders = []
+      let count = 0
+      for (const target of root.querySelectorAll(selector)) {
+        // The map has an equivalent action for each hull in the 44 px roster.
+        // checkTouchSurfaces verifies that equivalence before accepting this exception.
+        if (target.matches('.replay-pilot')) continue
+        if (target.matches(':disabled, [aria-disabled="true"]') || target.closest('[inert]') ||
+          !target.checkVisibility({ checkOpacity: true, visibilityProperty: true })) continue
+
+        // A checkbox and its associated label invoke the same control.
+        const [label] = target.matches('input:is([type="checkbox"], [type="radio"])') ? target.labels : []
+        const element = label ?? target
+        let box = element.getBoundingClientRect()
+        if (box.width <= 0 || box.height <= 0) continue
+
+        // Scroll containers can put part of an otherwise reachable control beyond
+        // an edge. Reposition a partially visible control before testing its bounds.
+        let visible = intersect(viewport, box)
+        const scroll = []
+        for (let node = element; node.parentElement; node = node.parentElement) {
+          if (getComputedStyle(node).position === 'fixed') break
+          const parent = node.parentElement
+          const { overflowX, overflowY } = getComputedStyle(parent)
+          if (overflowX === 'visible' && overflowY === 'visible') continue
+          const bounds = parent.getBoundingClientRect()
+          const left = bounds.left + parent.clientLeft
+          const top = bounds.top + parent.clientTop
+          const clipX = overflowX !== 'visible'
+          const clipY = overflowY !== 'visible'
+          const clip = rect(clipX ? left : -Infinity, clipY ? top : -Infinity,
+            clipX ? left + parent.clientWidth : Infinity, clipY ? top + parent.clientHeight : Infinity)
+          visible = intersect(visible, clip)
+          if ((/auto|scroll/.test(overflowX) && parent.scrollWidth > parent.clientWidth) ||
+            (/auto|scroll/.test(overflowY) && parent.scrollHeight > parent.clientHeight)) {
+            scroll.push([parent, parent.scrollLeft, parent.scrollTop])
+          }
+        }
+        if (visible.width <= 0 || visible.height <= 0) continue
+        if (!points(visible).some(([x, y]) => owns(target, x, y))) {
+          // A different surface can fully cover a control. Distinguish this
+          // from an overlapping control on the same surface before skipping it.
+          const [x, y] = points(visible)[0]
+          const other = owner(document.elementFromPoint(x, y))
+          const surface = (node) => node?.closest('dialog, [role="dialog"], .battle-window, .battle-sheet, .replay-stage, details')
+          if (!other || surface(other) !== surface(target)) continue
+        }
+
+        const behindStickyHeader = scroll.length > 0 && points(box).some(([x, y]) => {
+          const header = document.elementFromPoint(x, y)?.closest('thead, .roster-head, .feed-head')
+          return header && !header.contains(target) && getComputedStyle(header).position === 'sticky'
+        })
+        if (scroll.length && (visible.width < box.width || visible.height < box.height || behindStickyHeader)) {
+          element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' })
+          const next = element.getBoundingClientRect()
+          box = rect(next.left, next.top, next.left + box.width, next.top + box.height)
+        }
+        count++
+        const missed = points(box).flatMap(([x, y], index) => owns(target, x, y) ? [] :
+          [['centre', 'left', 'right', 'top', 'bottom'][index]])
+        for (const [parent, left, top] of scroll) parent.scrollTo({ left, top, behavior: 'instant' })
+        if (box.width >= 44 && box.height >= 44 && !missed.length) continue
+        const kind = target.localName + [...target.classList].map((name) => '.' + name).join('')
+        const name = target.getAttribute('aria-label') || target.title ||
+          element.textContent.trim().replace(/\s+/g, ' ').slice(0, 70)
+        const size = `${Number(box.width.toFixed(2))}×${Number(box.height.toFixed(2))}`
+        offenders.push(`${kind} “${name}” ${size} px${missed.length ? ` (missed: ${missed.join(', ')})` : ''}`)
+      }
+      return { count, offenders }
+    })
+    assert.ok(result.count > 0, `${view} exposes enabled, reachable touch controls`)
+    touchStates.set(view, (touchStates.get(view) ?? 0) + result.count)
+    for (const offender of result.offenders) touchFailures.add(`${view} · ${offender}`)
   }
 
-  async function checkSecondaryReplayTargets(page, prefix) {
-    const filter = page.locator('.replay-noise summary')
-    await filter.click()
-    const options = page.locator('.replay-noise-popover')
-    await measureTouchTargets(options, `${prefix} damage filter`, 'label')
-    assert.equal(await options.getByRole('checkbox').count(), 4)
-    const drone = options.getByText('隐藏无人机/战斗机伤害', { exact: true })
-    const box = await drone.boundingBox()
-    await drone.click({ position: { x: box.width - 2, y: box.height / 2 } })
-    assert.equal(await options.getByRole('checkbox', { name: '隐藏无人机/战斗机伤害' }).isChecked(), true)
-    await drone.click({ position: { x: box.width - 2, y: box.height / 2 } })
-    await page.screenshot({ path: join(output, `${prefix}-touch-damage-filter.png`) })
-    await filter.click()
-    await options.waitFor({ state: 'hidden' })
-
-    for (const [id, title] of [['legend', '交互图例'], ['fights', '此刻交火']]) {
-      const window = page.getByRole('region', { name: title, exact: true })
-      if (!await window.isVisible()) await page.getByRole('button', { name: title, exact: true }).click()
-      const restore = window.getByRole('button', { name: `还原 ${title}` })
-      if (await restore.isVisible()) await restore.click()
-      if (id === 'fights') await window.locator('tbody button.feed-who').first().waitFor()
-      await measureTouchTargets(window, `${prefix} ${title}`, '.battle-window-titlebar, .battle-window-grip')
-      await page.screenshot({ path: join(output, `${prefix}-touch-${id}.png`) })
-      await window.getByRole('button', { name: `收起 ${title}` }).click()
-      await measureTouchTargets(window, `${prefix} collapsed ${title}`, '.battle-window-titlebar')
-      const bar = window.getByRole('group', { name: `${title} 标题栏` })
-      await bar.focus()
-      for (let y = 0; y < page.viewportSize().height; y += 32) await page.keyboard.press('Shift+ArrowDown')
-      const close = window.getByRole('button', { name: `关闭 ${title}` })
-      const closeBox = await close.boundingBox()
-      if (closeBox.y + closeBox.height > page.viewportSize().height) {
-        touchFailures.push(`${prefix} collapsed ${title} · Close is clipped at the bottom of the viewport`)
+  async function checkReplayTouchPicking(page, audit) {
+    const map = page.locator('.replay-stage')
+    await page.waitForFunction(() => document.querySelectorAll('.replay-marker[data-present]').length >= 49)
+    const taps = await map.evaluate((stage) => {
+      const hulls = [...stage.querySelectorAll('.replay-marker[data-present] button')].map((button) => {
+        const rect = button.getBoundingClientRect()
+        return { key: button.parentElement.dataset.pilotKey, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, radius: rect.width / 2 }
+      })
+      const box = stage.getBoundingClientRect()
+      let single, crowded
+      for (let y = Math.ceil(box.top + 1); y < box.bottom - 1 && !(single && crowded); y += 2) {
+        for (let x = Math.ceil(box.left + 1); x < box.right - 1 && !(single && crowded); x += 2) {
+          const hit = document.elementFromPoint(x, y)
+          if (!stage.contains(hit) || hit.closest('.replay-header, .replay-stage-zoom')) continue
+          const nearby = hulls.filter((hull) => Math.hypot(hull.x - x, hull.y - y) <= 22)
+          if (!single && nearby.length === 1 && Math.hypot(nearby[0].x - x, nearby[0].y - y) > nearby[0].radius) {
+            single = { x, y, keys: [nearby[0].key] }
+          }
+          if (!crowded && nearby.length > 1) crowded = { x, y, keys: nearby.map(({ key }) => key).sort() }
+        }
       }
-      await close.click()
+      return { single, crowded }
+    })
+    assert.ok(taps.single && taps.crowded, 'the real replay supplies isolated and ambiguous touch coordinates')
+    await page.touchscreen.tap(taps.single.x, taps.single.y)
+    await page.locator(`.replay-marker[data-pilot-key="${taps.single.keys[0]}"][data-selected="true"]`).waitFor({ state: 'attached' })
+    await page.getByRole('button', { name: '关闭个人详情' }).tap()
+    const picker = page.getByRole('menu', { name: '选择回放飞行员' })
+    const tapCrowded = () => page.touchscreen.tap(taps.crowded.x, taps.crowded.y)
+    await tapCrowded()
+    await picker.waitFor()
+    assert.deepEqual(await picker.getByRole('menuitem').evaluateAll((rows) => rows.map((row) => row.dataset.pilotKey).sort()), taps.crowded.keys)
+    await audit('replay pilot picker', picker)
+    await page.keyboard.press('Escape')
+    await picker.waitFor({ state: 'hidden' })
+    await tapCrowded()
+    await picker.waitFor()
+    await page.touchscreen.tap(2, 2)
+    await picker.waitFor({ state: 'hidden' })
+    await tapCrowded()
+    const choice = picker.getByRole('menuitem').first()
+    const key = await choice.getAttribute('data-pilot-key')
+    await choice.tap()
+    await page.locator(`.replay-marker[data-pilot-key="${key}"][data-selected="true"]`).waitFor({ state: 'attached' })
+    await page.getByRole('button', { name: '关闭个人详情' }).tap()
+  }
+
+  async function checkTouchSurfaces() {
+    for (const [width, height, hasTouch] of touchViewports) {
+      const prefix = `${width}×${height} ${hasTouch ? 'coarse' : 'fine'}`
+      const { page, context, errors } = await open(width, height, 'light', 'reduce', '?t=1750606982420', hasTouch)
+      const inViewHulls = new Set()
+      const audit = async (view, target = page.locator('body')) => {
+        await target.waitFor()
+        await measureTouchTargets(target, `${prefix} · ${view}`)
+        const keys = await page.locator('.replay-marker[data-present]').evaluateAll((markers) => markers.flatMap((marker) => {
+          const hull = marker.firstElementChild.getBoundingClientRect()
+          const map = marker.closest('.replay-stage').getBoundingClientRect()
+          return hull.right > map.left && hull.left < map.right && hull.bottom > map.top && hull.top < map.bottom
+            ? [marker.dataset.pilotKey] : []
+        }))
+        for (const key of keys) inViewHulls.add(key)
+      }
+      const capture = (name) => page.screenshot({ path: join(output, `touch-${width}-${name}.png`), animations: 'disabled' })
+      const tap = (control) => hasTouch ? control.tap() : control.click()
+      const tabs = (region, name) => region.getByRole('tab', { name, exact: true })
+      const detailButton = (region, name) => region.getByRole('button', { name, exact: true })
+      const trigger = (region, text) => region.locator('summary').filter({ hasText: text }).first()
+      const close = (region, name) => tap(detailButton(region, name))
+      const sheet = page.getByRole('region', { name: '战斗数据', exact: true })
+      const phone = width <= 759
+      try {
+        assert.ok(await page.evaluate(() => matchMedia('(pointer: coarse), (max-width: 759px)').matches))
+        await page.locator('.replay-stage').waitFor()
+        if (width === 390) await checkReplayTouchPicking(page, audit)
+        await audit('battle')
+        if (phone) await tap(detailButton(page, '更多战斗操作'))
+        const topbar = page.getByRole('banner')
+        await audit('top bar actions', topbar)
+        const sidePicker = topbar.getByRole('combobox', { name: '我方' })
+        await tap(sidePicker)
+        await audit('our side picker', topbar.getByRole('listbox', { name: '我方' }))
+        await sidePicker.press('Escape')
+        const share = detailButton(topbar, '分享')
+        await denyClipboardWrite(page)
+        await tap(share)
+        await topbar.getByRole('textbox', { name: '分享链接' }).waitFor()
+        await audit('sharing', topbar)
+
+        if (!phone) {
+          const layout = topbar.locator('.battle-module-controls > summary')
+          await tap(layout)
+          await audit('layout menu', topbar.getByRole('group', { name: '显示模块' }))
+          await tap(layout)
+        }
+
+        await tap(detailButton(topbar, '排边'))
+        const sides = page.getByRole('dialog', { name: '排边' })
+        await audit('side panel', sides)
+        if (!phone) await topbar.getByRole('textbox', { name: '分享链接' }).waitFor({ state: 'hidden' })
+        await tap(sides.locator('.sides-name button').first())
+        await audit('side panel expanded group', sides)
+        await tap(sides.locator('.sides-more').first())
+        await audit('side panel menu', sides.getByRole('menu'))
+        await page.keyboard.press('Escape')
+        await close(sides, '完成')
+
+        if (phone) await sheet.getByRole('slider').press('Home')
+        await audit('replay and timeline')
+        const damage = page.locator('.replay-noise summary')
+        await tap(damage)
+        const filter = page.locator('.replay-noise-popover')
+        await audit('damage filter', filter)
+        assert.equal(await filter.getByRole('checkbox').count(), 4)
+        const drone = filter.getByText('隐藏无人机/战斗机伤害', { exact: true })
+        const box = await drone.boundingBox()
+        await drone.click({ position: { x: box.width - 2, y: box.height / 2 } })
+        assert.equal(await filter.getByRole('checkbox', { name: '隐藏无人机/战斗机伤害' }).isChecked(), true)
+        await drone.click({ position: { x: box.width - 2, y: box.height / 2 } })
+        await tap(damage)
+        await filter.waitFor({ state: 'hidden' })
+
+        for (const title of ['交互图例', '此刻交火']) {
+          const region = page.getByRole('region', { name: title, exact: true })
+          if (!await region.isVisible()) await tap(detailButton(page, title))
+          const restore = detailButton(region, `还原 ${title}`)
+          if (await restore.isVisible()) await tap(restore)
+          await audit(`${title} floating window`, region)
+          await close(region, `收起 ${title}`)
+          await audit(`${title} collapsed floating window`, region)
+          const bar = region.getByRole('group', { name: `${title} 标题栏` })
+          await bar.focus()
+          for (let y = 0; y < height; y += 32) await page.keyboard.press('Shift+ArrowDown')
+          await audit(`${title} at bottom of viewport`, region)
+          await close(region, `关闭 ${title}`)
+        }
+
+        await tap(detailButton(page, '时间轴用法'))
+        const help = page.getByRole('dialog', { name: '时间轴使用说明' })
+        await audit('timeline help', help)
+        await capture('timeline-help')
+        await close(help, '关闭时间轴使用说明')
+        // Narrow fine-pointer layouts expose the same active-range controls via
+        // Shift+arrows as a touch pointer gets from the manual range editor.
+        const rangeStart = detailButton(page, '选段')
+        if (!await rangeStart.isVisible()) await page.locator('[data-timeline-chart]').press('Shift+ArrowRight')
+        await tap(page.locator('.eca-timeline-range button[aria-haspopup="dialog"]'))
+        const range = page.getByRole('dialog', { name: '编辑选段' })
+        await audit('timeline range editor', range)
+        await close(range, '应用')
+        await range.waitFor({ state: 'hidden' })
+        await audit('active timeline range')
+        await capture('active-range')
+        await tap(page.locator('.eca-timeline-range-chip button[title="取消选段"]'))
+
+        if (phone) {
+          const grip = sheet.getByRole('slider')
+          await audit('peek sheet', sheet)
+          for (const tab of ['事件', '名单', '对比', '命中']) {
+            await tap(tabs(sheet, tab))
+            await grip.press('Home')
+            await grip.press('ArrowUp')
+            await audit(`half sheet · ${tab}`, sheet)
+            await grip.press('End')
+            await audit(`full sheet · ${tab}`, sheet)
+          }
+        } else {
+          for (const id of ['feed', 'compare', 'roster', 'kills', 'hits', 'lanes']) {
+            const module = page.locator(`[data-module="${id}"]`)
+            await module.locator('.battle-window-titlebar').scrollIntoViewIfNeeded()
+            await audit(`docked module · ${id}`, module)
+          }
+          for (const label of ['搜索事件', '搜索名单']) {
+            const search = detailButton(page, label)
+            await tap(search)
+            await audit(label, page.getByRole('searchbox', { name: label }).locator('..'))
+            await tap(search)
+          }
+          for (const id of ['feed', 'compare', 'roster', 'kills', 'hits', 'lanes']) {
+            const docked = page.locator(`[data-module="${id}"][data-floating="false"]`)
+            await tap(docked.getByRole('button', { name: /^弹出/ }))
+            const floating = page.locator(`[data-module="${id}"][data-floating="true"]`)
+            await audit(`detached module · ${id}`, floating)
+            await tap(floating.getByRole('button', { name: /^收起/ }).first())
+            await audit(`collapsed module · ${id}`, floating)
+            await tap(floating.getByRole('button', { name: /^还原/ }).first())
+            await tap(floating.getByRole('button', { name: /^停靠/ }))
+          }
+        }
+
+        if (phone) await tap(tabs(sheet, '事件'))
+        const feed = phone ? sheet.locator('.feed') : page.locator('[data-module="feed"] .feed')
+        for (const mode of ['逐条', '合并同类', '只看关键']) {
+          await tap(detailButton(feed, mode))
+          await audit(`event rows · ${mode}`, feed)
+        }
+        await tap(detailButton(feed, '逐条'))
+        if (await feed.locator('.feed-row .pilot-more').count()) {
+          await tap(feed.locator('.feed-row .pilot-more').first())
+          await audit('event pilot menu', page.getByRole('menu', { name: '飞行员操作' }))
+          await page.keyboard.press('Escape')
+        }
+
+        if (phone) await tap(tabs(sheet, '对比'))
+        const compare = page.getByRole('region', { name: '飞行员对比' })
+        if (phone) await close(compare, '整页')
+        else await tap(detailButton(page, '整页查看对比'))
+        await audit('Compare full page', compare)
+        for (const [name, selector] of [['side', '.u7-compare-options:not(.u7-column-options)'], ['column', '.u7-column-options']]) {
+          const summary = trigger(compare, name === 'side' ? /^阵营$/ : /^列$/)
+          await tap(summary)
+          await audit(`Compare ${name} options`, compare.locator(selector))
+          await tap(summary)
+        }
+        const pin = compare.getByRole('checkbox', { name: `并排对比 ${pilot}`, exact: true })
+        await pin.check()
+        await tap(tabs(compare, '并排'))
+        const picks = compare.locator('.u7-compare-pick')
+        await tap(picks.locator('summary'))
+        await audit('Compare pilot picker', picks)
+        await tap(picks.locator('summary'))
+        await audit('Compare side by side', compare)
+        await tap(tabs(compare, '分布'))
+        await audit('Compare distribution', compare)
+        await tap(tabs(compare, '大表'))
+        const metric = compare.locator('.u7-compact-metric select')
+        if (await metric.isVisible()) await metric.selectOption('switchDelayMedian')
+        const noValue = compare.locator('.u7-no-value summary:visible').first()
+        await tap(noValue)
+        await audit('Compare missing value', noValue.locator('..'))
+        await tap(noValue)
+        const compareUnknown = compare.getByRole('button', { name: /^含未识别/ })
+        await tap(compareUnknown)
+        await audit('Compare unidentified pilots', compare)
+        await tap(compareUnknown)
+        await page.keyboard.press('Escape')
+
+        if (!phone) {
+          const lanes = page.locator('[data-module="lanes"]')
+          await lanes.locator('.eca-pilot-cell').scrollIntoViewIfNeeded()
+          await audit('populated pilot lanes', lanes)
+          await tap(lanes.locator('.eca-pilot-cell .pilot-more'))
+          await audit('pilot lane menu', page.getByRole('menu', { name: '飞行员操作' }))
+          await page.keyboard.press('Escape')
+        }
+
+        if (phone) await tap(tabs(sheet, '命中'))
+        const hits = page.getByRole('region', { name: '命中分析' })
+        if (phone) await close(hits, '整页')
+        else await tap(detailButton(page, '整页查看命中'))
+        await audit('Hits full page', hits)
+        const ranking = hits.locator('.hit-table-scroll tbody .hit-pilot-name').first()
+        await ranking.scrollIntoViewIfNeeded()
+        await audit('Hits rank table', hits)
+        const hitFilter = trigger(hits, /^阵营$/)
+        await tap(hitFilter)
+        await audit('Hits side options', hitFilter.locator('..'))
+        await tap(hitFilter)
+        const hitRank = hits.getByRole('combobox', { name: '排名指标' })
+        await hitRank.selectOption({ index: 1 })
+        await audit('Hits alternate rank', hits)
+        const insufficient = hits.locator('.hit-insufficient summary')
+        if (await insufficient.isVisible()) {
+          await tap(insufficient)
+          await audit('Hits small samples', insufficient.locator('..'))
+        }
+        await page.keyboard.press('Escape')
+
+        if (!phone) {
+          await tap(detailButton(page, '整页查看击毁'))
+          await audit('Kills full page', page.locator('.kills[data-expanded="true"]'))
+          await page.keyboard.press('Escape')
+        }
+
+        if (phone) await tap(tabs(sheet, '名单'))
+        const roster = phone ? sheet.locator('.roster') : page.locator('[data-module="roster"] .roster')
+        assert.ok(inViewHulls.size > 0, `${prefix} exercises the replay hull equivalent-control exception`)
+        const unmatched = await roster.evaluate(async (list, keys) => {
+          const rows = new Map([...list.querySelectorAll('.roster-row[data-pilot-key]')]
+            .map((row) => [row.dataset.pilotKey, row.querySelector('.roster-main')]))
+          const failures = []
+          for (const key of keys) {
+            const target = rows.get(key)
+            if (!target || target.matches(':disabled')) {
+              failures.push(`${key} has no enabled roster action`)
+              continue
+            }
+            target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' })
+            await new Promise((resolve) => requestAnimationFrame(resolve))
+            const { x, y, width, height } = target.getBoundingClientRect()
+            const centerX = x + width / 2
+            const centerY = y + height / 2
+            const points = [[centerX, centerY], [x + 1, centerY], [x + width - 1, centerY],
+              [centerX, y + 1], [centerX, y + height - 1]]
+            if (width < 44 || height < 44 || points.some(([px, py]) => !target.contains(document.elementFromPoint(px, py)))) {
+              failures.push(`${key} has no reachable 44×44 px roster action (${width}×${height} px)`)
+            }
+          }
+          return failures
+        }, [...inViewHulls])
+        for (const problem of unmatched) touchFailures.add(`${prefix} · replay hull equivalent · ${problem}`)
+        const pilotRow = roster.locator('.roster-row').filter({ has: page.locator('.roster-main').filter({ hasText: pilot }) })
+        await tap(detailButton(pilotRow, `${pilot} 的操作`))
+        await audit('roster menu', page.getByRole('menu', { name: '飞行员操作' }))
+        await page.keyboard.press('Escape')
+        await tap(roster.locator('[data-pilot-key^="ship:"] .roster-more').first())
+        await audit('unresolved pilot menu', page.getByRole('menu', { name: '飞行员操作' }))
+        await tap(page.getByRole('menuitem', { name: '这是谁…' }))
+        const identity = page.getByRole('dialog', { name: /^这是谁 ·/ })
+        await audit('identity picker', identity)
+        const search = identity.getByRole('searchbox', { name: '搜索已知飞行员' })
+        await search.fill(pilot)
+        await identity.locator('[data-result]').filter({ hasText: pilot }).waitFor()
+        await audit('identity results', identity)
+        await close(identity, '取消')
+
+        await tap(pilotRow.locator('.roster-main'))
+        const drawer = phone ? page.getByRole('dialog', { name: '个人详情' }) : page.getByRole('complementary', { name: '个人详情' })
+        for (const tab of ['数据', '事件', '配装']) {
+          await tap(tabs(drawer, tab))
+          await audit(`pilot detail · ${tab}`, drawer)
+        }
+        await tap(drawer.getByRole('button', { name: /粘贴|编辑配装/ }).first())
+        await audit('fit editor', drawer)
+        if (!phone) {
+          await tap(detailButton(drawer, '展开整页'))
+          await audit('pilot full page', drawer)
+        }
+        await close(drawer, '关闭个人详情')
+
+        const upload = topbar.getByRole('button', { name: '上传日志', exact: true })
+        const filePicker = page.waitForEvent('filechooser')
+        await tap(upload)
+        await (await filePicker).setFiles({ name: 'invalid.txt', mimeType: 'text/plain', buffer: Buffer.from('invalid gamelog') })
+        const tray = page.locator('.upload-tray')
+        await tray.getByRole('button', { name: '移除' }).waitFor()
+        await audit('upload tray', tray)
+        await close(tray, '关闭上传列表')
+
+        await page.getByRole('link', { name: /J125990/ }).click()
+        await page.locator(`a.home-recent-row[href="${route}"]`).waitFor()
+        await audit('home and recent battles')
+        assert.deepEqual(errors, [])
+      } finally {
+        await context.close()
+      }
     }
-
-    await page.getByRole('button', { name: '时间轴用法' }).click()
-    const help = page.getByRole('dialog', { name: '时间轴使用说明' })
-    await measureTouchTargets(help, `${prefix} timeline help`)
-    await page.screenshot({ path: join(output, `${prefix}-touch-timeline-help.png`) })
-    await help.getByRole('button', { name: '关闭时间轴使用说明' }).click()
-    await help.waitFor({ state: 'hidden' })
-  }
-
-  async function checkIdentityTargets(page, roster, prefix) {
-    await roster.locator('[data-pilot-key^="ship:"] .roster-more').first().click()
-    await page.getByRole('menuitem', { name: '这是谁…' }).click()
-    const identity = page.getByRole('dialog', { name: /^这是谁 ·/ })
-    const search = identity.getByRole('searchbox', { name: '搜索已知飞行员' })
-    await measureTouchTargets(identity, `${prefix} identity picker`, 'input')
-    await search.fill(pilot)
-    await identity.locator('[data-result]').filter({ hasText: pilot }).waitFor()
-    await measureTouchTargets(identity, `${prefix} identity search results`, 'input')
-    await page.screenshot({ path: join(output, `${prefix}-touch-identity.png`) })
-    await identity.getByRole('button', { name: '取消' }).click()
-    await identity.waitFor({ state: 'hidden' })
+    const targets = [...touchStates.values()].reduce((total, count) => total + count, 0)
+    console.log(`Touch targets: ${touchViewports.length} viewports, ${touchStates.size} states, ${targets} visible enabled targets, ${touchFailures.size} offenders, exemption .replay-pilot (verified equivalent roster actions), 0 inline-link exemptions`)
+    assert.equal(touchFailures.size, 0, `Touch targets must offer 44×44 px without overlap:\n${[...touchFailures].join('\n')}`)
   }
 
   const feedMode = phonePage.getByRole('button', { name: '逐条' })
@@ -721,34 +1119,8 @@ try {
   assert.equal(await grip.getAttribute('aria-valuetext'), '全屏')
   const events = phonePage.getByRole('tab', { name: '事件', exact: true })
   await events.click()
-  await measureTouchTargets(phonePage.getByRole('region', { name: '战斗数据', exact: true }), 'Sheet', '.battle-sheet-grip, .feed-row')
   await events.press('ArrowRight')
   assert.equal(await phonePage.getByRole('tab', { name: '对比' }).getAttribute('aria-selected'), 'true')
-  const phoneCompare = phonePage.getByRole('region', { name: '飞行员对比' })
-  const compareFilter = phoneCompare.locator('summary').filter({ hasText: /^阵营$/ })
-  await compareFilter.click()
-  await measureTouchTargets(phoneCompare, 'Compare', 'tbody tr[data-pilot-key], details[open] label')
-  await phonePage.screenshot({ path: join(output, '390-touch-compare.png') })
-  await compareFilter.click()
-  const compareColumns = phoneCompare.locator('summary').filter({ hasText: /^列$/ })
-  await compareColumns.click()
-  await measureTouchTargets(phoneCompare, 'Compare columns', '.u7-column-options label')
-  await compareColumns.click()
-  await phoneCompare.getByRole('checkbox', { name: `并排对比 ${pilot}`, exact: true }).check()
-  await phoneCompare.getByRole('tab', { name: '并排' }).click()
-  const comparePilots = phoneCompare.locator('.u7-compare-pick summary')
-  await comparePilots.click()
-  await measureTouchTargets(phoneCompare, 'Compare side by side', '.u7-compare-pair, details[open] label')
-  await comparePilots.click()
-  await phoneCompare.getByRole('tab', { name: '分布' }).click()
-  await measureTouchTargets(phoneCompare, 'Compare distribution')
-  await phonePage.getByRole('tab', { name: '命中' }).click()
-  const phoneHits = phonePage.getByRole('region', { name: '命中分析' })
-  await phoneHits.locator('.hit-analysis-controls summary').click()
-  const insufficient = phoneHits.locator('.hit-insufficient summary')
-  if (await insufficient.count()) await insufficient.click()
-  await measureTouchTargets(phoneHits, 'Hits', 'tbody tr[data-pilot-key], .hit-insufficient li, details[open] label')
-  await phonePage.screenshot({ path: join(output, '390-touch-hits.png') })
   await grip.press('ArrowDown')
   assert.equal(await grip.getAttribute('aria-valuetext'), '半屏')
   await grip.press('Home')
@@ -756,24 +1128,14 @@ try {
   await phonePage.getByRole('tab', { name: '名单' }).click()
   assert.equal(await grip.getAttribute('aria-valuetext'), '半屏')
   const phonePilot = phonePage.getByRole('button', { name: new RegExp(pilot) }).and(phonePage.locator('.roster-main'))
-  await measureTouchTargets(phonePage.locator('.battle-sheet .roster'), 'Roster', '.roster-row')
-  await phonePage.getByRole('button', { name: `${pilot} 的操作`, exact: true }).click()
-  const phoneRosterMenu = phonePage.getByRole('menu', { name: '飞行员操作' })
-  await measureTouchTargets(phoneRosterMenu, 'Roster menu')
-  await phonePage.screenshot({ path: join(output, '390-touch-roster-menu.png') })
-  await phonePage.keyboard.press('Escape')
-  await checkIdentityTargets(phonePage, phonePage.locator('.battle-sheet .roster'), '390')
   const phoneChart = phonePage.locator('[data-timeline-chart]')
   const phoneTime = await phoneChart.getAttribute('aria-valuenow')
   await phonePilot.click()
   const detail = phonePage.getByRole('dialog', { name: '个人详情' })
   assert.deepEqual(await detail.boundingBox(), { x: 0, y: 44, width: 390, height: 800 },
     'phone pilot detail fills the page below the top bar')
-  await measureTouchTargets(detail, 'Drawer')
   await detail.getByRole('tab', { name: '事件' }).click()
-  await measureTouchTargets(detail, 'Drawer events', '.u7-person-event')
   await detail.getByRole('tab', { name: '配装' }).click()
-  await measureTouchTargets(detail, 'Drawer fit')
   assert.equal(await phoneChart.evaluate((el) => { el.focus(); return document.activeElement === el }), false)
   await phonePage.keyboard.press('Tab')
   assert.ok(await detail.evaluate((el) => el.contains(document.activeElement)), 'the phone detail retains keyboard focus')
@@ -782,60 +1144,8 @@ try {
   await phonePage.keyboard.press('Escape')
   await detail.waitFor({ state: 'hidden' })
   assert.ok(await phonePilot.evaluate((node) => document.activeElement === node), 'closing details restores focus')
-  const battleActions = phonePage.getByRole('button', { name: '更多战斗操作' })
-  await battleActions.click()
-  await phonePage.getByRole('button', { name: '排边', exact: true }).click()
-  const phoneSides = phonePage.getByRole('dialog', { name: '排边' })
-  await phoneSides.locator('.sides-name button').first().click()
-  await measureTouchTargets(phoneSides, 'Side panel', '.sides-row')
-  await phoneSides.locator('.sides-more').first().click()
-  await measureTouchTargets(phoneSides.getByRole('menu'), 'Side panel menu')
-  await phonePage.screenshot({ path: join(output, '390-touch-sides.png') })
-  await phonePage.keyboard.press('Escape')
-  await phoneSides.getByRole('button', { name: '完成' }).click()
-  await phonePage.getByRole('link', { name: /J125990/ }).click()
-  await phonePage.locator(`a.home-recent-row[href="${route}"]`).waitFor()
-  // The narrow battle sheet has no Kills tab. Measure the same component in the gallery.
-  await phonePage.goto(origin + '/_gallery#kills-list')
-  await measureTouchTargets(phonePage.locator('#kills-list .kills'), 'Kills', '.kills-entry')
   assert.deepEqual(phone.errors, [])
   await phone.context.close()
-
-  const phoneReplay = await open(390, 844, 'light', 'reduce', `?t=${touchTime}`)
-  try {
-    await checkSecondaryReplayTargets(phoneReplay.page, '390')
-    assert.deepEqual(phoneReplay.errors, [])
-  } finally {
-    await phoneReplay.context.close()
-  }
-
-  const coarse = await open(900, 800, 'dark', 'reduce', `?t=${touchTime}`, true)
-  try {
-    const page = coarse.page
-    assert.ok(await page.evaluate(() => matchMedia('(pointer: coarse)').matches && innerWidth >= 760))
-    await checkSecondaryReplayTargets(page, '900-coarse')
-    await checkIdentityTargets(page, page.locator('[data-module="roster"] .roster'), '900-coarse')
-    const row = page.locator('.roster-row').filter({ hasText: pilot })
-    await row.getByRole('button', { name: `${pilot} 的操作`, exact: true }).tap()
-    await measureTouchTargets(page.getByRole('menu', { name: '飞行员操作' }), 'Coarse pointer roster menu')
-    await page.keyboard.press('Escape')
-    await page.getByRole('button', { name: '排边', exact: true }).tap()
-    const sides = page.getByRole('dialog', { name: '排边' })
-    await measureTouchTargets(sides, 'Coarse pointer side panel', '.sides-row')
-    await sides.getByRole('button', { name: '完成' }).tap()
-    await page.getByRole('button', { name: '整页查看对比', exact: true }).tap()
-    const compare = page.getByRole('region', { name: '飞行员对比' })
-    await measureTouchTargets(compare, 'Coarse pointer Compare', 'tbody tr[data-pilot-key]')
-    await page.keyboard.press('Escape')
-    await page.getByRole('button', { name: '整页查看击毁', exact: true }).tap()
-    await measureTouchTargets(page.locator('.kills[data-expanded="true"]'), 'Coarse pointer Kills', '.kills-entry')
-    assert.deepEqual(coarse.errors, [])
-  } finally {
-    await coarse.context.close()
-  }
-
-  assert.equal(touchFailures.length, 0, `Phone touch targets must be at least 44×44 px:\n${touchFailures.join('\n')}`)
-  console.log('Touch targets: buttons, menu items, summaries and rows measure at least 44×44 px in the phone views and coarse-pointer checks')
   console.log('Responsive controls: tablet two-column modules, phone keyboard controls and full-page detail, direct-link history')
 
   const restore = await fetch(`${origin}/api/battles/${brId}/sides`, {
@@ -860,6 +1170,7 @@ try {
   const fullBattle = await (await fetch(`${origin}/api/battles/${brId}/analysis`)).json()
   assert.equal(fullBattle.coverage.find(({ side }) => side === 1)?.known, 41, 'J125990 has 41 known pilots on the uploaders’ side')
   console.log('J125990 battle-time affiliations: 我方 41 with all 17 uploads')
+  await checkTouchSurfaces()
   const density = []
   const failures = []
   for (const width of [1280, 1630]) {

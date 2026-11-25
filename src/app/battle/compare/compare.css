@@ -178,10 +178,34 @@
 }
 
 @media (width < 760px), (pointer: coarse) {
-  .u7-compare :is(button, summary) { min-width: 44px; min-height: 44px; }
   .u7-compare :is(.u7-compare-controls, .u7-compare-pick) summary { align-content: center; }
   .u7-compare .u7-no-value summary { display: grid; align-items: center; }
   .battle-layout .u7-compare tr, .u7-compare tr { height: 44px; }
+  .u7-compare tbody th { --pin-size: var(--touch-target); }
+  .u7-compare tbody th > label {
+    display: inline-grid;
+    place-items: center;
+    vertical-align: middle;
+  }
+  .u7-compare tbody th > label input[type="checkbox"] { width: 12px; height: 12px; }
+  .u7-compare tbody th > .pilot-more { vertical-align: middle; }
+  .u7-compare .u7-compare-who { min-width: var(--touch-target); }
+  .u7-compare-controls { flex-wrap: wrap; }
+  /* One lane per pilot keeps tied and nearby values independently tappable. */
+  .u7-distribution-plot { padding-inline: calc(var(--touch-target) / 2); }
+  .u7-distribution-axis {
+    height: auto;
+    min-height: 1px;
+    margin-block: var(--space-1);
+    background: transparent;
+  }
+  .u7-distribution-axis > .u7-compare-median { pointer-events: none; inset-block: 0; }
+  .u7-compare .u7-distribution-point {
+    position: relative;
+    top: auto;
+    transform: translateX(-50%);
+  }
+  .u7-distribution-point span:not(.app-image) { pointer-events: none; }
   /* Keep the plotted mark 20px across inside its touch target. */
   .u7-compare .u7-distribution-point { border: 0; background: transparent; outline-offset: -10px; }
   .u7-distribution-point::before {
@@ -197,8 +221,12 @@
   .u7-compare .u7-distribution-point[data-anchor="start"] span:not(.app-image) { left: 12px; }
   .u7-compare .u7-distribution-point[data-anchor="end"] span:not(.app-image) { right: 12px; }
   @container u7-compare (max-width: 759px) {
+    .u7-compare tbody th:not(:has(> label)) { --pin-size: 0px; }
+    .u7-compare tbody th .u7-compare-who {
+      min-width: max(var(--touch-target), calc(100% - var(--pin-size) - 2 * var(--space-1)));
+    }
     .u7-compare tbody th:has(> .pilot-more) .u7-compare-who {
-      min-width: max(44px, calc(100% - var(--pin-size) - var(--space-1) - 44px));
+      min-width: max(var(--touch-target), calc(100% - var(--pin-size) - 2 * var(--space-1) - var(--touch-target)));
     }
   }
 }

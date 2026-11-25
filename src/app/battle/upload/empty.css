@@ -60,3 +60,15 @@
   color: var(--color-text);
   font-family: var(--font-mono);
 }
+
+@media (pointer: coarse), (max-width: 759px) {
+  .empty-drop > span {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+  }
+  .empty-pick { padding-inline: var(--space-1); }
+  .empty-copy-status { width: 100%; }
+}

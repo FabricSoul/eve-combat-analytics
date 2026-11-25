@@ -28,3 +28,12 @@
 .kills-sub { color: var(--color-text-3); font-size: 11px; }
 .kills-dot { display: inline-block; width: 8px; height: 8px; margin-inline-end: 6px; border-radius: 50%; }
 .kills-isk { text-align: right; }
+
+@media (pointer: coarse), (max-width: 759px) {
+  .kills-entry:has(> .pilot-more) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--touch-target);
+  }
+  .kills-entry:has(> .pilot-more) > .kills-row { padding-inline-end: var(--space-2); }
+  .kills-entry > .pilot-more { position: static; }
+}

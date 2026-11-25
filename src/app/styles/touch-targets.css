@@ -1,0 +1,17 @@
+@media (pointer: coarse), (max-width: 759px) {
+  :root { --touch-target: 44px; }
+
+  /* A checkbox and its label form one target, with the native glyph inside. */
+  :is(button, summary, a[href], input, select, textarea,
+    [role="button"], [role="menuitem"], [role="option"], [role="tab"],
+    [role="checkbox"], [role="switch"], [role="slider"],
+    .battle-stage-grip, .battle-window-grip, .battle-window-titlebar[tabindex] > .battle-module-handle,
+    label:has(> input:is([type="checkbox"], [type="radio"]))):not(:where(.replay-pilot, label > input:is([type="checkbox"], [type="radio"]))) {
+    min-width: var(--touch-target);
+    min-height: var(--touch-target);
+  }
+
+  a[href] { align-content: center; }
+
+  .app-gallery-nav a { display: inline-grid; }
+}

@@ -249,9 +249,11 @@ export function PilotTimelineModule() {
   const data = useMemo(() => summary ? timelineData(summary, analysis, oursSide) : null, [summary, analysis, oursSide])
   const order = useMemo(() => summary ? timelineSides(summary, analysis, oursSide) : [], [summary, analysis, oursSide])
   const [start, end] = data?.full ?? [0, 1]
-  const x = plotScale(width, 82, 10, start, end)
+  // The touch label column reserves space for both independent pilot actions.
+  const left = useCoarsePointer() ? 92 : 82
+  const x = plotScale(width, left, 10, start, end)
   const brush = range ? { x: x(range[0]), width: x(range[1]) - x(range[0]) } : null
   return <div ref={ref}>{summary && <PilotLanes analysis={analysis} logs={summary.logs} oursSide={oursSide}
-    sideOrder={order} pinned={pinned} onRemove={togglePin} width={width} left={82} right={10} start={start} end={end}
+    sideOrder={order} pinned={pinned} onRemove={togglePin} width={width} left={left} right={10} start={start} end={end}
     cursorX={t >= start && t <= end ? x(t) : null} brush={brush} />}</div>
 }

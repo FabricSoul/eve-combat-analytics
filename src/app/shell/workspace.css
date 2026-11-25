@@ -194,13 +194,15 @@
     height: 44px;
     gap: var(--space-1);
     padding-inline: var(--space-3) var(--space-1);
+    border-bottom: 0;
+    box-shadow: inset 0 -1px var(--color-hair);
   }
   .app-topbar .app-topbar-short-title,
   .app-shell--battle .app-topbar .app-topbar-upload-mobile,
   .app-shell--battle .app-topbar .app-topbar-menu-toggle { display: inline-flex; }
   .app-topbar:has(.app-topbar-short-title) .app-topbar-full-title,
   .app-shell--battle .app-topbar .app-topbar-upload-desktop { display: none; }
-  .app-shell--battle .app-topbar-title { display: block; flex: 1; padding-block: var(--space-3); }
+  .app-shell--battle .app-topbar-title { display: block; flex: 1; }
   .app-topbar-upload-mobile, .app-topbar-menu-toggle { width: 44px; padding: 0; }
   .app-topbar-menu-toggle { font-size: var(--fs-l); }
   .app-shell--battle .app-topbar-actions[id] {
@@ -300,11 +302,10 @@
     color: var(--color-text);
   }
   .battle-person-page::backdrop { background: transparent; }
-  .battle-person-page :is(.app-button, .app-tabs button) { min-height: 44px; min-width: 44px; }
   .battle-person-page .u7-drawer-expand { display: none; }
   [data-layout="phone"] .empty-battle { align-items: safe center; padding: var(--space-4); }
   [data-layout="phone"] .empty-drop { min-height: 140px; }
-  [data-layout="phone"] .empty-pick { display: inline-flex; align-items: center; min-height: 44px; }
+  [data-layout="phone"] .empty-pick { display: inline-flex; align-items: center; }
   [data-layout="phone"] .battle-sides { inset: var(--space-2); overflow: auto; }
   [data-layout="phone"] .battle-upload { grid-area: replay; inset: auto var(--space-2) var(--space-2) auto; }
   [data-layout="phone"]:has(.battle-sheet[data-height="2"]) .battle-upload { grid-area: sheet; }
@@ -313,19 +314,9 @@
 }
 
 @media (width < 760px), (pointer: coarse) {
-  :is(.feed, .hit-analysis, .kills, .u7-person) :is(button, summary),
-  .hit-analysis-controls details label,
-  .hit-analysis .hit-table-scroll .hit-pilot-name,
-  .battle-sheet > .app-tabs button {
-    min-width: 44px;
-    min-height: 44px;
-  }
   .hit-analysis summary { align-content: center; }
   .battle-layout .hit-table-scroll table { min-width: 800px; }
   .battle-layout .hit-table-scroll tr { height: 44px; }
-  .battle-layout .feed-row { height: 44px; }
-  :is(.feed, .u7-compare, .hit-analysis, .kills) .pilot-more { opacity: 1; }
-  .kills .kills-entry:has(.pilot-more) > .kills-row { padding-inline-end: calc(44px + var(--space-2)); }
 }
 
 @media (620px <= width < 760px) {
@@ -343,4 +334,14 @@
   .battle-sheet[data-height="0"] { flex-direction: row; }
   .battle-sheet[data-height="0"] .battle-sheet-grip { width: 44px; }
   .battle-sheet[data-height="0"] > .app-tabs { flex: 1; }
+}
+
+@media (pointer: coarse) and (min-width: 760px) {
+  .app-topbar-share { position: relative; }
+  .app-topbar-share:not(:focus-within) input { visibility: hidden; }
+  .app-topbar-share input {
+    position: absolute;
+    z-index: var(--layer-popover);
+    inset: calc(100% + var(--space-1)) 0 auto auto;
+  }
 }

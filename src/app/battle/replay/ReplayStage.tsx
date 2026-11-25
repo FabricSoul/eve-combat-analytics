@@ -1,5 +1,6 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent, ReactNode } from 'react'
+import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from 'react'
 import type { Analysis, EntityKey, Killmail } from '@/core/contract'
 import { portraitUrl, typeRenderUrl } from '@/app/lib/images'
 import { sideColor, sideLetter } from '@/app/lib/sides'
@@ -8,12 +9,12 @@ import { useReplayCamera } from './useReplayCamera'
 import { Bracket } from '@/app/ui/Bracket'
 import { Portrait } from '@/app/ui/Portrait'
 import { usePilotMenu } from '../roster/PilotActions'
-import { ReplayOverlays } from './ReplayOverlays'
+import { ReplayOverlays, ReplayOverlayWorkspace } from './ReplayOverlays'
 import { useReplayKeyboard, type ReplayFocusTarget } from './keyboard'
 import { makePainter, missedTracerAt, type MissTracer, type PaintedModule, type ReplayFrame } from './paint'
 import type { Point } from './layout-effects'
 import { createProjectilePlayback } from './projectile'
-import { closestPoint, packedControlsHeight, placeReplayLabels } from './placement'
+import { closestPoint, packedControlsHeight, placeReplayLabels, placeReplayPopover } from './placement'
 import { watchLabelObstacles } from './label-obstacles'
 import { deathAt, recentEngagement } from './presence'
 import type { Rect } from './placement'
@@ -77,6 +78,72 @@ const PilotMarker = memo(function PilotMarker({ node, selected, register, onInsp
   )
 })
 
+interface PilotTap {
+  point: Point
+  pilots: ReplayNode[]
+}
+
+function ReplayPilotPicker({ tap, onClose, onSelect }: {
+  tap: PilotTap
+  onClose: () => void
+  onSelect: (key: EntityKey) => void
+}) {
+  const panel = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const element = panel.current
+    if (!element) return
+    function place() {
+      if (!element) return
+      const edge = 8
+      const { x, y, height } = placeReplayPopover({ ...tap.point, width: 0, height: 0 },
+        { width: element.offsetWidth, height: element.scrollHeight + element.offsetHeight - element.clientHeight },
+        { x: edge, y: edge, width: window.innerWidth - 2 * edge, height: window.innerHeight - 2 * edge }, edge)
+      element.style.left = `${x}px`
+      element.style.top = `${y}px`
+      element.style.maxHeight = `${height}px`
+    }
+    place()
+    element.querySelector('button')?.focus({ preventScroll: true })
+    window.addEventListener('resize', place)
+    return () => window.removeEventListener('resize', place)
+  }, [tap])
+
+  function handleKeys(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape' || event.key === 'Tab') {
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+      return
+    }
+    const rows = [...event.currentTarget.querySelectorAll('button')]
+    const current = rows.indexOf(document.activeElement as HTMLButtonElement)
+    let next: number
+    switch (event.key) {
+      case 'Home': next = 0; break
+      case 'End': next = rows.length - 1; break
+      case 'ArrowDown': next = (current + 1) % rows.length; break
+      case 'ArrowUp': next = (current + rows.length - 1) % rows.length; break
+      default: return
+    }
+    event.preventDefault()
+    rows[next]?.focus()
+  }
+
+  return <div className="replay-pilot-picker-layer" onClick={(event) => {
+    if (event.target === event.currentTarget) onClose()
+  }}>
+    <div ref={panel} className="replay-pilot-picker" role="menu" aria-label="选择回放飞行员" onKeyDown={handleKeys}>
+      {tap.pilots.map(({ entity, ship }) => (
+        <button key={entity.key} type="button" role="menuitem" data-pilot-key={entity.key} tabIndex={-1}
+          onClick={() => { onClose(); onSelect(entity.key) }}>
+          <Portrait charId={entity.charId} size={24} />
+          <span><strong>{entity.name}</strong><small>{ship ?? '舰船未知'}</small></span>
+        </button>
+      ))}
+    </div>
+  </div>
+}
+
 const allNamesZoom = 1.5
 
 function ReplayLegend({ analysis, order }: Pick<ReplayStageProps, 'analysis' | 'order'>) {
@@ -103,6 +170,9 @@ function ReplayLegend({ analysis, order }: Pick<ReplayStageProps, 'analysis' | '
 export function ReplayStage({ analysis, headerActions, stage, closeFights, fightTime, killmails, order, select, t, playing, getTime, selected, focusOnly }: ReplayStageProps) {
   const host = useRef<HTMLDivElement>(null)
   const { camera, zoom, reset, handlers } = useReplayCamera(host)
+  const overlayWorkspace = useContext(ReplayOverlayWorkspace)
+  const [pilotTap, setPilotTap] = useState<PilotTap | null>(null)
+  const touch = useRef<{ start: Point; end?: Point } | null>(null)
   const under = useRef<HTMLCanvasElement>(null)
   const over = useRef<HTMLCanvasElement>(null)
   const bracket = useRef<HTMLDivElement>(null)
@@ -158,6 +228,52 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     const above = point.y >= 75
     tip.style.transform = `translate3d(${point.x + (left ? -10 : 10)}px, ${point.y + (above ? -8 : 10)}px, 0) translate(${left ? '-100%' : '0'}, ${above ? '-100%' : '0'})`
   }, [])
+
+  function closePilotPicker() {
+    setPilotTap(null)
+    toolbar.current?.focus({ preventScroll: true })
+  }
+
+  function recordTouchStart(event: PointerEvent<HTMLDivElement>) {
+    touch.current = event.pointerType === 'touch' && event.isPrimary ?
+      { start: { x: event.clientX, y: event.clientY } } : null
+  }
+
+  function recordTouchEnd(event: PointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== 'touch' || !event.isPrimary || !touch.current) return
+    const { start } = touch.current
+    const end = { x: event.clientX, y: event.clientY }
+    if (Math.hypot(start.x - end.x, start.y - end.y) <= 10) touch.current.end = end
+  }
+
+  function pickOnTap(event: MouseEvent<HTMLDivElement>) {
+    handlers.onClickCapture(event)
+    const point = touch.current?.end
+    touch.current = null
+    if (event.isPropagationStopped() || event.detail === 0 || !point || !layout ||
+      !(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return
+    // Chromium can retarget a synthetic click to a nearby button. The physical
+    // touch coordinate determines both the map hit and the 22 px search radius.
+    const hit = document.elementFromPoint(point.x, point.y)
+    if (!hit || !event.currentTarget.contains(hit) || hit.closest('.replay-header, .replay-stage-zoom')) return
+    event.stopPropagation()
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const nearby = []
+    for (const [key, marker] of markers.current) {
+      const pilot = layout.byKey.get(key)
+      if (!pilot || !marker.hasAttribute('data-present')) continue
+      const hull = marker.firstElementChild?.getBoundingClientRect()
+      if (!hull || hull.right <= bounds.left || hull.left >= bounds.right ||
+        hull.bottom <= bounds.top || hull.top >= bounds.bottom) continue
+      const distance = Math.hypot(hull.left + hull.width / 2 - point.x, hull.top + hull.height / 2 - point.y)
+      if (distance <= 22) nearby.push({ pilot, distance })
+    }
+    if (nearby.length === 1) select(nearby[0]!.pilot.entity.key)
+    else if (nearby.length > 1) {
+      nearby.sort((a, b) => a.distance - b.distance || a.pilot.ordinal - b.pilot.ordinal)
+      setPilotTap({ point, pilots: nearby.map(({ pilot }) => pilot) })
+    }
+  }
 
   function movePointer(event: PointerEvent<HTMLDivElement>) {
     handlers.onPointerMove(event)
@@ -504,7 +620,10 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     <div ref={host} className="replay-stage" data-phone={stage === false || undefined} data-zoomed={camera.scale > 1 || undefined}
       data-packed-controls={stage && height > 0 && height < packedControlsHeight || undefined}
       data-all-names={camera.scale >= allNamesZoom || undefined} {...handlers}
-      onPointerMove={movePointer} onPointerLeave={() => { pointer.current = null; updateEffectTooltip(width) }}>
+      onPointerDownCapture={recordTouchStart} onPointerUpCapture={recordTouchEnd}
+      onClickCapture={pickOnTap} onPointerMove={movePointer} onPointerLeave={() => { pointer.current = null; updateEffectTooltip(width) }}>
+      {pilotTap && createPortal(<ReplayPilotPicker tap={pilotTap} onClose={closePilotPicker} onSelect={select} />,
+        overlayWorkspace?.popoverLayer ?? document.body)}
       <canvas ref={under} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer" aria-hidden="true" />
       <div ref={toolbar} role="toolbar" aria-label="回放飞行员" tabIndex={-1}
         onFocus={onFocus} onBlur={onBlur} onKeyDown={onKeyDown}>
