@@ -621,6 +621,30 @@ try {
 
   const phone = await open(390, 844, 'light', 'reduce')
   const phonePage = phone.page
+  const touchFailures = []
+  async function measureTouchTargets(scope, view, rows = '') {
+    await scope.waitFor()
+    const result = await scope.evaluate((root, rows) => {
+      const controls = 'button, [role="menuitem"], summary'
+      const targets = [...root.querySelectorAll(rows ? `${controls}, ${rows}` : controls)]
+        .filter((node) => node.checkVisibility({ visibilityProperty: true }))
+      const offenders = new Map()
+      for (const node of targets) {
+        const { width, height } = node.getBoundingClientRect()
+        if (width >= 44 && height >= 44) continue
+        const kind = node.getAttribute('class') || node.localName
+        const size = `${Number(width.toFixed(2))}×${Number(height.toFixed(2))}`
+        const key = `${kind} ${size}`
+        const group = offenders.get(key)
+        if (group) group.count++
+        else offenders.set(key, { kind, size, count: 1, example: node.getAttribute('aria-label') || node.textContent.trim().slice(0, 70) })
+      }
+      return { count: targets.length, offenders: [...offenders.values()] }
+    }, rows)
+    assert.ok(result.count, `${view} renders touch targets`)
+    touchFailures.push(...result.offenders.map(({ kind, size, count, example }) =>
+      `${view} · ${kind} ${size} px (${count}, e.g. ${example})`))
+  }
   const feedMode = phonePage.getByRole('button', { name: '逐条' })
   assert.equal(await feedMode.getAttribute('aria-pressed'), 'true', 'phone feed shows each event by default')
   assert.ok((await feedMode.boundingBox())?.height >= 44, 'phone feed mode has a 44px touch target')
@@ -637,8 +661,34 @@ try {
   assert.equal(await grip.getAttribute('aria-valuetext'), '全屏')
   const events = phonePage.getByRole('tab', { name: '事件', exact: true })
   await events.click()
+  await measureTouchTargets(phonePage.getByRole('region', { name: '战斗数据', exact: true }), 'Sheet', '.battle-sheet-grip, .feed-row')
   await events.press('ArrowRight')
   assert.equal(await phonePage.getByRole('tab', { name: '对比' }).getAttribute('aria-selected'), 'true')
+  const phoneCompare = phonePage.getByRole('region', { name: '飞行员对比' })
+  const compareFilter = phoneCompare.locator('summary').filter({ hasText: /^阵营$/ })
+  await compareFilter.click()
+  await measureTouchTargets(phoneCompare, 'Compare', 'tbody tr[data-pilot-key], details[open] label')
+  await phonePage.screenshot({ path: join(output, '390-touch-compare.png') })
+  await compareFilter.click()
+  const compareColumns = phoneCompare.locator('summary').filter({ hasText: /^列$/ })
+  await compareColumns.click()
+  await measureTouchTargets(phoneCompare, 'Compare columns', '.u7-column-options label')
+  await compareColumns.click()
+  await phoneCompare.getByRole('checkbox', { name: `并排对比 ${pilot}`, exact: true }).check()
+  await phoneCompare.getByRole('tab', { name: '并排' }).click()
+  const comparePilots = phoneCompare.locator('.u7-compare-pick summary')
+  await comparePilots.click()
+  await measureTouchTargets(phoneCompare, 'Compare side by side', '.u7-compare-pair, details[open] label')
+  await comparePilots.click()
+  await phoneCompare.getByRole('tab', { name: '分布' }).click()
+  await measureTouchTargets(phoneCompare, 'Compare distribution')
+  await phonePage.getByRole('tab', { name: '命中' }).click()
+  const phoneHits = phonePage.getByRole('region', { name: '命中分析' })
+  await phoneHits.locator('.hit-analysis-controls summary').click()
+  const insufficient = phoneHits.locator('.hit-insufficient summary')
+  if (await insufficient.count()) await insufficient.click()
+  await measureTouchTargets(phoneHits, 'Hits', 'tbody tr[data-pilot-key], .hit-insufficient li, details[open] label')
+  await phonePage.screenshot({ path: join(output, '390-touch-hits.png') })
   await grip.press('ArrowDown')
   assert.equal(await grip.getAttribute('aria-valuetext'), '半屏')
   await grip.press('Home')
@@ -646,12 +696,23 @@ try {
   await phonePage.getByRole('tab', { name: '名单' }).click()
   assert.equal(await grip.getAttribute('aria-valuetext'), '半屏')
   const phonePilot = phonePage.getByRole('button', { name: new RegExp(pilot) }).and(phonePage.locator('.roster-main'))
+  await measureTouchTargets(phonePage.locator('.battle-sheet .roster'), 'Roster', '.roster-row')
+  await phonePage.getByRole('button', { name: `${pilot} 的操作`, exact: true }).click()
+  const phoneRosterMenu = phonePage.getByRole('menu', { name: '飞行员操作' })
+  await measureTouchTargets(phoneRosterMenu, 'Roster menu')
+  await phonePage.screenshot({ path: join(output, '390-touch-roster-menu.png') })
+  await phonePage.keyboard.press('Escape')
   const phoneChart = phonePage.locator('[data-timeline-chart]')
   const phoneTime = await phoneChart.getAttribute('aria-valuenow')
   await phonePilot.click()
   const detail = phonePage.getByRole('dialog', { name: '个人详情' })
   assert.deepEqual(await detail.boundingBox(), { x: 0, y: 44, width: 390, height: 800 },
     'phone pilot detail fills the page below the top bar')
+  await measureTouchTargets(detail, 'Drawer')
+  await detail.getByRole('tab', { name: '事件' }).click()
+  await measureTouchTargets(detail, 'Drawer events', '.u7-person-event')
+  await detail.getByRole('tab', { name: '配装' }).click()
+  await measureTouchTargets(detail, 'Drawer fit')
   assert.equal(await phoneChart.evaluate((el) => { el.focus(); return document.activeElement === el }), false)
   await phonePage.keyboard.press('Tab')
   assert.ok(await detail.evaluate((el) => el.contains(document.activeElement)), 'the phone detail retains keyboard focus')
@@ -660,10 +721,50 @@ try {
   await phonePage.keyboard.press('Escape')
   await detail.waitFor({ state: 'hidden' })
   assert.ok(await phonePilot.evaluate((node) => document.activeElement === node), 'closing details restores focus')
+  const battleActions = phonePage.getByRole('button', { name: '更多战斗操作' })
+  await battleActions.click()
+  await phonePage.getByRole('button', { name: '排边', exact: true }).click()
+  const phoneSides = phonePage.getByRole('dialog', { name: '排边' })
+  await phoneSides.locator('.sides-name button').first().click()
+  await measureTouchTargets(phoneSides, 'Side panel', '.sides-row')
+  await phoneSides.locator('.sides-more').first().click()
+  await measureTouchTargets(phoneSides.getByRole('menu'), 'Side panel menu')
+  await phonePage.screenshot({ path: join(output, '390-touch-sides.png') })
+  await phonePage.keyboard.press('Escape')
+  await phoneSides.getByRole('button', { name: '完成' }).click()
   await phonePage.getByRole('link', { name: /J125990/ }).click()
   await phonePage.locator(`a.home-recent-row[href="${route}"]`).waitFor()
+  // The narrow battle sheet has no Kills tab. Measure the same component in the gallery.
+  await phonePage.goto(origin + '/_gallery#kills-list')
+  await measureTouchTargets(phonePage.locator('#kills-list .kills'), 'Kills', '.kills-entry')
   assert.deepEqual(phone.errors, [])
   await phone.context.close()
+
+  const coarse = await open(900, 800, 'dark', 'reduce', '', true)
+  try {
+    const page = coarse.page
+    assert.ok(await page.evaluate(() => matchMedia('(pointer: coarse)').matches && innerWidth >= 760))
+    const row = page.locator('.roster-row').filter({ hasText: pilot })
+    await row.getByRole('button', { name: `${pilot} 的操作`, exact: true }).tap()
+    await measureTouchTargets(page.getByRole('menu', { name: '飞行员操作' }), 'Coarse pointer roster menu')
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: '排边', exact: true }).tap()
+    const sides = page.getByRole('dialog', { name: '排边' })
+    await measureTouchTargets(sides, 'Coarse pointer side panel', '.sides-row')
+    await sides.getByRole('button', { name: '完成' }).tap()
+    await page.getByRole('button', { name: '整页查看对比', exact: true }).tap()
+    const compare = page.getByRole('region', { name: '飞行员对比' })
+    await measureTouchTargets(compare, 'Coarse pointer Compare', 'tbody tr[data-pilot-key]')
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: '整页查看击毁', exact: true }).tap()
+    await measureTouchTargets(page.locator('.kills[data-expanded="true"]'), 'Coarse pointer Kills', '.kills-entry')
+    assert.deepEqual(coarse.errors, [])
+  } finally {
+    await coarse.context.close()
+  }
+
+  assert.equal(touchFailures.length, 0, `Phone touch targets must be at least 44×44 px:\n${touchFailures.join('\n')}`)
+  console.log('Touch targets: buttons, menu items, summaries and rows measure at least 44×44 px in the phone views and coarse-pointer checks')
   console.log('Responsive controls: tablet two-column modules, phone keyboard controls and full-page detail, direct-link history')
 
   const restore = await fetch(`${origin}/api/battles/${brId}/sides`, {

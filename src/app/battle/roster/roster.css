@@ -161,8 +161,17 @@
 .sides-pilot { padding-inline-start: calc(var(--space-3) + 16px); grid-template-columns: 20px minmax(0, 1fr) auto 24px; }
 .sides-more { height: var(--row); color: var(--color-text-3); cursor: pointer; }
 .sides-col[data-hollow] .sides-col-head .side-dot { background: transparent; border: 1px solid var(--color-side-n); }
+@media (width < 760px), (pointer: coarse) {
+  .roster-row, .battle-layout .roster .roster-main, .roster-main { min-height: 44px; }
+  .roster-more { width: 44px; height: 44px; opacity: 1; }
+  :is(.roster-jump, .side-menu-item, .sides-more), .sides-row .sides-name button, .sides-actions .app-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .sides-row { grid-template-columns: 16px 20px minmax(0, 1fr) auto 44px; }
+  .sides-pilot { grid-template-columns: 20px minmax(0, 1fr) auto 44px; }
+}
 @media (width < 760px) {
-  .roster-row, .roster-main { min-height: 44px; }
   .battle-sides > .sides { max-block-size: calc(100dvh - 44px - 2 * var(--space-2)); }
   .sides-cols { grid-template-columns: minmax(0, 1fr) !important; grid-auto-rows: max-content; scrollbar-width: auto; }
   .sides-col-body { overflow: visible; }

@@ -177,7 +177,32 @@
   .u7-distribution-strip { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 759px) {
+@media (width < 760px), (pointer: coarse) {
+  .u7-compare :is(button, summary) { min-width: 44px; min-height: 44px; }
+  .u7-compare :is(.u7-compare-controls, .u7-compare-pick) summary { align-content: center; }
+  .u7-compare .u7-no-value summary { display: grid; align-items: center; }
+  .battle-layout .u7-compare tr, .u7-compare tr { height: 44px; }
+  /* Keep the plotted mark 20px across inside its touch target. */
+  .u7-compare .u7-distribution-point { border: 0; background: transparent; outline-offset: -10px; }
+  .u7-distribution-point::before {
+    content: '';
+    position: absolute;
+    inset: 12px;
+    border: 1px solid var(--point-side);
+    border-radius: 50%;
+    background: var(--color-bg);
+  }
+  .u7-distribution-point .app-image { position: relative; }
+  .u7-compare .u7-distribution-point span:not(.app-image) { top: calc(var(--label-top) + 12px); }
+  .u7-compare .u7-distribution-point[data-anchor="start"] span:not(.app-image) { left: 12px; }
+  .u7-compare .u7-distribution-point[data-anchor="end"] span:not(.app-image) { right: 12px; }
+  @container u7-compare (max-width: 759px) {
+    .u7-compare tbody th:has(> .pilot-more) .u7-compare-who {
+      min-width: max(44px, calc(100% - var(--pin-size) - var(--space-1) - 44px));
+    }
+  }
+}
+
+@media (width < 760px) {
   .u7-compare[data-expanded="true"] { top: 44px; }
-  .u7-compare tbody tr { height: 44px; }
 }

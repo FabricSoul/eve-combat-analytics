@@ -302,11 +302,6 @@
   .battle-person-page::backdrop { background: transparent; }
   .battle-person-page :is(.app-button, .app-tabs button) { min-height: 44px; min-width: 44px; }
   .battle-person-page .u7-drawer-expand { display: none; }
-  [data-layout="phone"] :is(.feed-modes button, .feed-chips button, .side-menu-item, .u7-compare th button) {
-    min-width: 44px;
-    min-height: 44px;
-  }
-  [data-layout="phone"] .roster-more { width: 44px; opacity: 1; }
   [data-layout="phone"] .empty-battle { align-items: safe center; padding: var(--space-4); }
   [data-layout="phone"] .empty-drop { min-height: 140px; }
   [data-layout="phone"] .empty-pick { display: inline-flex; align-items: center; min-height: 44px; }
@@ -315,6 +310,22 @@
   [data-layout="phone"]:has(.battle-sheet[data-height="2"]) .battle-upload { grid-area: sheet; }
   [data-layout="phone"] .upload-rows { max-height: min(28dvh, 220px); }
   [data-layout="phone"] .upload-overlay { inset-block-start: 44px; }
+}
+
+@media (width < 760px), (pointer: coarse) {
+  :is(.feed, .hit-analysis, .kills, .u7-person) :is(button, summary),
+  .hit-analysis-controls details label,
+  .hit-analysis .hit-table-scroll .hit-pilot-name,
+  .battle-sheet > .app-tabs button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .hit-analysis summary { align-content: center; }
+  .battle-layout .hit-table-scroll table { min-width: 800px; }
+  .battle-layout .hit-table-scroll tr { height: 44px; }
+  .battle-layout .feed-row { height: 44px; }
+  :is(.feed, .u7-compare, .hit-analysis, .kills) .pilot-more { opacity: 1; }
+  .kills .kills-entry:has(.pilot-more) > .kills-row { padding-inline-end: calc(44px + var(--space-2)); }
 }
 
 @media (620px <= width < 760px) {
