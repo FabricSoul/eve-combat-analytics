@@ -5,6 +5,7 @@ export interface Rect extends Point, Size {}
 
 const gap = 2
 export const shortMapHeight = 120
+export const packedControlsHeight = 100
 
 function overlaps(a: Rect, b: Rect) {
   return a.x < b.x + b.width + gap && a.x + a.width + gap > b.x
@@ -166,15 +167,17 @@ export function labelObstacle(label: Rect): Rect {
 const maxLabelDistance = 40
 
 function findPilotLabelSpace(center: Point, size: Size, bounds: Rect, occupied: readonly Rect[], reach: number,
-  clearance = gap): Rect | null {
-  const minX = Math.max(bounds.x, center.x - reach - size.width)
-  const maxX = Math.min(bounds.x + bounds.width - size.width, center.x + reach)
+  clearance = gap, lanes?: readonly number[], packTightly = false): Rect | null {
+  const leftEdge = bounds.x
+  const rightEdge = bounds.x + bounds.width - size.width
+  const minX = Math.max(leftEdge, center.x - reach - size.width)
+  const maxX = Math.min(rightEdge, center.x + reach)
   const minY = Math.max(bounds.y, center.y - reach - size.height)
   const maxY = Math.min(bounds.y + bounds.height - size.height, center.y + reach)
   if (maxX < minX || maxY < minY) return null
   const preferredX = center.x - size.width / 2
   const preferredY = center.y - size.height / 2
-  const obstacles = occupied.filter((rect) => rect.x - clearance < maxX + size.width && rect.x + rect.width + clearance > minX
+  const obstacles = occupied.filter((rect) => (packTightly || rect.x - clearance < maxX + size.width && rect.x + rect.width + clearance > minX)
     && rect.y - clearance < maxY + size.height && rect.y + rect.height + clearance > minY).sort((a, b) => a.x - b.x)
   const rows = new Set([Math.max(minY, Math.min(preferredY, maxY)), minY, maxY])
   for (const rect of obstacles) {
@@ -184,28 +187,37 @@ function findPilotLabelSpace(center: Point, size: Size, bounds: Rect, occupied: 
   let best: Rect | null = null
   let bestDistance = Infinity
   let bestAlignment = Infinity
-  for (const y of rows) {
+  let bestWaste = Infinity
+  for (const y of lanes ?? rows) {
     if (y < minY || y > maxY) continue
-    let left = minX
+    let left = packTightly ? leftEdge : minX
+    const rightmost = packTightly ? rightEdge : maxX
     function consider(right: number) {
       if (left > right) return
-      const x = Math.max(left, Math.min(preferredX, right))
-      const dx = Math.max(0, x - center.x, center.x - x - size.width)
       const dy = Math.max(0, y - center.y, center.y - y - size.height)
+      const horizontalReach = Math.sqrt(Math.max(0, (reach - dy) * (reach + dy)))
+      const start = Math.max(left, center.x - horizontalReach - size.width)
+      const end = Math.min(right, center.x + horizontalReach)
+      if (start > end) return
+      const waste = packTightly ? right - left : 0
+      const x = packTightly ? (start - left <= right - end ? start : end) : Math.max(start, Math.min(preferredX, end))
+      const dx = Math.max(0, x - center.x, center.x - x - size.width)
       const distance = Math.hypot(dx, dy)
       const alignment = Math.abs(preferredX - x) + Math.abs(preferredY - y)
-      if (distance > reach || distance > bestDistance || (distance === bestDistance && alignment >= bestAlignment)) return
+      if (distance > reach + 1e-7 || waste > bestWaste
+        || (waste === bestWaste && (distance > bestDistance || (distance === bestDistance && alignment >= bestAlignment)))) return
+      bestWaste = waste
       bestDistance = distance
       bestAlignment = alignment
       best = { ...size, x, y }
     }
     for (const rect of obstacles) {
       if (y >= rect.y + rect.height + clearance || y + size.height + clearance <= rect.y) continue
-      consider(Math.min(maxX, rect.x - clearance - size.width))
+      consider(Math.min(rightmost, rect.x - clearance - size.width))
       left = Math.max(left, rect.x + rect.width + clearance)
-      if (left > maxX) break
+      if (left > rightmost) break
     }
-    consider(maxX)
+    consider(rightmost)
   }
   return best
 }
@@ -230,130 +242,103 @@ interface PilotLabel {
   center: Point
   radius: number
   size: Size
+  compactSize?: Size
   bounds: Rect
   priority: number
   uploader: boolean
   required: boolean
 }
 
+interface LabelPlacement extends Rect { compact?: true }
+
 export function placeReplayLabels<T extends PilotLabel>(labels: readonly T[], obstacles: readonly Rect[], stage: Rect, showAll = false,
   fallback = { bounds: stage, obstacles: [] as readonly Rect[] }) {
   const isMandatory = (label: T) => label.required || label.uploader
   const mandatory = showAll ? labels : labels.filter(isMandatory)
-  const reachFromCenter = (label: T) => maxLabelDistance + (showAll && !isMandatory(label) ? label.radius + 2 : 0)
-  const minimumWidth = (label: T) => label.priority >= 3 ? 34 : 24
-  const sizeAt = (label: T, limit: number, bounds = label.bounds) => ({
-    width: Math.min(label.size.width, bounds.width, Math.max(minimumWidth(label), limit)),
-    height: Math.min(label.size.height, bounds.height),
-  })
-  const options = (label: T, occupied: readonly Rect[], limit: number, bounds = label.bounds) =>
-    placePilotLabel(label.center, label.radius, sizeAt(label, limit, bounds), bounds, occupied, true, reachFromCenter(label))
+  const full = fallback.bounds
   const centers = labels.map(({ center }) => ({ ...center, width: 0, height: 0 }))
-  const preferred = { bounds: (label: T) => label.bounds, obstacles }
-  const fullStage = { bounds: () => fallback.bounds, obstacles }
-  const ringEdges = { bounds: () => fallback.bounds, obstacles: [...fallback.obstacles, ...centers] }
-  const controlsOnly = { bounds: () => fallback.bounds, obstacles: fallback.obstacles }
-  const widths = [64, 54, 46, 38, 32, 26, 24]
-  const essential = new Set(mandatory.filter(isMandatory))
-  const essentialCount = (positions: ReadonlyMap<T, Rect>) => [...essential].filter((label) => positions.has(label)).length
-  function zoomEdgeSlot(label: T, limit: number, bounds: Rect, chrome: readonly Rect[], names: Iterable<Rect>) {
-    const separatedNames = Array.from(names, (rect) => ({
-      x: rect.x - 4 - gap, y: rect.y - gap, width: rect.width + 8 + 2 * gap, height: rect.height + 2 * gap,
-    }))
-    // A zoomed label can meet a control edge and use the existing reach from its hull ring.
-    // Preserve the full separation between pilot names.
-    const reach = isMandatory(label) ? maxLabelDistance + label.radius + 2 + 0.02 : Infinity
-    return findPilotLabelSpace(label.center, sizeAt(label, limit, bounds), bounds, [...chrome, ...separatedNames], reach, 0)
+  const localReach = (label: T) => maxLabelDistance + (isMandatory(label) ? 0 : label.radius + 2)
+  function edgeReach(label: T) {
+    if (!showAll) return localReach(label)
+    if (!isMandatory(label)) return Infinity
+    // For a partially visible hull, the zoom leader can start on its ring.
+    return maxLabelDistance + (full.height >= packedControlsHeight ? label.radius + 2 : 0)
+  }
+  function sizeAt(label: T, compact: boolean): Size & { compact?: true } {
+    const small = compact || label.size.width > full.width ? label.compactSize : undefined
+    const size = small ?? label.size
+    const width = Math.min(size.width, full.width)
+    const measured = { width, height: Math.min(size.height, full.height) }
+    return small ? { ...measured, compact: true } : measured
   }
 
-  function pack(limit: number, area = preferred, first?: ReadonlySet<T>, allowLongLeaders = false) {
-    const occupied = [...area.obstacles]
-    const positions = new Map<T, Rect>()
-    // Fit the pilots constrained by map edges and chrome before their neighbors.
-    const order = mandatory.map((label) => {
-      const slot = options(label, area.obstacles, limit, area.bounds(label))
-      const near = slot && closestPoint(label.center, slot)
-      const distance = near ? Math.hypot(near.x - label.center.x, near.y - label.center.y) : Infinity
-      return { label, distance }
-    }).sort((a, b) => Number(first?.has(b.label) ?? false) - Number(first?.has(a.label) ?? false)
-      || (allowLongLeaders ? Number(isMandatory(b.label)) - Number(isMandatory(a.label)) : 0)
-      || b.distance - a.distance || b.label.priority - a.label.priority)
-    for (const { label } of order) {
-      const bounds = area.bounds(label)
-      const slot = options(label, occupied, limit, bounds)
-        // Fill every available slot before expanding names.
-        ?? (allowLongLeaders ? zoomEdgeSlot(label, limit, bounds, area.obstacles, positions.values()) : null)
+  const widerFirst = (a: T, b: T) => sizeAt(b, true).width - sizeAt(a, true).width
+  function pack(blocked: readonly Rect[], compact: boolean, localBounds = false, lanes?: readonly number[],
+    orderBy: (a: T, b: T) => number = widerFirst, packTightly = false) {
+    const occupied = [...blocked]
+    const positions = new Map<T, LabelPlacement>()
+    const order = [...mandatory].sort((a, b) => Number(isMandatory(b)) - Number(isMandatory(a)) || orderBy(a, b))
+    for (const label of order) {
+      const bounds = localBounds ? label.bounds : full
+      const size = sizeAt(label, compact)
+      const reach = localReach(label)
+      const extended = showAll && blocked === fallback.obstacles ? edgeReach(label) : reach
+      const slot = (lanes ? findPilotLabelSpace(label.center, size, bounds, occupied, reach, 0, lanes, packTightly)
+        : placePilotLabel(label.center, label.radius, size, bounds, occupied, true, reach))
+        ?? (extended > reach ? findPilotLabelSpace(label.center, size, full, occupied, extended, lanes ? 0 : gap, lanes, packTightly) : null)
       if (!slot) continue
-      positions.set(label, slot)
-      occupied.push(labelObstacle(slot))
+      positions.set(label, size.compact ? { ...slot, compact: true } : slot)
+      occupied.push(lanes ? { ...slot, x: slot.x - 1, width: slot.width + 2 } : labelObstacle(slot))
     }
     return positions
   }
 
-  let area = preferred
-  let positions = pack(Infinity)
-  let essentialPlaced = essentialCount(positions)
-  const improves = (retry: ReadonlyMap<T, Rect>, count: number) =>
-    count > essentialPlaced || count === essentialPlaced && retry.size > positions.size
-  for (const candidate of [preferred, fullStage, ringEdges, controlsOnly]) {
-    if (positions.size === mandatory.length) break
-    for (const width of candidate === preferred ? widths : [Infinity, ...widths]) {
-      let retry = pack(width, candidate)
-      if (retry.size < mandatory.length && width <= 38) {
-        const missing = new Set(mandatory.filter((label) => !retry.has(label)))
-        const rebalanced = pack(width, candidate, missing)
-        if (rebalanced.size > retry.size) retry = rebalanced
-      }
-      const count = essentialCount(retry)
-      if (!improves(retry, count)) continue
+  let positions = pack(obstacles, false, true)
+  const countEssential = (result: ReadonlyMap<T, Rect>) => mandatory.filter((label) => isMandatory(label) && result.has(label)).length
+  function tryPack(retry: Map<T, LabelPlacement>) {
+    const essential = countEssential(retry) - countEssential(positions)
+    if (essential > 0 || essential === 0 && retry.size > positions.size) {
       positions = retry
-      essentialPlaced = count
-      area = candidate
-      if (positions.size === mandatory.length) break
     }
   }
-  if (showAll && positions.size < mandatory.length) {
-    let retry = pack(24, controlsOnly, essential, true)
-    if (essentialCount(retry) < essential.size) {
-      const missing = new Set([...essential].filter((label) => !retry.has(label)))
-      const reordered = pack(24, controlsOnly, missing, true)
-      if (essentialCount(reordered) > essentialCount(retry)) retry = reordered
-    }
-    if (improves(retry, essentialCount(retry))) {
-      positions = retry
-      area = controlsOnly
-    }
-  }
+  if (positions.size < mandatory.length) tryPack(pack(obstacles, false))
+  if (positions.size < mandatory.length) tryPack(pack(obstacles, true))
+  const centerObstacles = [...fallback.obstacles, ...centers]
+  if (positions.size < mandatory.length) tryPack(pack(centerObstacles, true))
+  if (full.height > shortMapHeight && positions.size < mandatory.length) tryPack(pack(fallback.obstacles, true))
 
-  // Expand shortened names where their neighbors have left room.
-  for (const label of mandatory) {
-    const slot = positions.get(label)
-    if (slot?.width === label.size.width) continue
-    const occupied = [...area.obstacles]
-    for (const [other, rect] of positions) if (other !== label) occupied.push(labelObstacle(rect))
-    for (const width of [Infinity, ...widths]) {
-      if (slot && sizeAt(label, width, area.bounds(label)).width <= slot.width) break
-      const found = options(label, occupied, width, area.bounds(label))
-      if (!found) continue
-      positions.set(label, found)
-      break
+  // On very short maps, align names to rows so that vertical gaps do not strand usable space.
+  const lineHeight = Math.max(1, ...mandatory.map((label) => sizeAt(label, true).height))
+  const step = lineHeight + 1
+  const laneCount = Math.floor((full.height + 1) / step)
+  const slack = full.height + 1 - laneCount * step
+  const leftToRight = (a: T, b: T) => a.center.x - b.center.x
+  const rightToLeft = (a: T, b: T) => b.center.x - a.center.x
+  for (const blocked of [centerObstacles, fallback.obstacles]) {
+    if (positions.size === mandatory.length) break
+    for (const offset of [0, slack, Math.floor(slack / 2)]) {
+      if (positions.size === mandatory.length) break
+      const lanes = Array.from({ length: laneCount }, (_, index) => full.y + offset + index * step)
+      for (const order of [undefined, leftToRight, rightToLeft]) {
+        if (positions.size === mandatory.length) break
+        tryPack(pack(blocked, true, false, lanes, order))
+      }
+      if (positions.size < mandatory.length) tryPack(pack(blocked, true, false, lanes, widerFirst, true))
     }
   }
+  if (positions.size < mandatory.length) tryPack(pack(fallback.obstacles, true))
 
   const occupied = [...obstacles, ...Array.from(positions.values(), labelObstacle)]
   for (const label of mandatory) {
     if (positions.has(label)) continue
-    const { bounds, obstacles: chrome } = fallback
-    const size = sizeAt(label, Infinity, bounds)
+    const size = sizeAt(label, true)
+    const clear = [...fallback.obstacles, ...Array.from(positions.values(), labelObstacle)]
     const below = { ...size, x: label.center.x - size.width / 2, y: label.center.y + label.radius + 5 }
-    // An arbitrarily crowded viewport still shows every required name next to its hull.
-    const clear = [...chrome, ...Array.from(positions.values(), labelObstacle)]
-    const narrow = sizeAt(label, minimumWidth(label), bounds)
-    const slot = options(label, clear, Infinity, bounds) ?? options(label, clear, narrow.width, bounds)
-      ?? (showAll ? zoomEdgeSlot(label, narrow.width, bounds, chrome, positions.values()) : null)
-      ?? options(label, chrome, Infinity, bounds) ?? options(label, chrome, narrow.width, bounds)
-      ?? placeAnnotation([below], bounds, [], true)!
-    positions.set(label, slot)
+    // Preserve the full name and its association with the hull even when the map is saturated.
+    const slot = findPilotLabelSpace(label.center, size, full, clear, edgeReach(label), 0)
+      ?? findPilotLabelSpace(label.center, size, full, fallback.obstacles, edgeReach(label), 0)
+      ?? placeAnnotation([below], full, [], true)!
+    positions.set(label, size.compact ? { ...slot, compact: true } : slot)
     occupied.push(labelObstacle(slot))
   }
   if (showAll) return positions

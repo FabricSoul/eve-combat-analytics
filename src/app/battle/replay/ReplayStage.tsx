@@ -13,7 +13,7 @@ import { useReplayKeyboard, type ReplayFocusTarget } from './keyboard'
 import { makePainter, missedTracerAt, type MissTracer, type PaintedModule, type ReplayFrame } from './paint'
 import type { Point } from './layout-effects'
 import { createProjectilePlayback } from './projectile'
-import { closestPoint, placeReplayLabels } from './placement'
+import { closestPoint, packedControlsHeight, placeReplayLabels } from './placement'
 import { watchLabelObstacles } from './label-obstacles'
 import { deathAt, recentEngagement } from './presence'
 import type { Rect } from './placement'
@@ -218,7 +218,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     let tooltipKey: EntityKey | null | undefined
     let tooltipWidth = 0
     let tooltipHeight = 0
-    let labelSizes = new WeakMap<HTMLElement, Pick<Rect, 'width' | 'height'>>()
+    type LabelSize = Pick<Rect, 'width' | 'height'>
+    let labelSizes = new WeakMap<HTMLElement, { size: LabelSize; compactSize: LabelSize }>()
     let labelKey = ''
     let pilotLabelRects: Rect[] = []
     const markerPositions = new WeakMap<HTMLElement, Point>()
@@ -360,7 +361,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       if (tooltip.current && detailPosition) {
         const { x, y } = detailPosition
         const tooltipX = Math.max(4, Math.min(width - tooltipWidth - 4, x - tooltipWidth / 2))
-        const tooltipY = y > 118 ? y - detailNode.radius - 12 - tooltipHeight : y + detailNode.radius + 25
+        const preferredY = y > 118 ? y - detailNode.radius - 12 - tooltipHeight : y + detailNode.radius + 25
+        const tooltipY = Math.max(4, Math.min(height - tooltipHeight - 4, preferredY))
         tooltip.current.style.transform = `translate3d(${tooltipX}px, ${tooltipY}px, 0)`
         tooltip.current.toggleAttribute('data-positioned', true)
         tooltipRect = { x: tooltipX, y: tooltipY, width: tooltipWidth, height: tooltipHeight }
@@ -377,12 +379,9 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
         // between fleets can hold labels from either side.
         const showAll = camera.scale >= allNamesZoom
         const labelFrame = showAll ? { ...bounds, y: 0, height: bounds.y + bounds.height } : bounds
-        const split = camera.scale === 1 ? layout.split : null
-        const span = split === 'x' ? 'width' : 'height'
-        const min = split ? bounds[split] : 0
-        const max = min + bounds[span]
-        let ourEdge = min
-        let enemyEdge = max
+        const split = camera.scale === 1 && layout.split
+        let ourEdge = bounds.x
+        let enemyEdge = bounds.x + bounds.width
         for (const { node, center: { x, y } } of labels) {
           const inset = node.radius + 2
           const ring = { x: x - inset, y: y - inset, width: inset * 2 + (node.letter ? 7 : 0), height: inset * 2 }
@@ -390,37 +389,46 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
           occupied.push(ring, badge)
           if (!split || node.entity.side < 0) continue
           if (node.entity.side === layout.ours) {
-            ourEdge = Math.max(ourEdge, ring[split] + ring[span], badge[split] + badge[span])
+            ourEdge = Math.max(ourEdge, ring.x + ring.width, badge.x + badge.width)
           } else {
-            enemyEdge = Math.min(enemyEdge, ring[split], badge[split])
+            enemyEdge = Math.min(enemyEdge, ring.x, badge.x)
           }
         }
-        const ourBounds = { ...bounds, [span]: enemyEdge - min }
-        const enemyBounds = split ? { ...bounds, [split]: ourEdge, [span]: max - ourEdge } : bounds
-        for (const { element } of labels) if (!labelSizes.has(element)) element.style.removeProperty('width')
+        const ourBounds = { ...bounds, width: enemyEdge - bounds.x }
+        const enemyBounds = { ...bounds, x: ourEdge, width: bounds.x + bounds.width - ourEdge }
+        const uncached = labels.map(({ element }) => element).filter((element) => !labelSizes.has(element))
+        function measureLabel(element: HTMLElement): LabelSize {
+          const rect = element.getBoundingClientRect()
+          return { width: rect.width || element.offsetWidth, height: rect.height || element.offsetHeight }
+        }
+        for (const element of uncached) {
+          element.style.removeProperty('width')
+          element.removeAttribute('data-compact-label')
+        }
+        const naturalSizes = uncached.map(measureLabel)
+        for (const element of uncached) element.setAttribute('data-compact-label', '')
+        uncached.forEach((element, index) => {
+          labelSizes.set(element, { size: naturalSizes[index]!, compactSize: measureLabel(element) })
+        })
         const names = labels.map((label) => {
           const { element, node } = label
-          let size = labelSizes.get(element)
-          if (!size) {
-            size = { width: element.offsetWidth, height: element.offsetHeight }
-            labelSizes.set(element, size)
-          }
           const labelBounds = !split || node.entity.side < 0 ? labelFrame : node.entity.side === layout.ours ? ourBounds : enemyBounds
-          return { ...label, size, bounds: labelBounds, radius: node.radius, uploader: node.entity.hasLog }
+          return { ...label, ...labelSizes.get(element)!, bounds: labelBounds, radius: node.radius, uploader: node.entity.hasLog }
         })
         const placed = placeReplayLabels(names, occupied, labelFrame, showAll, {
-          bounds: { ...bounds, y: 0, height }, obstacles: overlays,
+          bounds: { x: 0, y: 0, width, height }, obstacles: overlays,
         })
         pilotLabelRects = [...placed.values()]
         const leaders = []
         for (const label of names) {
-          const { element, center, radius, uploader } = label
+          const { element, center, radius, required } = label
           const rect = placed.get(label)
           element.toggleAttribute('data-positioned', rect !== undefined)
           if (!rect) continue
+          element.toggleAttribute('data-compact-label', rect.compact === true)
           element.style.width = `${rect.width}px`
           element.style.transform = `translate(${rect.x}px, ${rect.y}px)`
-          if (!uploader && !showAll) continue
+          if (!required && !showAll) continue
           const end = closestPoint(center, rect)
           const dx = end.x - center.x
           const dy = end.y - center.y
@@ -481,8 +489,8 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
     <button type="button" onClick={reset}>适应全部</button>
   </div>
   return (
-    <div ref={host} className="replay-stage" data-zoomed={camera.scale > 1 || undefined}
-      data-packed-controls={stage && height > 0 && height < 100 || undefined}
+    <div ref={host} className="replay-stage" data-phone={stage === false || undefined} data-zoomed={camera.scale > 1 || undefined}
+      data-packed-controls={stage && height > 0 && height < packedControlsHeight || undefined}
       data-all-names={camera.scale >= allNamesZoom || undefined} {...handlers}
       onPointerMove={movePointer} onPointerLeave={() => { pointer.current = null; updateEffectTooltip(width) }}>
       <canvas ref={under} width={Math.round(width * dpr)} height={Math.round(height * dpr)} className="replay-layer" aria-hidden="true" />
@@ -504,7 +512,7 @@ export function ReplayStage({ analysis, headerActions, stage, closeFights, fight
       <div className="replay-header">
         <ReplayLegend analysis={analysis} order={order} />
         <div className="replay-header-actions">
-          <ReplayOverlays stage={host} closeFights={closeFights} fightTime={fightTime} placementTime={playing ? null : t}
+          <ReplayOverlays stage={host} phone={stage === false} closeFights={closeFights} fightTime={fightTime} placementTime={playing ? null : t}
             onLayoutChange={overlayLayoutChanged} />
           {headerActions}
           {!stage && zoomControls}

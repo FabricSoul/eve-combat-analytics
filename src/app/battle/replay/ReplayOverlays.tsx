@@ -1,7 +1,8 @@
 import { createContext, useContext, useId, useLayoutEffect, useReducer, useRef, useState,
-  type Dispatch, type ReactNode, type RefObject } from 'react'
+  type CSSProperties, type Dispatch, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { WindowFrame } from '../../shell/windows/WindowFrame'
+import { WorkspaceAction } from '../../ui/icons/WorkspaceIcon'
 import { windowHeight } from '../../shell/windows/layout'
 import { defaultReplayOverlays, replayOverlayIds, replayOverlayReducer,
   type ReplayOverlayAction, type ReplayOverlayId, type ReplayOverlayLayout } from '../../shell/windows/replay-layout'
@@ -25,8 +26,9 @@ const fightsWidth = 336
 const fightsHeight = 164
 const compactFightsWidth = 1200
 
-export function ReplayOverlays({ stage, closeFights, fightTime, placementTime, onLayoutChange }: {
+export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, placementTime, onLayoutChange }: {
   stage: RefObject<HTMLDivElement | null>
+  phone?: boolean
   closeFights?: ReactNode
   fightTime?: ReactNode
   placementTime: number | null
@@ -41,9 +43,10 @@ export function ReplayOverlays({ stage, closeFights, fightTime, placementTime, o
   const baseId = useId()
   const anchoredToPage = workspace !== null
   const hasFights = Boolean(closeFights)
+  const [phoneFightsOpen, setPhoneFightsOpen] = useState(false)
   const { open: fightsOpen, collapsed: fightsPreference, rect: savedFights } = layout.overlays.fights
   const [geometry, setGeometry] = useState(() => ({
-    width: window.innerWidth, height: window.innerHeight, stageWidth: window.innerWidth, left: 24, legendTop: 120, mapFloor: 0,
+    width: window.innerWidth, height: window.innerHeight, stageWidth: window.innerWidth, stageBottom: 0, left: 24, legendTop: 120, mapFloor: 0,
     fights: { x: window.innerWidth - fightsWidth - 12, y: 92, width: fightsWidth, height: fightsHeight },
   }))
 
@@ -59,12 +62,12 @@ export function ReplayOverlays({ stage, closeFights, fightTime, placementTime, o
       frame = undefined
       const bounds = host.getBoundingClientRect()
       const stageBox = { x: bounds.x, y: bounds.y, width: bounds.width || host.clientWidth, height: bounds.height || host.clientHeight }
-      const mapFloor = stageBox.height > 0 && stageBox.height < shortMapHeight
+      const mapFloor = stageBox.height > 0 && stageBox.height <= shortMapHeight
         ? Math.max(0, Math.min(window.innerHeight - windowHeight, Math.ceil(stageBox.y + stageBox.height) + overlayGap)) : 0
       const legendTop = controls.getBoundingClientRect().bottom + overlayGap
       const topRight = (sides?.getBoundingClientRect().bottom ?? bounds.top) + overlayGap
       const minimized = fightsPreference ?? stageBox.width < compactFightsWidth
-      const pilots = !mapFloor && fightsOpen && hasFights && !savedFights
+      const pilots = !phone && !mapFloor && fightsOpen && hasFights && !savedFights
         ? [...host.querySelectorAll('.replay-marker[data-present] .replay-pilot')].map((pilot) => pilot.getBoundingClientRect()) : []
       const zoom = host.querySelector('.replay-stage-zoom')?.getBoundingClientRect()
       const triggerLeft = trigger.getBoundingClientRect().left
@@ -74,10 +77,11 @@ export function ReplayOverlays({ stage, closeFights, fightTime, placementTime, o
       const fights = placeFightsWindow(stageBox, topRight, legendTop,
         { width: fightsWidth, height: minimized ? windowHeight : fightsHeight }, pilots, zoom ? [zoom] : [])
       const next = { width: window.innerWidth, height: window.innerHeight,
-        left: legendLeft, stageWidth: stageBox.width, legendTop, mapFloor,
+        left: legendLeft, stageWidth: stageBox.width, stageBottom: Math.ceil(stageBox.y + stageBox.height), legendTop, mapFloor,
         fights: { ...fights, height: fightsHeight } }
       setGeometry((previous) => previous.width === next.width && previous.height === next.height
-        && previous.left === next.left && previous.stageWidth === next.stageWidth && previous.legendTop === next.legendTop && previous.mapFloor === mapFloor
+        && previous.left === next.left && previous.stageWidth === next.stageWidth && previous.stageBottom === next.stageBottom
+        && previous.legendTop === next.legendTop && previous.mapFloor === mapFloor
         && previous.fights.x === fights.x && previous.fights.y === fights.y && previous.fights.width === fights.width ? previous : next)
     }
     const schedule = () => { frame ??= requestAnimationFrame(measure) }
@@ -97,15 +101,15 @@ export function ReplayOverlays({ stage, closeFights, fightTime, placementTime, o
       window.removeEventListener('resize', schedule)
       if (!anchoredToPage) window.removeEventListener('scroll', schedule, true)
     }
-  }, [anchoredToPage, hasFights, fightsOpen, fightsPreference, savedFights, placementTime, onLayoutChange])
+  }, [anchoredToPage, phone, hasFights, fightsOpen, fightsPreference, savedFights, placementTime, onLayoutChange])
 
   useLayoutEffect(() => {
     const id = keyboardOpen.current
-    if (!id || !layout.overlays[id].open) return
+    if (!id || !(phone && id === 'fights' ? phoneFightsOpen : layout.overlays[id].open)) return
     keyboardOpen.current = null
     document.getElementById(`${baseId}-${id}`)?.querySelector<HTMLElement>('.battle-window-titlebar')
       ?.focus({ preventScroll: true })
-  }, [baseId, layout])
+  }, [baseId, layout, phone, phoneFightsOpen])
 
   return replayOverlayIds.map((id) => {
     if (id === 'fights' && !closeFights) return null
@@ -114,6 +118,28 @@ export function ReplayOverlays({ stage, closeFights, fightTime, placementTime, o
     const sizeRequiresCollapse = geometry.mapFloor > 0 && geometry.height - geometry.mapFloor < shortMapHeight
     const collapsed = sizeRequiresCollapse || (state.collapsed ?? (id === 'fights' && geometry.stageWidth < compactFightsWidth))
     const domId = `${baseId}-${id}`
+    if (phone && id === 'fights') {
+      const title = titles[id]
+      return <div className="replay-overlay-trigger" key={id}>
+        <button ref={trigger} type="button" className="replay-control-trigger" data-replay-trigger={id}
+          aria-expanded={phoneFightsOpen} aria-controls={phoneFightsOpen ? domId : undefined} onClick={(event) => {
+            if (event.detail === 0 && !phoneFightsOpen) keyboardOpen.current = id
+            setPhoneFightsOpen(!phoneFightsOpen)
+          }}>{title}</button>
+        {phoneFightsOpen && createPortal(
+          <section id={domId} className="battle-window battle-replay-overlay replay-phone-fights" aria-label={title}
+            style={{ '--replay-map-bottom': `${geometry.stageBottom}px`, zIndex: 2 } as CSSProperties}>
+            <div className="battle-window-titlebar" tabIndex={-1}>
+              <span className="battle-window-heading"><span>{title}</span><span className="battle-window-subtitle">{fightTime}</span></span>
+              <button type="button" aria-label={`关闭 ${title}`} data-window-close onClick={() => {
+                setPhoneFightsOpen(false)
+                trigger.current?.focus({ preventScroll: true })
+              }}><WorkspaceAction icon="close">关闭</WorkspaceAction></button>
+            </div>
+            <div className="battle-window-body">{closeFights}</div>
+          </section>, workspace?.layer ?? document.body)}
+      </div>
+    }
     const preferred = state.rect ?? (id === 'legend'
       ? { x: geometry.left, y: geometry.legendTop, width: legendWidth, height: Math.min(legendHeight, geometry.height - geometry.legendTop - overlayGap) }
       : geometry.fights)

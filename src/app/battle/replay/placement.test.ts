@@ -82,6 +82,17 @@ it('keeps the pilot hull below the measured replay control inset', () => {
   expect(ship.y - ship.radius).toBeGreaterThanOrEqual(150)
 })
 
+it.each([321, 411, 585])('keeps both fleets in separate horizontal halves on a 390×%s map', (height) => {
+  const pilots = Array.from({ length: 41 }, (_, index) => pilot(`char:${index}`, index < 23 ? 0 : 1))
+  for (const ship of pilots.slice(0, 17)) ship.entity.hasLog = true
+  const layout = makeLayout(pilots, [0, 1], 390, height, 85)
+  layout.placeVisible(new Set(pilots.map(({ entity }) => entity.key)), [])
+  const left = layout.nodes.filter(({ entity }) => entity.side === 0)
+  const right = layout.nodes.filter(({ entity }) => entity.side === 1)
+  expect(Math.max(...left.map(({ x }) => x))).toBeLessThan(195)
+  expect(Math.min(...right.map(({ x }) => x))).toBeGreaterThan(195)
+})
+
 describe('pilot label placement', () => {
   const center = { x: 100, y: 100 }
   const size = { width: 50, height: 16 }
@@ -134,6 +145,21 @@ describe('pilot label placement', () => {
     expect(rect.y + rect.height).toBeLessThanOrEqual(overlay.y)
   })
 
+  it('uses free space across the fleet boundary before shortening a required name', () => {
+    const stage = { x: 0, y: 0, width: 200, height: 100 }
+    const ownSide = { ...stage, width: 65 }
+    const required = { center: { x: 42, y: 55 }, radius: 10, size: { width: 110, height: 16 },
+      bounds: ownSide, priority: 2, uploader: true, required: true }
+    expect(placeReplayLabels([required], [], stage).get(required)?.width).toBe(110)
+  })
+
+  it('uses the full compact name when the standard name alone is wider than the map', () => {
+    const stage = { x: 0, y: 0, width: 100, height: 90 }
+    const required = { center: { x: 50, y: 40 }, radius: 10, size: { width: 103, height: 16 },
+      compactSize: { width: 95, height: 12 }, bounds: stage, priority: 2, uploader: true, required: true }
+    expect(placeReplayLabels([required], [], stage).get(required)).toMatchObject({ width: 95, height: 12, compact: true })
+  })
+
   it('keeps a required name near its ship when full hull clearance would place it far away', () => {
     const stage = { x: 0, y: 0, width: 200, height: 100 }
     const hulls = { ...stage, width: 130 }
@@ -149,7 +175,8 @@ describe('pilot label placement', () => {
     const stage = { x: 0, y: 0, width: 410, height }
     const labels = Array.from({ length: 25 }, (_, index) => ({
       center: { x: 25 + index % 9 * 36, y: height / 2 + (Math.floor(index / 9) - 1) * 23 },
-      radius: 12, size: { width: 80, height: 16 }, bounds: stage, priority: 2, uploader: true, required: true,
+      radius: 12, size: { width: 80, height: 16 }, compactSize: { width: 68, height: 12 },
+      bounds: stage, priority: 2, uploader: true, required: true,
     }))
     const rings = labels.map(({ center: { x, y } }) => ({ x: x - 12, y: y - 12, width: 24, height: 24 }))
     const controls = [{ x: 0, y: 0, width: 135, height: 18 }]
@@ -157,6 +184,7 @@ describe('pilot label placement', () => {
     const placed = [...placements.values()]
     expect(placed).toHaveLength(labels.length)
     for (const [label, rect] of placements) {
+      expect(rect.width).toBe(rect.compact ? label.compactSize.width : label.size.width)
       const dx = Math.max(0, rect.x - label.center.x, label.center.x - rect.x - rect.width)
       const dy = Math.max(0, rect.y - label.center.y, label.center.y - rect.y - rect.height)
       expect(Math.hypot(dx, dy)).toBeLessThanOrEqual(40)

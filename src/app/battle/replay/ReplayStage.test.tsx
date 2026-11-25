@@ -420,6 +420,26 @@ it('shows only damage dealt in the current fight before applying the row limit',
   expect(host.querySelector('.feed-row[data-kind="miss"]')).not.toBeNull()
 })
 
+it('opens the phone Current Fights panel from its initially collapsed trigger', async () => {
+  const { summary } = loadUiFixture()
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(390)
+  await act(() => root.render(
+    <BattleProvider static={{ summary, analysis: analysis() }}><ViewProvider initialTime={time} syncUrl={false}>
+      <ReplayCanvas stage={false} />
+    </ViewProvider></BattleProvider>,
+  ))
+  await refresh()
+  const trigger = host.querySelector<HTMLButtonElement>('[data-replay-trigger="fights"]')
+  expect(trigger?.getAttribute('aria-expanded')).toBe('false')
+  await act(() => trigger!.click())
+  const panel = document.getElementById(trigger!.getAttribute('aria-controls')!)
+  expect(panel?.textContent).toContain('前 10 秒')
+  expect(panel?.textContent).toContain('Beta')
+  await act(() => panel!.querySelector<HTMLButtonElement>('[data-window-close]')!.click())
+  expect(trigger?.getAttribute('aria-expanded')).toBe('false')
+  expect(document.activeElement).toBe(trigger)
+})
+
 it('shares URL-backed drone, smartbomb, small-hit and miss filters between the canvas and feed', async () => {
   const originalUrl = window.location.href
   window.history.replaceState(null, '', '?hide=drones')

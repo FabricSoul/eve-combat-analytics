@@ -9,7 +9,10 @@ import { fmtHms, fmtNum } from '../lib/format'
 import { Who } from './feed/Who'
 import { buildFeed } from './feed/model'
 
-export interface ReplayCanvasProps { stage?: boolean }
+export interface ReplayCanvasProps {
+  /** True in the desktop workspace, false on phones, omitted in the gallery. */
+  stage?: boolean
+}
 
 function CloseFights({ analysis, order }: { analysis: NonNullable<ReturnType<typeof useBattleContext>['analysis']>; order: number[] }) {
   const { summary } = useBattleContext()
@@ -53,7 +56,8 @@ export function ReplayCanvas({ stage }: ReplayCanvasProps) {
     return <div className="replay-status" role="status">当前日志中没有战斗交互 · 上传包含战斗记录的日志</div>
   }
 
-  return <ReplayStage stage={stage} closeFights={stage ? <CloseFights analysis={visibleAnalysis} order={order} /> : undefined}
-    fightTime={stage ? <FightTime /> : undefined} analysis={visibleAnalysis} headerActions={<ReplayNoiseControls />} killmails={summary?.meta.killmails ?? noKillmails}
+  const showFights = stage !== undefined
+  return <ReplayStage stage={stage} closeFights={showFights ? <CloseFights analysis={visibleAnalysis} order={order} /> : undefined}
+    fightTime={showFights ? <FightTime /> : undefined} analysis={visibleAnalysis} headerActions={<ReplayNoiseControls />} killmails={summary?.meta.killmails ?? noKillmails}
     order={order} select={selectPilot} t={t} playing={playing} getTime={getTime} selected={selected} focusOnly={focusOnly} />
 }

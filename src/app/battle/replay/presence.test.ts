@@ -54,10 +54,12 @@ describe('replay presence in the complete J125990 fight', () => {
   })
 
   it.each([
-    { width: 390, height: 300, axis: 'x', boundary: 214.5 },
-    { width: 300, height: 390, axis: 'y', boundary: 214.5 },
-  ] as const)('keeps the fleets separated and their ship rings clear at $width × $height', ({ width, height, axis, boundary }) => {
+    { width: 390, height: 300 },
+    { width: 300, height: 390 },
+    { width: 390, height: 585 },
+  ])('keeps the fleets in their horizontal halves with clear ship rings at $width × $height', ({ width, height }) => {
     const layout = makeLayout(scene.pilots, order, width, height)
+    const midpoint = width / 2
     const t = at('15:43:02')
     const visible = scene.visibleAt(t, null)
     layout.placeVisible(visible, scene.edges.filter((edge) => t - 3_000 <= edge.t && edge.t <= t))
@@ -66,7 +68,7 @@ describe('replay presence in the complete J125990 fight', () => {
     expect(active.some(({ entity }) => entity.side !== ours)).toBe(true)
     expect(active.filter((node) => {
       const ring = node.radius + 2
-      return node.entity.side === ours ? node[axis] + ring > boundary : node[axis] - ring < boundary
+      return node.entity.side === ours ? node.x + ring > midpoint : node.x - ring < midpoint
     }).map(({ entity }) => entity.name)).toEqual([])
     const overlaps = active.flatMap((node, index) => active.slice(0, index).filter((other) =>
       Math.hypot(node.x - other.x, node.y - other.y) < node.radius + other.radius + 4 - 0.01,

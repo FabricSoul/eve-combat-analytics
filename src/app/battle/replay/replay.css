@@ -136,11 +136,10 @@
   display: flex;
   width: max-content;
   visibility: hidden;
-  max-width: 94px;
   align-items: center;
   gap: var(--space-1);
   color: var(--color-text-2);
-  font: 11px/16px var(--font-ui);
+  font: var(--fs-s)/16px var(--font-ui);
   white-space: nowrap;
   pointer-events: none;
   -webkit-text-stroke: 3px var(--color-bg);
@@ -148,10 +147,11 @@
 }
 
 .replay-pilot-label[data-positioned] { visibility: visible; }
+.replay-pilot-label[data-compact-label] { font: var(--fs-compact-table)/12px var(--font-ui); }
 .replay-pilot-label[data-dim] { opacity: .3; }
 .replay-pilot-label > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 .replay-pilot-label[data-inspected="true"] { color: var(--color-text); }
-.replay-pilot-label[data-selected="true"] { max-width: 160px; color: var(--color-text); }
+.replay-pilot-label[data-selected="true"] { color: var(--color-text); }
 
 .replay-effects { z-index: 2; }
 
@@ -211,7 +211,7 @@
 
 .replay-tooltip[data-positioned] { visibility: visible; }
 .replay-tooltip div { min-width: 0; }
-.replay-tooltip strong, .replay-tooltip div span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.replay-tooltip :is(strong, div span) { display: block; overflow-wrap: anywhere; }
 .replay-tooltip div span { color: var(--color-text-2); }
 
 .replay-header {
@@ -288,6 +288,26 @@
 }
 .replay-control-trigger:hover, .replay-control-trigger[aria-expanded="true"] { background: var(--color-raised); }
 
+.replay-stage[data-phone] [data-replay-trigger="fights"] {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.battle-window.replay-phone-fights {
+  position: fixed;
+  --replay-fights-bottom: max(var(--space-2), env(safe-area-inset-bottom));
+  inset: auto var(--space-2) var(--replay-fights-bottom) auto;
+  width: min(336px, calc(100% - 2 * var(--space-2)));
+  max-height: max(0px, calc(100dvh - var(--replay-map-bottom) - var(--replay-fights-bottom) - var(--space-2)));
+  overflow: hidden;
+  border: 1px solid var(--color-hair);
+  border-radius: var(--radius-card);
+}
+
+.replay-phone-fights .battle-window-titlebar { min-height: 44px; }
+.replay-phone-fights .battle-window-titlebar button { width: 44px; height: 44px; }
+.battle-layout:has(.battle-sheet[data-height="2"]) .replay-phone-fights { display: none; }
+
 .replay-popover {
   position: absolute;
   inset-block-start: calc(100% + var(--space-1));
@@ -358,7 +378,6 @@
 @container (max-width: 430px) {
   .replay-header { --replay-legend-gutter: var(--space-3); }
   .replay-legend-detail { display: none; }
-  .replay-pilot-label { max-width: 72px; line-height: 14px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
