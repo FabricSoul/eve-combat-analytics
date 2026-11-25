@@ -59,6 +59,7 @@ export const tokenGroups = [
     title: '间距', tokens: [
       { name: '--row', use: '行高、控件高' },
       { name: '--touch-target', use: '手机和粗指针设备上触控目标的最小宽高' },
+      { name: '--touch-reserve', use: '布局为触控尺寸控件预留的空间：鼠标为 0，触控时等于 --touch-target' },
       { name: '--space-1', use: '相邻细节间距' },
       { name: '--space-2', use: '紧凑控件和图标间距' },
       { name: '--space-3', use: '行、表头和按钮横向内边距' },

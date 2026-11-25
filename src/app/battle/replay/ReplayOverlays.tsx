@@ -83,7 +83,7 @@ export function ReplayOverlays({ stage, phone = false, closeFights, fightTime, p
       const bounds = host.getBoundingClientRect()
       const stageBox = { x: bounds.x, y: bounds.y, width: bounds.width || host.clientWidth, height: bounds.height || host.clientHeight }
       const style = getComputedStyle(host)
-      const touch = parseFloat(style.getPropertyValue('--touch-target')) || 0
+      const touch = parseFloat(style.getPropertyValue('--touch-reserve')) || 0
       const mapMin = parseFloat(style.getPropertyValue('--replay-map-min')) || 0
       const barHeight = touch ? touch + (phone ? 2 : 3) : windowHeight
       const mapFloor = !phone && stageBox.height > 0 && stageBox.height <= Math.max(shortMapHeight, mapMin + 1)

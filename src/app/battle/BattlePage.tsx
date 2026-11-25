@@ -109,7 +109,7 @@ function BattleWorkspace({ setToastHost }: { setToastHost: (host: HTMLDialogElem
       const chrome = frame.getBoundingClientRect().height - replay.getBoundingClientRect().height - timeline
       const gutter = parseFloat(style.marginBlockStart) || 0
       const mapMin = parseFloat(style.getPropertyValue('--replay-map-min')) || 0
-      const touchTarget = parseFloat(style.getPropertyValue('--touch-target')) || 0
+      const touchTarget = parseFloat(style.getPropertyValue('--touch-reserve')) || 0
       setStageChrome((previous) => previous.timeline === timeline && previous.frame === chrome
         && previous.gutter === gutter && previous.mapMin === mapMin && previous.touchTarget === touchTarget
         ? previous : { timeline, frame: chrome, gutter, mapMin, touchTarget })

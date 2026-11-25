@@ -9,6 +9,7 @@
   --fs: 13px; --fs-s: 12px; --fs-l: 16px; --fs-title: 24px; --lh: 20px;
   --row: 32px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px; --space-8: 32px;
   --touch-target: 44px; /* Minimum target width and height on phones and coarse pointers. */
+  --touch-reserve: 0px; /* Extra room the layout reserves for touch-sized chrome: 0 with a fine pointer, --touch-target on touch. */
   --row-compact: 24px; --fs-compact-table: 11px; --fs-compact-body: 12px;
   --radius-ctl: 6px; --radius-card: 10px;
   --layer-popover: 20;
@@ -20,4 +21,8 @@
   --color-text: #eef0f5; --color-text-2: #a3a9b8; --color-text-3: #848ca0; --color-hair: rgba(238,240,245,.09);
   --color-accent: #e8c26a; --color-accent-ink: #0b0d14; --color-accent-line: #e8c26a; --color-sel: rgba(232,194,106,.10);
   --color-side-0: #3987e5; --color-side-1: #e5533a; --color-side-2: #a63c9e; --color-side-n: #9aa1b2; --color-repair: #1fa889; --color-dead: #4a5163;
+}
+
+@media (pointer: coarse), (max-width: 759px) {
+  :root { --touch-reserve: var(--touch-target); }
 }
